@@ -120,6 +120,8 @@ MASKEN_SCHALTER = {"maske_umkehren": False, "freistellen": False, "bokeh_motiv":
 # Anonymisieren (anonym.py): Flaechen im Original, ihre Wirkung, Metadaten beim Speichern
 ANONYM_FELDER = {"anonym_flaechen": (), "anonym_art": "mosaik", "anonym_bloecke": 8.0,
                  "metadaten_entfernen": False}
+# Geaenderte Angaben (Titel, Urheber ...) gegenueber der Datei, siehe metadaten.py
+METADATEN_FELDER = {"angaben": ()}
 HINTERGRUND = ("hg_belichtung", "hg_kontrast", "hg_saettigung", "hg_temperatur",
                "hg_unschaerfe")
 
@@ -196,6 +198,8 @@ class Einstellungen:
     anonym_art: str = "mosaik"
     anonym_bloecke: float = 8.0
     metadaten_entfernen: bool = False
+    # Metadaten: ((Feld, Wert), ...) - nur, was vom Inhalt der Datei abweicht
+    angaben: tuple[tuple[str, object], ...] = ()
 
     def ist_neutral(self) -> bool:
         for feld in fields(self):
@@ -217,6 +221,9 @@ class Einstellungen:
                     return False
             elif feld.name in ANONYM_FELDER:
                 if wert != ANONYM_FELDER[feld.name]:
+                    return False
+            elif feld.name in METADATEN_FELDER:
+                if wert != METADATEN_FELDER[feld.name]:
                     return False
             elif feld.name not in ("schaerfe_radius", "lut_staerke", "fokus", "schaerfentiefe") \
                     and wert != REGLER_NACH_NAME[feld.name].vorgabe:

@@ -172,6 +172,7 @@ def stylesheet() -> str:
         border: 1px solid {t["BORDER"]}; border-radius: 4px;
         selection-background-color: {t["ACCENT"]}; selection-color: {t["ON_ACCENT"]};
     }}
+    QLineEdit[ungueltig="true"] {{ border: 1px solid {t["DANGER"]}; }}
     QScrollArea, QScrollArea > QWidget > QWidget {{ background: {t["BG"]}; border: none; }}
 
     QComboBox {{
