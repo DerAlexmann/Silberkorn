@@ -122,6 +122,15 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   without the GPS position, camera and lens serial numbers, owner name and maker notes.
   The opposite, "unpixelating", is deliberately not offered: an AI could not bring back
   a pixelated face, only invent someone else's.
+- **Metadata**: the card shows camera, lens and exposure and lets you change title,
+  description, keywords, creator, copyright, location, date taken and rating – for old
+  prints the year alone is enough as a date. EXIF, IPTC and XMP are read, from RAW too;
+  "All metadata …" shows everything the file contains. Changes are only written when
+  saving, as XMP following IPTC and where possible as EXIF as well; "Reset" undoes them.
+  On request Silberkorn adds the creator and copyright to every image that has none of
+  its own. Technical values such as exposure time or ISO stay unchanged. The orientation
+  and the develop settings of other programs (Lightroom, darktable) are dropped from the
+  XMP so that they do not take effect a second time there.
 - **Save for publishing**: images for the web in one step – downsized to a longest edge
   (quick picks 1280, 1920, 2560 pixels) or a percentage, never enlarged. Plus a visible
   watermark from text and/or a logo, in a corner, in the centre or as a pattern across
@@ -161,8 +170,8 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 - **Colour-accurate**: processing happens in linear light with 32-bit floating point.
   RGB colour profiles such as Adobe RGB, ProPhoto RGB or Display P3 are converted to sRGB
   on the GPU without a detour through 8 bits; colours outside sRGB are kept until the
-  output. The EXIF orientation is applied; EXIF data and an alpha channel are kept when
-  saving.
+  output. The EXIF orientation is applied; metadata (EXIF, IPTC, XMP) and an alpha
+  channel are kept when saving in every format – the camera data of a RAW included.
 - **16 bits and RAW**: opens and saves TIFF and PNG with 16 bits per channel. RAW files
   from practically every camera (CR2, CR3, NEF, ARW, RAF, ORF, RW2, DNG and more) are
   developed in linear light without automatic brightening – the full range of the sensor

@@ -75,6 +75,7 @@ def test_knoepfe_auch_im_schmalsten_fenster_lesbar(fenster, sprache):
     _.language = sprache                      # ohne die Einstellungsdatei zu beruehren
     fenster.texte_auffrischen()
     try:
+        QApplication.processEvents()          # neue Texte auswerten, sonst gilt die alte Breite
         fenster.resize(100, 700)              # Qt haelt die Mindestbreite ein
         QApplication.processEvents()
         seite = fenster.bearbeiten
@@ -85,3 +86,34 @@ def test_knoepfe_auch_im_schmalsten_fenster_lesbar(fenster, sprache):
     finally:
         _.language = "de"
         fenster.texte_auffrischen()
+
+
+def test_angaben_zuruecksetzen_rollt_nicht(fenster, tmp_path, monkeypatch):
+    """Der Knopf schaltet sich beim Klick selbst ab - die Reglerleiste blieb dabei nicht
+    stehen, sondern rollte zum naechsten Element mit Fokus ans Ende."""
+    from PIL import Image
+    from PySide6.QtWidgets import QApplication, QScrollArea
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)   # Datei bleibt
+    pfad = str(tmp_path / "bild.jpg")
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        seite.angaben_felder["titel"].setText("Titel")
+        seite._angabe_bearbeitet("titel")
+        knopf = seite.angaben_zurueck_knopf
+        leiste = next(f for f in seite.findChildren(QScrollArea) if knopf in f.findChildren(
+            type(knopf)))
+        leiste.ensureWidgetVisible(knopf)
+        QApplication.processEvents()
+        vorher = leiste.verticalScrollBar().value()
+        knopf.setFocus()
+        knopf.click()
+        QApplication.processEvents()
+        assert seite.sitzung.werte.angaben == ()
+        assert leiste.verticalScrollBar().value() == vorher
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()

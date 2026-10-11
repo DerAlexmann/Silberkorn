@@ -59,7 +59,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import anonym, bilddatei, filter, geometrie, ki, objektivprofile, veroeffentlichen
+from . import anonym, bilddatei, filter, geometrie, ki, metadaten, objektivprofile, veroeffentlichen
 from .cuda import cupy as cp
 from .filter import Einstellungen
 
@@ -155,6 +155,8 @@ class Sitzung:
             self.objektiv_suchen()
         except (OSError, ValueError):
             pass                                  # ohne Profil weiter
+        self.vorgefunden = metadaten.lesen(daten.exif, daten.xmp, daten.iptc)
+        self._angaben_vorgabe: tuple = ()         # Urheber und Copyright aus den Einstellungen
 
     @property
     def geaendert(self) -> bool:
@@ -394,6 +396,18 @@ class Sitzung:
         return (ya, ye, xa, xe, filter.verkleinern_box(d, faktor).astype(cp.float32),
                 filter.verkleinern_box(g, faktor).astype(cp.float32))
 
+    def entfernungen_verwerfen(self) -> bool:
+        """Alle Entfernungen und die Markierung verwerfen - fuer „Zurücksetzen“.
+        Rueckgabe: ob es Entfernungen gab."""
+        self.markierung_verwerfen()
+        if not self._flicken:
+            return False
+        self._flicken.clear()
+        self._flicken_stand += 1
+        self._speicher.clear()
+        self._vollbild = None
+        return True
+
     def entfernen_zurueck(self) -> bool:
         """Die letzte Entfernung zuruecknehmen."""
         if not self._flicken:
@@ -483,11 +497,48 @@ class Sitzung:
         return self.objektiv
 
     def grundwerte(self) -> Einstellungen:
-        """Was „Alles zurücksetzen“ herstellt: alle Vorgaben, bei RAW mit dem Profil."""
-        werte = Einstellungen()
+        """Was „Alles zurücksetzen“ herstellt: alle Vorgaben, bei RAW mit dem Profil,
+        dazu Urheber und Copyright, wenn sie in jedes Bild sollen."""
+        werte = Einstellungen(angaben=self._angaben_vorgabe)
         if self.objektiv.profil is not None and self.daten.raw:
             werte.objektivprofil = self.objektiv_terme()
         return werte
+
+    # ------------------------------------------------------------------
+    # Metadaten
+    # ------------------------------------------------------------------
+
+    @property
+    def angaben(self) -> metadaten.Angaben:
+        """Titel, Urheber, Ort ... so, wie sie gespeichert werden."""
+        return metadaten.mit(self.vorgefunden.angaben, self.werte.angaben)
+
+    def angabe_setzen(self, name: str, wert):
+        self.werte.angaben = metadaten.aendern(self.werte.angaben, self.vorgefunden.angaben,
+                                               name, wert)
+
+    def angaben_vorgeben(self, urheber: str, copyright_: str):
+        """Urheber und Copyright fuer Bilder, die selbst keine haben. Gilt wie die Datei
+        selbst nicht als Aenderung - nur gespeichert wird es mit."""
+        vorgabe = ()
+        for name, wert in (("urheber", urheber.strip()), ("copyright", copyright_.strip())):
+            if wert and not getattr(self.vorgefunden.angaben, name):
+                vorgabe = metadaten.aendern(vorgabe, self.vorgefunden.angaben, name, wert)
+        alt, self._angaben_vorgabe = self._angaben_vorgabe, vorgabe
+        if self.werte.angaben == alt:
+            ungeaendert = not self.geaendert
+            self.werte.angaben = vorgabe
+            if ungeaendert:
+                self.gespeicherte_werte = dataclasses.replace(self.werte)
+
+    def angaben_grundwerte(self) -> tuple:
+        """Was „Angaben zurücksetzen“ herstellt."""
+        return self._angaben_vorgabe
+
+    def _metadaten(self, breite: int, hoehe: int) -> tuple[bytes, bytes]:
+        return metadaten.fuer_speichern(self.daten.exif, self.daten.xmp, self.vorgefunden,
+                                        self.werte.angaben, breite, hoehe,
+                                        self.werte.metadaten_entfernen)
 
     def objektiv_terme(self) -> tuple[float, ...]:
         """Die Terme des Profils samt Lage des Originals in dem, was die Geometrie sieht."""
@@ -643,12 +694,15 @@ class Sitzung:
         return self._in_geometrie(self._ebene_auf_leinwand(maske), werte)
 
     def _rendern(self, werte: Einstellungen, voll: bool, speicher, bits: int = 8,
-                 zeigen: bool = False, leinwand: bool = True):
+                 zeigen: bool = False, leinwand: bool = True, flicken: bool = True):
         """Die ganze Kette bis zum sRGB-Bild - mit eigenem Hintergrund, falls eingestellt.
-        leinwand=False: ohne die Raender einer KI-Erweiterung (fuer „Vorher“)."""
+        leinwand=False: ohne die Raender einer KI-Erweiterung, flicken=False: ohne
+        entfernte Objekte (beides fuer „Vorher“)."""
         massstab = 1.0 if voll else self.vorschau_massstab
-        eingang = self._anonymisieren(self._ausgang(werte, voll, leinwand=leinwand), werte,
-                                      voll, leinwand)
+        if not flicken and self._flicken:
+            speicher = {}       # die Zwischenstufen im Speicher enthalten die Flicken
+        eingang = self._anonymisieren(self._ausgang(werte, voll, leinwand=leinwand,
+                                                    flicken=flicken), werte, voll, leinwand)
         bild = filter.anwenden_ausgabe(eingang, werte, massstab, speicher, bits=bits)
         if not leinwand and self._erweiterung is not None:
             return bild                 # Masken, Tiefe und Markierung liegen auf der Leinwand
@@ -781,7 +835,7 @@ class Sitzung:
         return self._ki_fertig(beginn)
 
     def _ausgang(self, werte: Einstellungen, voll: bool, schaerfen: bool = True,
-                 leinwand: bool = True, farbe: bool = True):
+                 leinwand: bool = True, farbe: bool = True, flicken: bool = True):
         """Original - je nach Staerke mit dem KI-entrauschten gemischt und KI-geschaerft,
         mit den Flicken, KI-koloriert und, wenn erweitert und leinwand gesetzt, auf der
         Leinwand."""
@@ -793,7 +847,7 @@ class Sitzung:
                 _mischen(bild, glatt, cp.float32(werte.ki_rauschen / 100))
         if schaerfen and self._ki_schaerfe is not None and werte.ki_schaerfe > 0:
             bild = _auflegen(bild, self._ki_schaerfe[stelle], cp.float32(werte.ki_schaerfe / 100))
-        if self._flicken:
+        if flicken and self._flicken:
             bild = self._flicken_auflegen(bild, stelle)
         if farbe and self._ki_farbe is not None and werte.ki_farbe > 0:
             bild = ki.farbe_einsetzen(bild, self._ki_farbe[stelle], werte.ki_farbe / 100)
@@ -802,14 +856,16 @@ class Sitzung:
         return bild
 
     def vorschau(self, unbearbeitet: bool = False, werte: Einstellungen | None = None,
-                 ohne_erweiterung: bool = False) -> tuple[np.ndarray, float, np.ndarray]:
+                 ohne_erweiterung: bool = False,
+                 ohne_flicken: bool = False) -> tuple[np.ndarray, float, np.ndarray]:
         """Vorschau als sRGB-uint8, Rechenzeit in ms und Helligkeitshistogramm (256 Stufen).
-        ohne_erweiterung: das Original ohne die von der KI erfundenen Raender."""
+        ohne_erweiterung: das Original ohne die von der KI erfundenen Raender,
+        ohne_flicken: ohne die entfernten Objekte."""
         beginn = time.perf_counter()
         if werte is None:
             werte = Einstellungen() if unbearbeitet else self.werte
         bild = self._rendern(werte, False, self._speicher, zeigen=not unbearbeitet,
-                             leinwand=not ohne_erweiterung)
+                             leinwand=not ohne_erweiterung, flicken=not ohne_flicken)
         histogramm = cp.asnumpy(histogramm_von(bild))
         ergebnis = cp.asnumpy(bild)                     # wartet auf die GPU
         return ergebnis, (time.perf_counter() - beginn) * 1000, histogramm
@@ -822,7 +878,8 @@ class Sitzung:
         return geometrie.ausgabe_form(quelle, geometrie.aus(werte))
 
     def ausschnitt(self, x0: int, y0: int, breite: int, hoehe: int,
-                   werte: Einstellungen | None = None) -> tuple[np.ndarray, float, np.ndarray]:
+                   werte: Einstellungen | None = None,
+                   ohne_flicken: bool = False) -> tuple[np.ndarray, float, np.ndarray]:
         """Ausschnitt des fertigen Bildes in voller Aufloesung - fuer die 100-%-Ansicht.
 
         Gerechnet wird das ganze Bild, damit der Ausschnitt genau dem
@@ -833,10 +890,13 @@ class Sitzung:
         """
         beginn = time.perf_counter()
         werte = self.werte if werte is None else werte
-        schluessel = (dataclasses.replace(werte), self.maske_zeigen, self.tiefe_zeigen)
+        # Metadaten aendern das Bild nicht - ihretwegen nicht neu rechnen
+        schluessel = (dataclasses.replace(werte, angaben=(), metadaten_entfernen=False),
+                      self.maske_zeigen, self.tiefe_zeigen, ohne_flicken)
         if self._vollbild is None or self._vollbild[0] != schluessel:
             self._vollbild = None                 # das alte Vollbild zuerst freigeben
-            bild = self._rendern(werte, True, self._speicher, zeigen=True)
+            bild = self._rendern(werte, True, self._speicher, zeigen=True,
+                                 flicken=not ohne_flicken)
             self._vollbild = (schluessel, bild)
         teil = self._vollbild[1][y0:y0 + hoehe, x0:x0 + breite]
         histogramm = cp.asnumpy(histogramm_von(teil))
@@ -906,10 +966,8 @@ class Sitzung:
         # Zwischenergebnisse der vollen Groesse sofort zurueckgeben - der
         # Speicherpool von CuPy hielte sie sonst fuer das naechste Mal fest.
         cp.get_default_memory_pool().free_all_blocks()
-        exif = self.daten.exif
-        if self.werte.metadaten_entfernen:
-            exif = anonym.metadaten_bereinigen(exif)
-        bilddatei.speichern(pfad, rgb, self._alpha_gesamt(faktor), exif)
+        exif, xmp = self._metadaten(rgb.shape[1], rgb.shape[0])
+        bilddatei.speichern(pfad, rgb, self._alpha_gesamt(faktor), exif, xmp)
         self.gespeicherte_werte = dataclasses.replace(self.werte)
         self._flicken_gespeichert = self._flicken_stand
         return (time.perf_counter() - beginn) * 1000
@@ -928,8 +986,9 @@ class Sitzung:
         beginn = time.perf_counter()
         rgb = cp.asnumpy(self._rendern(self.werte, True, None, bits=16))
         cp.get_default_memory_pool().free_all_blocks()
-        groesse = veroeffentlichen.speichern(pfad, rgb, self._alpha_gesamt(), self.daten.exif,
-                                             vorlage, self.ki_inhalt)
+        exif, _xmp = self._metadaten(rgb.shape[1], rgb.shape[0])
+        groesse = veroeffentlichen.speichern(pfad, rgb, self._alpha_gesamt(), exif, vorlage,
+                                             self.ki_inhalt, self.angaben)
         return (time.perf_counter() - beginn) * 1000, groesse
 
     def schliessen(self):

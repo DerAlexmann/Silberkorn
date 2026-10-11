@@ -113,6 +113,32 @@ def test_entfernen_legt_einen_flicken_auf(sitzung, tmp_path):
     assert not sitzung.entfernen_zurueck()
 
 
+def test_vorher_zeigt_das_objekt_noch(sitzung):
+    """„Vorher“ zeigt das Original - auch dort, wo ein Objekt entfernt wurde. Der
+    Zwischenspeicher der Filter darf dabei nicht die Fassung mit Flicken liefern."""
+    from silberkorn.filter import Einstellungen
+    sitzung.pinseln([(40.0, 60.0)], 10.0, True)
+    sitzung.ki_entfernen(Weiss())
+    nachher, _ms, _h = sitzung.vorschau()             # fuellt den Zwischenspeicher
+    assert nachher[30, 20].min() > 200
+    vorher, _ms, _h = sitzung.vorschau(werte=Einstellungen(), ohne_flicken=True)
+    assert np.abs(vorher[30, 20].astype(int) - 64).max() <= 1
+    breite, hoehe = sitzung.ausgabe_form()[::-1]
+    teil, _ms, _h = sitzung.ausschnitt(0, 0, breite, hoehe, Einstellungen(), ohne_flicken=True)
+    assert np.abs(teil[60, 40].astype(int) - 64).max() <= 1
+    assert voll(sitzung)[60, 40].min() >= 254         # danach wieder mit Flicken
+
+
+def test_zuruecksetzen_holt_entferntes_zurueck(sitzung):
+    sitzung.pinseln([(40.0, 60.0)], 10.0, True)
+    sitzung.ki_entfernen(Weiss())
+    sitzung.pinseln([(100.0, 60.0)], 5.0, True)        # neue Markierung, noch nicht entfernt
+    assert sitzung.entfernungen_verwerfen()
+    assert sitzung.entfernt == 0 and not sitzung.markierung_da
+    assert np.abs(voll(sitzung) - 64).max() <= 1
+    assert not sitzung.entfernungen_verwerfen()
+
+
 def test_ohne_markierung_passiert_nichts(sitzung):
     assert sitzung.ki_entfernen(Weiss()) is None and sitzung.entfernt == 0
 

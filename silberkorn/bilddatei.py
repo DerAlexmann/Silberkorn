@@ -16,8 +16,9 @@ erst auf der Grafikkarte in lineares sRGB umgerechnet (icc.linearisieren).
 Nur Profile anderer Bauart - CMYK, Graustufen, Tabellenprofile - rechnet
 LittleCMS ueber Pillow schon beim Laden nach sRGB, dann mit 8 Bit.
 
-Die EXIF-Ausrichtung wird beim Laden angewendet. EXIF-Daten und Alphakanal
-werden beim Speichern weitergegeben, soweit das Zielformat sie traegt.
+Die EXIF-Ausrichtung wird beim Laden angewendet. EXIF, IPTC und XMP werden
+mitgelesen (metadaten.py), auch aus RAW; beim Speichern schreiben alle Formate
+EXIF und XMP, dazu den Alphakanal, soweit das Zielformat ihn traegt.
 
 Licensed under MIT License
 Copyright 2026 Alexander Unverhau
@@ -31,12 +32,12 @@ import math
 import os
 import struct
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from PIL import Image, ImageCms, ImageOps, PngImagePlugin
 
-from . import demosaik, icc
+from . import demosaik, icc, metadaten
 from .objektivprofile import Aufnahme
 
 try:                                          # HEIC/HEIF, falls installiert
@@ -83,6 +84,8 @@ class Bilddaten:
     raw: bool = False
     mosaik: demosaik.RawMosaik | None = None   # statt pixel: Mosaik fuer die GPU
     aufnahme: Aufnahme | None = None           # Kamera und Objektiv, fuer Objektivprofile
+    xmp: bytes = b""                           # XMP-Paket der Datei
+    iptc: dict = field(default_factory=dict)   # IPTC-IIM: {(Satz, Feld): [Bytes, ...]}
 
     @property
     def form(self) -> tuple[int, int]:
@@ -165,13 +168,15 @@ def _bittiefe_angleichen(pixel: np.ndarray) -> np.ndarray:
     raise BildFehler(f"nicht unterstützte Bittiefe: {pixel.dtype}")
 
 
-def _metadaten(pfad: str) -> tuple[bytes | None, Image.Exif]:
-    """Farbprofil und EXIF ueber Pillow lesen, ohne die Pixel zu dekodieren."""
+def _metadaten(pfad: str) -> tuple[bytes | None, Image.Exif, bytes, dict]:
+    """Farbprofil, EXIF, XMP und IPTC ueber Pillow lesen, ohne die Pixel zu dekodieren."""
     try:
         with Image.open(pfad) as kopf:
-            return kopf.info.get("icc_profile"), kopf.getexif()
-    except (OSError, ValueError):
-        return None, Image.Exif()
+            return (kopf.info.get("icc_profile"), metadaten.einlesen(kopf.getexif()),
+                    metadaten.xmp_aus_bild(kopf),
+                    metadaten.iim_lesen(kopf))
+    except (OSError, ValueError, SyntaxError):
+        return None, Image.Exif(), b"", {}
 
 
 EXIF_IFD = 0x8769
@@ -213,23 +218,29 @@ def aufnahme_aus_exif(exif: Image.Exif) -> Aufnahme | None:
                     brennweiten)
 
 
-def _raw_aufnahme(pfad: str, roh) -> Aufnahme | None:
-    """Objektiv, Brennweite und Blende von LibRaw; Hersteller und Modell der Kamera aus
-    dem EXIF der Datei (TIFF-artige RAWs) oder dem eingebetteten Vorschaubild."""
-    objektiv = getattr(roh, "lens", None)
-    andere = getattr(roh, "other", None)
-    if objektiv is None or andere is None or not _text(objektiv.model):
-        return None
-    _icc, exif = _metadaten(pfad)
+def _raw_exif(pfad: str, roh) -> Image.Exif:
+    """EXIF einer RAW: aus der Datei selbst (TIFF-artige RAWs wie NEF, CR2, ARW, DNG)
+    oder aus dem eingebetteten Vorschaubild (RAF, CR3, RW2 ...)."""
+    _icc, exif, _xmp, _iptc = _metadaten(pfad)
     if not exif.get(EXIF_MODELL):
         import rawpy
         try:
             vorschau = roh.extract_thumb()
             if vorschau.format == rawpy.ThumbFormat.JPEG:
                 with Image.open(io.BytesIO(vorschau.data)) as bild:
-                    exif = bild.getexif()
-        except (rawpy.LibRawError, OSError, ValueError):
-            pass
+                    exif = metadaten.einlesen(bild.getexif())
+        except (rawpy.LibRawError, OSError, ValueError, SyntaxError, AttributeError):
+            pass                              # ohne Vorschaubild: ohne EXIF weiter
+    return exif
+
+
+def _raw_aufnahme(exif: Image.Exif, roh) -> Aufnahme | None:
+    """Objektiv, Brennweite und Blende von LibRaw; Hersteller und Modell der Kamera aus
+    dem EXIF."""
+    objektiv = getattr(roh, "lens", None)
+    andere = getattr(roh, "other", None)
+    if objektiv is None or andere is None or not _text(objektiv.model):
+        return None
     hersteller, kamera = _text(exif.get(EXIF_HERSTELLER)), _text(exif.get(EXIF_MODELL))
     return Aufnahme(hersteller, kamera, _text(objektiv.model), _text(objektiv.make),
                     _kommazahl(andere.focal_length), _kommazahl(andere.aperture),
@@ -237,9 +248,8 @@ def _raw_aufnahme(pfad: str, roh) -> Aufnahme | None:
 
 
 def _exif_ohne_ausrichtung(exif: Image.Exif) -> bytes:
-    if EXIF_AUSRICHTUNG in exif:
-        exif[EXIF_AUSRICHTUNG] = 1            # bereits gedreht
-    return exif.tobytes() if len(exif) else b""
+    """Ausrichtung auf 1 - die Pixel sind schon gedreht -, nur beschreibende Felder."""
+    return metadaten.saeubern(exif)
 
 
 def _profil_oder_fehler(daten: bytes | None) -> icc.Matrixprofil | None:
@@ -262,11 +272,13 @@ def _raw_laden(pfad: str, gpu: bool = True, qualitaet: str = "schnell") -> Bildd
     beste = qualitaet == "beste"
     try:
         with rawpy.imread(pfad) as roh:
-            aufnahme = _raw_aufnahme(pfad, roh)
+            exif = _raw_exif(pfad, roh)
+            zusatz = {"aufnahme": _raw_aufnahme(exif, roh), "xmp": metadaten.xmp_suchen(pfad)}
+            exif = metadaten.saeubern(exif, raw=True)
             mosaik = demosaik.aus_rawpy(roh) if gpu and not beste else None
             if mosaik is not None:
-                return Bilddaten(None, icc.LINEAR_SRGB, None, b"", pfad, raw=True, mosaik=mosaik,
-                                 aufnahme=aufnahme)
+                return Bilddaten(None, icc.LINEAR_SRGB, None, exif, pfad, raw=True, mosaik=mosaik,
+                                 **zusatz)
             # Linear (Gamma 1), 16 Bit, sRGB-Primaerfarben, Weissabgleich der
             # Kamera - und ohne die automatische Aufhellung von LibRaw. Die
             # liesse 1 % der Pixel ausbrennen; so bleibt der volle Umfang des
@@ -282,8 +294,8 @@ def _raw_laden(pfad: str, gpu: bool = True, qualitaet: str = "schnell") -> Bildd
                                     adjust_maximum_thr=0.0, **verfahren)
     except (rawpy.LibRawError, OSError, ValueError) as fehler:
         raise BildFehler(str(fehler)) from fehler
-    return Bilddaten(np.ascontiguousarray(pixel), icc.LINEAR_SRGB, None, b"", pfad, raw=True,
-                     aufnahme=aufnahme)
+    return Bilddaten(np.ascontiguousarray(pixel), icc.LINEAR_SRGB, None, exif, pfad, raw=True,
+                     **zusatz)
 
 
 def _tiff_laden(pfad: str) -> Bilddaten | None:
@@ -310,11 +322,11 @@ def _tiff_laden(pfad: str) -> Bilddaten | None:
     rgb, alpha = _kanaele_trennen(_bittiefe_angleichen(pixel))
     rgb, alpha = ausrichten(rgb, ausrichtung), (ausrichten(alpha, ausrichtung)
                                                 if alpha is not None else None)
-    _icc, exif = _metadaten(pfad)
+    _icc, exif, xmp, iptc = _metadaten(pfad)
     aufnahme = aufnahme_aus_exif(exif)
     return Bilddaten(np.ascontiguousarray(rgb), _profil_oder_fehler(icc_daten),
                      None if alpha is None else np.ascontiguousarray(alpha),
-                     _exif_ohne_ausrichtung(exif), pfad, aufnahme=aufnahme)
+                     _exif_ohne_ausrichtung(exif), pfad, aufnahme=aufnahme, xmp=xmp, iptc=iptc)
 
 
 def _png_bittiefe(pfad: str) -> int:
@@ -332,7 +344,7 @@ def _png16_laden(pfad: str) -> Bilddaten:
             pixel = imagecodecs.png_decode(datei.read())
     except (imagecodecs.PngError, OSError, ValueError) as fehler:
         raise BildFehler(str(fehler)) from fehler
-    icc_daten, exif = _metadaten(pfad)
+    icc_daten, exif, xmp, iptc = _metadaten(pfad)
     rgb, alpha = _kanaele_trennen(_bittiefe_angleichen(pixel))
     ausrichtung = exif.get(EXIF_AUSRICHTUNG, 1)
     rgb = ausrichten(rgb, ausrichtung)
@@ -342,14 +354,15 @@ def _png16_laden(pfad: str) -> Bilddaten:
         raise BildFehler("16-Bit-PNG mit einem Farbprofil, das kein RGB-Matrixprofil ist")
     aufnahme = aufnahme_aus_exif(exif)
     return Bilddaten(np.ascontiguousarray(rgb), _profil_oder_fehler(icc_daten), alpha,
-                     _exif_ohne_ausrichtung(exif), pfad, aufnahme=aufnahme)
+                     _exif_ohne_ausrichtung(exif), pfad, aufnahme=aufnahme, xmp=xmp, iptc=iptc)
 
 
 def _pillow_laden(pfad: str) -> Bilddaten:
     try:
         with Image.open(pfad) as roh:
             roh.load()
-            exif = roh.getexif()
+            exif = metadaten.einlesen(roh.getexif())
+            xmp, iptc = metadaten.xmp_aus_bild(roh), metadaten.iim_lesen(roh)
             bild = ImageOps.exif_transpose(roh)
     except (OSError, ValueError, Image.DecompressionBombError) as fehler:
         raise BildFehler(str(fehler)) from fehler
@@ -377,7 +390,7 @@ def _pillow_laden(pfad: str) -> Bilddaten:
         pixel = np.asarray(bild.convert("RGB"))
     aufnahme = aufnahme_aus_exif(exif)
     return Bilddaten(np.ascontiguousarray(pixel), profil, alpha,
-                     _exif_ohne_ausrichtung(exif), pfad, aufnahme=aufnahme)
+                     _exif_ohne_ausrichtung(exif), pfad, aufnahme=aufnahme, xmp=xmp, iptc=iptc)
 
 
 def laden(pfad: str, raw_auf_gpu: bool = True, raw_qualitaet: str = "schnell") -> Bilddaten:
@@ -404,23 +417,69 @@ def _png_block(art: bytes, daten: bytes) -> bytes:
     return struct.pack(">I", len(daten)) + art + daten + struct.pack(">I", pruefsumme)
 
 
-def _png16_schreiben(pfad: str, pixel: np.ndarray, exif: bytes) -> None:
-    """16-Bit-PNG mit sRGB-Profil (iCCP) und EXIF (eXIf) direkt hinter dem Kopf."""
+def _png16_schreiben(pfad: str, pixel: np.ndarray, exif: bytes, xmp: bytes) -> None:
+    """16-Bit-PNG mit sRGB-Profil (iCCP), EXIF (eXIf) und XMP (iTXt) hinter dem Kopf."""
     import imagecodecs
     roh = imagecodecs.png_encode(pixel, level=6)
     kopf_ende = 8 + 25                        # Signatur + IHDR-Block
     zusatz = _png_block(b"iCCP", b"sRGB\x00\x00" + zlib.compress(_srgb_profil().tobytes()))
     if exif:
         zusatz += _png_block(b"eXIf", exif[6:] if exif.startswith(b"Exif\x00\x00") else exif)
+    if xmp:
+        # Schluessel, Nullbyte, unkomprimiert (0, 0), ohne Sprache und Uebersetzung
+        zusatz += _png_block(b"iTXt", b"XML:com.adobe.xmp\x00\x00\x00\x00\x00" + xmp)
     with open(pfad, "wb") as datei:
         datei.write(roh[:kopf_ende] + zusatz + roh[kopf_ende:])
 
 
-def _tiff16_schreiben(pfad: str, pixel: np.ndarray) -> None:
+# TIFF-Felder fuer EXIF und GPS: tifffile schreibt sie nicht selbst. Es bekommt
+# Platzhalter mit den naechsthoeheren, unbelegten Nummern - so bleibt die
+# Reihenfolge der Felder richtig, wenn sie danach umbenannt werden.
+TIFF_UNTER = {0x8769: 0x876A, 0x8825: 0x8826}
+TIFF_TEXTE = (0x010F, 0x0110, 0x013B, 0x8298)    # Hersteller, Modell, Kuenstler, Copyright
+
+
+def _tiff_schreiben(pfad: str, pixel: np.ndarray, exif: bytes, xmp: bytes) -> None:
+    """TIFF mit tifffile - 8 Bit mit LZW, 16 Bit mit Deflate - samt EXIF und XMP.
+    Pillow kann 16 Bit RGB nicht und mit LZW keine EXIF-Unterverzeichnisse."""
     import tifffile
-    zusatz = {"extrasamples": [2]} if pixel.shape[2] == 4 else {}   # 2 = freier Alphakanal
-    tifffile.imwrite(pfad, pixel, photometric="rgb", compression="zlib",
-                     iccprofile=_srgb_profil().tobytes(), **zusatz)
+    from PIL import TiffImagePlugin
+    daten = metadaten.exif_laden(exif)
+    texte = {"description": daten.get(0x010E), "software": daten.get(0x0131),
+             "datetime": daten.get(0x0132)}
+    zusatz = {name: wert for name, wert in texte.items() if isinstance(wert, str) and wert}
+    if pixel.shape[2] == 4:
+        zusatz["extrasamples"] = [2]          # 2 = freier Alphakanal
+    felder = [(tag, "s", 0, daten[tag], True) for tag in TIFF_TEXTE
+              if isinstance(daten.get(tag), str) and daten.get(tag)]
+    unter = {tag: daten.get_ifd(tag) for tag in TIFF_UNTER if tag in daten}
+    unter = {tag: werte for tag, werte in unter.items() if werte}
+    felder += [(TIFF_UNTER[tag], "I", 1, 0, True) for tag in unter]
+    if xmp:
+        felder.append((700, "B", len(xmp), xmp, True))
+    tifffile.imwrite(pfad, pixel, photometric="rgb",
+                     compression="zlib" if pixel.dtype == np.uint16 else "lzw",
+                     iccprofile=_srgb_profil().tobytes(), metadata=None,
+                     software=zusatz.pop("software", False), extratags=felder, **zusatz)
+    if not unter:
+        return
+    with tifffile.TiffFile(pfad) as datei:
+        stellen = {tag: datei.pages[0].tags[TIFF_UNTER[tag]].offset for tag in unter}
+        format_ = "<" if datei.byteorder == "<" else ">"
+    with open(pfad, "r+b") as datei:
+        for tag, werte in unter.items():
+            verzeichnis = TiffImagePlugin.ImageFileDirectory_v2(
+                prefix=b"II" if format_ == "<" else b"MM", group=tag)
+            for schluessel, wert in werte.items():
+                if schluessel != metadaten.INTEROP_IFD:
+                    verzeichnis[schluessel] = wert
+            ende = datei.seek(0, 2)
+            if ende % 2:
+                datei.write(b"\x00")
+                ende += 1
+            datei.write(verzeichnis.tobytes(ende))
+            datei.seek(stellen[tag])
+            datei.write(struct.pack(format_ + "HHII", tag, 4, 1, ende))   # 4 = LONG
 
 
 def alpha_umrechnen(alpha: np.ndarray, bits: int) -> np.ndarray:
@@ -433,8 +492,7 @@ def alpha_umrechnen(alpha: np.ndarray, bits: int) -> np.ndarray:
 
 def speichern(pfad: str, rgb: np.ndarray, alpha: np.ndarray | None = None,
               exif: bytes = b"", xmp: bytes = b"", qualitaet: int = JPEG_QUALITAET) -> None:
-    """Speichert rgb (uint8 oder uint16, sRGB) im Format der Dateiendung.
-    XMP schreiben nur JPEG, PNG und WebP mit 8 Bit."""
+    """Speichert rgb (uint8 oder uint16, sRGB) im Format der Dateiendung, mit EXIF und XMP."""
     endung = os.path.splitext(pfad)[1].lower()
     if endung not in SCHREIBBAR:
         raise BildFehler(f"unbekanntes Format: {endung}")
@@ -447,11 +505,11 @@ def speichern(pfad: str, rgb: np.ndarray, alpha: np.ndarray | None = None,
         rgb = np.dstack([rgb, alpha_umrechnen(alpha, bits)])
 
     try:
+        if format_name == "TIFF":
+            _tiff_schreiben(pfad, rgb, exif, xmp)
+            return
         if bits == 16:
-            if format_name == "PNG":
-                _png16_schreiben(pfad, rgb, exif)
-            else:
-                _tiff16_schreiben(pfad, rgb)
+            _png16_schreiben(pfad, rgb, exif, xmp)
             return
         bild = Image.fromarray(rgb, "RGBA" if rgb.shape[2] == 4 else "RGB")
         optionen = {"icc_profile": _srgb_profil().tobytes()}
@@ -467,8 +525,6 @@ def speichern(pfad: str, rgb: np.ndarray, alpha: np.ndarray | None = None,
             optionen.update(quality=qualitaet, subsampling=0)
         elif format_name == "WEBP":
             optionen.update(quality=qualitaet)
-        elif format_name == "TIFF":
-            optionen.update(compression="tiff_lzw")
         bild.save(pfad, format_name, **optionen)
-    except (OSError, ValueError) as fehler:
+    except (OSError, ValueError, RuntimeError, KeyError) as fehler:
         raise BildFehler(str(fehler)) from fehler

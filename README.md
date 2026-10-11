@@ -137,6 +137,17 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Seriennummern von Kamera und Objektiv, Besitzernamen und Herstellerdaten.
   Bewusst nicht angeboten wird das Gegenteil, ein „Entpixeln“: Eine KI könnte
   ein verpixeltes Gesicht nicht zurückholen, nur ein fremdes erfinden.
+- **Metadaten**: Die Karte zeigt Kamera, Objektiv und Belichtung und lässt
+  Titel, Beschreibung, Stichwörter, Urheber, Copyright, Ort, Aufnahmedatum und
+  Bewertung ändern – beim Datum genügt für alte Abzüge auch nur das Jahr.
+  Gelesen wird EXIF, IPTC und XMP, auch aus RAW; „Alle Metadaten …“ zeigt alles,
+  was die Datei mitbringt. Geschrieben wird erst beim Speichern, als XMP nach
+  IPTC und wo möglich auch als EXIF; „Zurücksetzen“ nimmt die Änderungen
+  zurück. Auf Wunsch trägt Silberkorn Urheber und Copyright in jedes Bild ein,
+  das selbst keine hat. Technische Werte wie Belichtungszeit oder ISO bleiben
+  unverändert. Die Drehung und Entwicklungseinstellungen anderer Programme
+  (Lightroom, darktable) fallen aus dem XMP weg, damit sie dort nicht ein
+  zweites Mal wirken.
 - **Für Veröffentlichung speichern**: Bilder fürs Netz in einem Schritt –
   verkleinert auf eine längste Kante (Schnellwahl 1280, 1920, 2560 Pixel) oder
   einen Prozentsatz, nie vergrößert. Dazu ein sichtbares Wasserzeichen aus Text
@@ -184,7 +195,8 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   RGB-Farbprofile wie Adobe RGB, ProPhoto RGB oder Display P3 werden auf der GPU
   nach sRGB umgerechnet, ohne Umweg über 8 Bit; Farben außerhalb von sRGB
   bleiben bis zur Ausgabe erhalten. Die EXIF-Ausrichtung wird angewendet,
-  EXIF-Daten und ein Alphakanal bleiben beim Speichern erhalten.
+  Metadaten (EXIF, IPTC, XMP) und ein Alphakanal bleiben beim Speichern in
+  jedem Format erhalten – auch die Kameradaten einer RAW.
 - **16 Bit und RAW**: TIFF und PNG mit 16 Bit je Kanal öffnen und speichern.
   RAW-Dateien praktisch aller Kameras (CR2, CR3, NEF, ARW, RAF, ORF, RW2, DNG
   und weitere) werden linear und ohne automatische Aufhellung entwickelt – der

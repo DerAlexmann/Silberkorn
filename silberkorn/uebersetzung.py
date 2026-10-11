@@ -146,8 +146,64 @@ TRANSLATIONS = {
             "No faces found – drag areas by hand.",
         "{n} Gesichter gefunden – bitte prüfen und nachbessern.":
             "{n} faces found – please check and correct.",
-        "Setzt alle Regler, Drehung und Zuschnitt zurück und verwirft eine KI-Erweiterung.":
-            "Resets all sliders, rotation and crop and discards an AI extension.",
+        # Metadaten
+        "Metadaten": "Metadata",
+        "Titel": "Title",
+        "Beschreibung": "Description",
+        "Stichwörter": "Keywords",
+        "durch Komma getrennt": "separated by commas",
+        "Urheber und Copyright in jedes Bild": "Creator and copyright in every image",
+        "Region": "Region",
+        "Bundesland, Kanton …": "State, province …",
+        "Stadt": "City",
+        "Land": "Country",
+        "Datum": "Date",
+        "Bewertung": "Rating",
+        "etwa © 2026 Name": "e.g. © 2026 Name",
+        "2024-05-17 14:30, 17.05.2024 oder 1965": "2024-05-17 14:30, 17.05.2024 or 1965",
+        "Mehrere Stichwörter durch Komma oder Semikolon trennen.":
+            "Separate several keywords with commas or semicolons.",
+        "Mehrere Urheber durch Semikolon trennen.": "Separate several creators with semicolons.",
+        "Aufnahmedatum. Bei alten Abzügen genügt das Jahr oder Jahr und Monat.":
+            "Date taken. For old prints the year, or year and month, is enough.",
+        "Merkt sich Urheber und Copyright von hier und trägt sie in jedes Bild ein, das selbst "
+        "keine hat. Gespeichert wird beides wie alles andere erst mit dem Bild.":
+            "Remembers the creator and copyright entered here and adds them to every image "
+            "that has none of its own. Like everything else, they are only written when the "
+            "image is saved.",
+        "Alle Metadaten …": "All metadata …",
+        "Zeigt alles, was die Datei an EXIF, GPS, IPTC und XMP enthält.":
+            "Shows everything the file contains in EXIF, GPS, IPTC and XMP.",
+        "Nimmt nur die Änderungen an den Metadaten zurück – Regler und Bild bleiben.":
+            "Undoes only the changes to the metadata – sliders and image stay as they are.",
+        "Titel, Beschreibung, Urheber, Ort und mehr – geschrieben beim Speichern.":
+            "Title, description, creator, location and more – written when saving.",
+        "In der Datei: {formate}. Änderungen werden beim Speichern geschrieben.":
+            "In the file: {formate}. Changes are written when saving.",
+        "Die Datei enthält keine Metadaten. Angaben hier werden beim Speichern geschrieben.":
+            "The file contains no metadata. Details entered here are written when saving.",
+        "Das Datum ist nicht lesbar – etwa 2024-05-17, 17.05.2024 oder nur 1965.":
+            "The date cannot be read – try 2024-05-17, 17.05.2024 or just 1965.",
+        "Metadaten von {name}": "Metadata of {name}",
+        "So steht es in der Datei. Titel, Beschreibung, Stichwörter, Urheber, Copyright, Ort, "
+        "Datum und Bewertung lassen sich in der Karte „Metadaten“ ändern; geschrieben wird "
+        "erst beim Speichern.":
+            "This is what the file contains. Title, description, keywords, creator, "
+            "copyright, location, date and rating can be changed in the \"Metadata\" card; "
+            "they are only written when saving.",
+        "Filtern …": "Filter …",
+        "Feld": "Field",
+        "Wert": "Value",
+        "Schließen": "Close",
+        "Die Datei enthält keine Metadaten.": "The file contains no metadata.",
+        "EXIF – Kamera und Aufnahme": "EXIF – camera and exposure",
+        "GPS – Standort": "GPS – location",
+        "IPTC (IIM) – ältere Beschreibung": "IPTC (IIM) – older description",
+        "XMP – Beschreibung": "XMP – description",
+        "Setzt alle Regler, Drehung, Zuschnitt und geänderte Metadaten zurück, holt "
+        "entfernte Objekte zurück und verwirft eine KI-Erweiterung.":
+            "Resets all sliders, rotation, crop and changed metadata, brings back removed "
+            "objects and discards an AI extension.",
         "Doppelklick setzt den Regler zurück.": "Double-click resets the slider.",
 
         # Reglergruppen und Regler

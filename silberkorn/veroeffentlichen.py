@@ -8,7 +8,8 @@ alle anderen. Auf Wunsch steht dort auch, dass das Bild nicht fuer KI-Training
 und Data-Mining verwendet werden darf (IPTC/PLUS "Data Mining"; Suchmaschinen
 duerfen es weiter finden). Enthaelt das Bild von der KI erfundene Teile
 (Erweitern, Objekte entfernen), wird das ebenfalls vermerkt (IPTC "Digital
-Source Type").
+Source Type"). Titel, Beschreibung und Stichwoerter aus der Metadaten-Karte
+kommen mit; Ort, Aufnahmedatum und Bewertung nur, wenn die Kameradaten bleiben.
 
 Alle Groessen des Wasserzeichens sind Anteile des Bildes. So sieht die kleine
 Vorschau im Dialog genauso aus wie das gespeicherte Bild.
@@ -25,14 +26,12 @@ from __future__ import annotations
 
 import dataclasses
 import os
-import unicodedata
 from dataclasses import dataclass
-from xml.sax.saxutils import escape
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from . import anonym, bilddatei
+from . import anonym, bilddatei, metadaten
 
 GROESSEN_ART = ("kante", "prozent")
 KANTEN = (1280, 1920, 2560)          # Schnellwahl der laengsten Kante
@@ -273,73 +272,65 @@ def wasserzeichen(rgb: np.ndarray, alpha: np.ndarray | None, vorlage: Vorlage,
 # Metadaten
 # --------------------------------------------------------------------------
 
-def _ascii(text: str) -> str:
-    """EXIF-Texte sind ASCII: © wird (C), Umlaute verlieren die Punkte."""
-    text = text.replace("©", "(C)").replace("ß", "ss")
-    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+def _rechte(vorlage: Vorlage, angaben: metadaten.Angaben | None) -> tuple[str, str]:
+    """Urheber und Copyright: aus der Vorlage, sonst aus den Angaben des Bildes."""
+    angaben = angaben or metadaten.Angaben()
+    return (vorlage.urheber.strip() or angaben.urheber.strip(),
+            vorlage.copyright.strip() or angaben.copyright.strip())
 
 
-def exif_daten(exif: bytes, vorlage: Vorlage) -> bytes:
+def exif_daten(exif: bytes, vorlage: Vorlage, angaben: metadaten.Angaben | None = None) -> bytes:
     """EXIF fuers Netz: ohne GPS und Seriennummern, auf Wunsch ganz ohne Kameradaten,
-    dazu Urheber und Copyright."""
+    dazu Urheber, Copyright und Beschreibung."""
     daten = Image.Exif()
     if exif and not vorlage.kameradaten_entfernen:
-        bereinigt = anonym.metadaten_bereinigen(exif)
-        daten.load(bereinigt[6:] if bereinigt.startswith(b"Exif\x00\x00") else bereinigt)
-    if vorlage.urheber.strip():
-        daten[EXIF_KUENSTLER] = _ascii(vorlage.urheber.strip())
-    if vorlage.copyright.strip():
-        daten[EXIF_COPYRIGHT] = _ascii(vorlage.copyright.strip())
+        daten = metadaten.exif_laden(anonym.metadaten_bereinigen(exif))
+    urheber, rechte = _rechte(vorlage, angaben)
+    if urheber:
+        daten[EXIF_KUENSTLER] = metadaten.ascii_text(urheber)
+    if rechte:
+        daten[EXIF_COPYRIGHT] = metadaten.ascii_text(rechte)
+    if angaben is not None and angaben.beschreibung:
+        daten[metadaten.BESCHREIBUNG] = metadaten.ascii_text(angaben.beschreibung)
     return daten.tobytes() if len(daten) else b""
 
 
-def xmp_daten(vorlage: Vorlage, ki_inhalt: bool = False) -> bytes:
-    """XMP-Paket nach IPTC: Urheber, Rechte, Webadresse, KI-Trainingsverbot, KI-Inhalt."""
-    urheber = escape(vorlage.urheber.strip())
-    rechte = escape(vorlage.copyright.strip())
-    adresse = escape(vorlage.webadresse.strip())
-    felder = []
+def xmp_daten(vorlage: Vorlage, ki_inhalt: bool = False,
+              angaben: metadaten.Angaben | None = None) -> bytes:
+    """XMP-Paket nach IPTC: Urheber, Rechte, Webadresse, KI-Trainingsverbot, KI-Inhalt
+    und die Angaben des Bildes."""
+    angaben = angaben or metadaten.Angaben()
+    urheber, rechte = _rechte(vorlage, angaben)
+    adresse = vorlage.webadresse.strip()
+    felder = ["titel", "beschreibung", "stichwoerter"]
+    if not vorlage.kameradaten_entfernen:
+        felder += ["stadt", "region", "land", "datum", "bewertung"]
+    angaben = dataclasses.replace(angaben, urheber="", copyright="")
+    neu = {schluessel: element for schluessel, element
+           in metadaten.angaben_eigenschaften(angaben, felder).items() if element is not None}
+    e = metadaten.eigenschaft
     if urheber:
-        felder.append(f"<dc:creator><rdf:Seq><rdf:li>{urheber}</rdf:li></rdf:Seq></dc:creator>")
-        felder.append(f"<photoshop:Credit>{urheber}</photoshop:Credit>")
+        neu[("dc", "creator")] = e("dc", "creator", urheber, "seq")
+        neu[("photoshop", "Credit")] = e("photoshop", "Credit", urheber)
     if rechte:
-        felder.append(f'<dc:rights><rdf:Alt><rdf:li xml:lang="x-default">{rechte}</rdf:li>'
-                      f"</rdf:Alt></dc:rights>")
-        felder.append("<photoshop:CopyrightFlag>True</photoshop:CopyrightFlag>")
+        neu[("dc", "rights")] = e("dc", "rights", rechte, "alt")
+        neu[("photoshop", "CopyrightFlag")] = e("photoshop", "CopyrightFlag", "True")
     if urheber or rechte:
-        felder.append("<xmpRights:Marked>True</xmpRights:Marked>")
+        neu[("xmpRights", "Marked")] = e("xmpRights", "Marked", "True")
     if adresse:
-        felder.append(f"<xmpRights:WebStatement>{adresse}</xmpRights:WebStatement>")
-        felder.append(f'<Iptc4xmpCore:CreatorContactInfo rdf:parseType="Resource">'
-                      f"<Iptc4xmpCore:CiUrlWork>{adresse}</Iptc4xmpCore:CiUrlWork>"
-                      f"</Iptc4xmpCore:CreatorContactInfo>")
+        neu[("xmpRights", "WebStatement")] = e("xmpRights", "WebStatement", adresse)
+        kontakt = e("Iptc4xmpCore", "CreatorContactInfo", "")
+        kontakt.text = None
+        kontakt.set(metadaten.RDF["parseType"], "Resource")
+        kontakt.append(e("Iptc4xmpCore", "CiUrlWork", adresse))
+        neu[("Iptc4xmpCore", "CreatorContactInfo")] = kontakt
     if vorlage.ki_training_verbieten:
-        felder.append(f"<plus:DataMining>{DATA_MINING}</plus:DataMining>")
-        felder.append(f'<plus:OtherConstraints><rdf:Alt><rdf:li xml:lang="x-default">'
-                      f"{KI_VERBOT_TEXT}</rdf:li></rdf:Alt></plus:OtherConstraints>")
+        neu[("plus", "DataMining")] = e("plus", "DataMining", DATA_MINING)
+        neu[("plus", "OtherConstraints")] = e("plus", "OtherConstraints", KI_VERBOT_TEXT, "alt")
     if ki_inhalt:
-        felder.append(f"<Iptc4xmpExt:DigitalSourceType>{KI_QUELLE}"
-                      f"</Iptc4xmpExt:DigitalSourceType>")
-    if not felder:
-        return b""
-    inhalt = "\n    ".join(felder)
-    return (
-        '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
-        '<x:xmpmeta xmlns:x="adobe:ns:meta/">\n'
-        ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n'
-        '  <rdf:Description rdf:about=""\n'
-        '    xmlns:dc="http://purl.org/dc/elements/1.1/"\n'
-        '    xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"\n'
-        '    xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/"\n'
-        '    xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"\n'
-        '    xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/"\n'
-        '    xmlns:plus="http://ns.useplus.org/ldf/xmp/1.0/">\n'
-        f"    {inhalt}\n"
-        "  </rdf:Description>\n"
-        " </rdf:RDF>\n"
-        "</x:xmpmeta>\n"
-        '<?xpacket end="w"?>'
-    ).encode()
+        neu[("Iptc4xmpExt", "DigitalSourceType")] = e("Iptc4xmpExt", "DigitalSourceType",
+                                                      KI_QUELLE)
+    return metadaten.xmp_aendern(b"", neu, weitergeben=False)
 
 
 # --------------------------------------------------------------------------
@@ -357,10 +348,12 @@ def bearbeiten(rgb: np.ndarray, alpha: np.ndarray | None, vorlage: Vorlage,
 
 
 def speichern(pfad: str, rgb: np.ndarray, alpha: np.ndarray | None, exif: bytes,
-              vorlage: Vorlage, ki_inhalt: bool = False) -> tuple[int, int]:
+              vorlage: Vorlage, ki_inhalt: bool = False,
+              angaben: metadaten.Angaben | None = None) -> tuple[int, int]:
     """Das fertige Bild fuers Netz speichern; Rueckgabe: Breite und Hoehe."""
     zeichen = zeichen_bild(vorlage, logo_laden(vorlage.logo))
     bild, ebene = bearbeiten(rgb, alpha, vorlage, zeichen)
-    bilddatei.speichern(pfad, bild, ebene, exif_daten(exif, vorlage),
-                        xmp=xmp_daten(vorlage, ki_inhalt), qualitaet=QUALITAET)
+    exif = metadaten.exif_groesse(exif, bild.shape[1], bild.shape[0])
+    bilddatei.speichern(pfad, bild, ebene, exif_daten(exif, vorlage, angaben),
+                        xmp=xmp_daten(vorlage, ki_inhalt, angaben), qualitaet=QUALITAET)
     return bild.shape[1], bild.shape[0]

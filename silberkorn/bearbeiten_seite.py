@@ -13,6 +13,7 @@ import os
 import random
 import time
 from concurrent.futures import wait
+from html import escape
 
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
@@ -28,7 +29,9 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QProgressDialog,
     QPushButton,
     QScrollArea,
@@ -45,6 +48,7 @@ from . import (
     geometrie,
     ki,
     lut,
+    metadaten,
     objektivprofile,
     veroeffentlichen,
 )
@@ -53,6 +57,7 @@ from .cuda import cupy as cp
 from .geometrie import VOLLER_ZUSCHNITT
 from .kurveneditor import KurvenEditor
 from .leinwand import Leinwand, rahmen_mit_verhaeltnis
+from .metadaten_dialog import MetadatenDialog
 from .uebersetzung import _
 from .veroeffentlichen_dialog import VeroeffentlichenDialog
 
@@ -421,7 +426,8 @@ class BearbeitenSeite(QWidget):
         leiste.addWidget(self.vorher_knopf)
         self.zuruecksetzen_knopf = self._knopf(_("Zurücksetzen"), self.alles_zuruecksetzen)
         self.fenster.beschriften(self.zuruecksetzen_knopf.setToolTip, _(
-            "Setzt alle Regler, Drehung und Zuschnitt zurück und verwirft eine KI-Erweiterung."))
+            "Setzt alle Regler, Drehung, Zuschnitt und geänderte Metadaten zurück, holt "
+            "entfernte Objekte zurück und verwirft eine KI-Erweiterung."))
         leiste.addWidget(self.zuruecksetzen_knopf)
         return leiste
 
@@ -478,6 +484,7 @@ class BearbeitenSeite(QWidget):
         spalte.insertWidget(spalte.indexOf(karten["farbe"]) + 1, self._hsl_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 1, self._entfern_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 2, self._anonym_karte())
+        spalte.insertWidget(spalte.indexOf(karten["maske"]) + 3, self._metadaten_karte())
         spalte.addWidget(self._ki_karte())
         spalte.addStretch(1)
         flaeche.setWidget(inhalt)
@@ -1872,6 +1879,229 @@ class BearbeitenSeite(QWidget):
         if self.sitzung is not None:
             self.sitzung.werte.metadaten_entfernen = an
 
+    # ------------------------------------------------------------------
+    # Metadaten: Titel, Urheber, Ort ... - geschrieben erst beim Speichern
+    # ------------------------------------------------------------------
+
+    def _metadaten_karte(self) -> QFrame:
+        karte, innen = self._karte(_("Metadaten"))
+        self.metadaten_hinweis = QLabel(objectName="nebentext")
+        self.metadaten_hinweis.setWordWrap(True)
+        innen.addWidget(self.metadaten_hinweis)
+        self.metadaten_ueberblick = QLabel(objectName="nebentext")
+        self.metadaten_ueberblick.setWordWrap(True)
+        self.metadaten_ueberblick.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        innen.addWidget(self.metadaten_ueberblick)
+
+        gitter = QGridLayout()
+        gitter.setColumnStretch(1, 1)
+        gitter.setVerticalSpacing(4)
+        self._angaben_fuellen = False         # Felder werden gerade aus der Sitzung gesetzt
+        self.angaben_felder: dict[str, QLineEdit | QPlainTextEdit] = {}
+        zeilen = [("titel", _("Titel"), None),
+                  ("beschreibung", _("Beschreibung"), None),
+                  ("stichwoerter", _("Stichwörter"), _("durch Komma getrennt")),
+                  ("urheber", _("Urheber"), None),
+                  ("copyright", _("Copyright"), _("etwa © 2026 Name")),
+                  ("stadt", _("Stadt"), None),
+                  ("region", _("Region"), _("Bundesland, Kanton …")),
+                  ("land", _("Land"), None),
+                  ("datum", _("Datum"), _("2024-05-17 14:30, 17.05.2024 oder 1965"))]
+        for nummer, (name, titel, platzhalter) in enumerate(zeilen):
+            beschriftung = QLabel()
+            self.fenster.beschriften(beschriftung.setText, titel)
+            if name == "beschreibung":
+                feld = QPlainTextEdit()
+                feld.setTabChangesFocus(True)
+                feld.setFixedHeight(feld.fontMetrics().lineSpacing() * 3 + 12)
+                feld.textChanged.connect(lambda n=name: self._angabe_bearbeitet(n))
+                gitter.addWidget(beschriftung, nummer, 0, Qt.AlignmentFlag.AlignTop)
+            else:
+                feld = QLineEdit()
+                feld.textEdited.connect(lambda _text, n=name: self._angabe_bearbeitet(n))
+                gitter.addWidget(beschriftung, nummer, 0)
+            if platzhalter:
+                self.fenster.beschriften(feld.setPlaceholderText, platzhalter)
+            gitter.addWidget(feld, nummer, 1)
+            self.angaben_felder[name] = feld
+        self.angaben_felder["datum"].editingFinished.connect(self._datum_fertig)
+        self.fenster.beschriften(self.angaben_felder["stichwoerter"].setToolTip, _(
+            "Mehrere Stichwörter durch Komma oder Semikolon trennen."))
+        self.fenster.beschriften(self.angaben_felder["urheber"].setToolTip, _(
+            "Mehrere Urheber durch Semikolon trennen."))
+        self.fenster.beschriften(self.angaben_felder["datum"].setToolTip, _(
+            "Aufnahmedatum. Bei alten Abzügen genügt das Jahr oder Jahr und Monat."))
+        beschriftung = QLabel()
+        self.fenster.beschriften(beschriftung.setText, _("Bewertung"))
+        self.bewertung_wahl = QComboBox()
+        self.bewertung_wahl.addItem("–", 0)
+        for sterne in range(1, metadaten.BEWERTUNG_MAX + 1):
+            self.bewertung_wahl.addItem("★" * sterne, sterne)
+        self.bewertung_wahl.currentIndexChanged.connect(
+            lambda *_args: self._angabe_bearbeitet("bewertung"))
+        gitter.addWidget(beschriftung, len(zeilen), 0)
+        gitter.addWidget(self.bewertung_wahl, len(zeilen), 1)
+        innen.addLayout(gitter)
+
+        self.vorgabe_box = QCheckBox()
+        self.fenster.beschriften(self.vorgabe_box.setText,
+                                 _("Urheber und Copyright in jedes Bild"))
+        self.fenster.beschriften(self.vorgabe_box.setToolTip, _(
+            "Merkt sich Urheber und Copyright von hier und trägt sie in jedes Bild ein, das "
+            "selbst keine hat. Gespeichert wird beides wie alles andere erst mit dem Bild."))
+        self.vorgabe_box.setChecked(bool(self._metadaten_vorgabe().get("an")))
+        self.vorgabe_box.toggled.connect(self._vorgabe_umgeschaltet)
+        innen.addWidget(self.vorgabe_box)
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.alle_metadaten_knopf = self._knopf(_("Alle Metadaten …"), self.metadaten_zeigen)
+        self.fenster.beschriften(self.alle_metadaten_knopf.setToolTip, _(
+            "Zeigt alles, was die Datei an EXIF, GPS, IPTC und XMP enthält."))
+        self.angaben_zurueck_knopf = self._knopf(_("Zurücksetzen"), self.angaben_zuruecksetzen)
+        self.fenster.beschriften(self.angaben_zurueck_knopf.setToolTip, _(
+            "Nimmt nur die Änderungen an den Metadaten zurück – Regler und Bild bleiben."))
+        leiste.addWidget(self.alle_metadaten_knopf, 1)
+        leiste.addWidget(self.angaben_zurueck_knopf, 1)
+        innen.addLayout(leiste)
+        return karte
+
+    def _metadaten_anzeigen(self):
+        if not hasattr(self, "angaben_felder"):
+            return
+        offen = self.sitzung is not None
+        angaben = self.sitzung.angaben if offen else metadaten.Angaben()
+        self._angaben_fuellen = True
+        try:
+            for name, feld in self.angaben_felder.items():
+                wert = getattr(angaben, name)
+                text = ", ".join(wert) if name == "stichwoerter" else str(wert)
+                if isinstance(feld, QPlainTextEdit):
+                    if feld.toPlainText() != text:
+                        feld.setPlainText(text)
+                elif feld.text() != text:
+                    feld.setText(text)
+                    feld.setCursorPosition(0)
+                feld.setEnabled(offen)
+            self._feld_markieren(self.angaben_felder["datum"], False)
+            self.bewertung_wahl.setCurrentIndex(max(0, self.bewertung_wahl.findData(
+                angaben.bewertung)))
+        finally:
+            self._angaben_fuellen = False
+        self.bewertung_wahl.setEnabled(offen)
+        self.alle_metadaten_knopf.setEnabled(offen)
+
+        if not offen:
+            self.fenster.beschriften(self.metadaten_hinweis.setText, _(
+                "Titel, Beschreibung, Urheber, Ort und mehr – geschrieben beim Speichern."))
+            self.metadaten_ueberblick.hide()
+        else:
+            formate = self.sitzung.vorgefunden.formate
+            if formate:
+                self.fenster.beschriften(self.metadaten_hinweis.setText, _(
+                    "In der Datei: {formate}. Änderungen werden beim Speichern geschrieben.")
+                    .format(formate=", ".join(formate)))
+            else:
+                self.fenster.beschriften(self.metadaten_hinweis.setText, _(
+                    "Die Datei enthält keine Metadaten. Angaben hier werden beim Speichern "
+                    "geschrieben."))
+            ueberblick = metadaten.ueberblick(self.sitzung.daten.exif)
+            self.metadaten_ueberblick.setText("<br>".join(
+                escape(text) for text in ueberblick.values()))
+            self.metadaten_ueberblick.setVisible(bool(ueberblick))
+        self._angaben_knoepfe()
+
+    def _angaben_knoepfe(self):
+        self.angaben_zurueck_knopf.setEnabled(
+            self.sitzung is not None
+            and self.sitzung.werte.angaben != self.sitzung.angaben_grundwerte())
+
+    def _feld_markieren(self, feld: QLineEdit, ungueltig: bool):
+        if bool(feld.property("ungueltig")) != ungueltig:
+            feld.setProperty("ungueltig", ungueltig)
+            feld.style().unpolish(feld)
+            feld.style().polish(feld)
+
+    def _angabe_bearbeitet(self, name: str):
+        if self.sitzung is None or self._angaben_fuellen:
+            return
+        feld = self.angaben_felder.get(name)
+        if name == "beschreibung":
+            wert = feld.toPlainText().strip()
+        elif name == "stichwoerter":
+            wert = metadaten.stichwoerter_lesen(feld.text())
+        elif name == "datum":
+            wert = metadaten.datum_lesen(feld.text())
+            self._feld_markieren(feld, wert is None)
+            if wert is None:
+                return                        # erst uebernehmen, wenn es ein Datum ist
+        elif name == "bewertung":
+            wert = self.bewertung_wahl.currentData()
+        else:
+            wert = feld.text().strip()
+        self.sitzung.angabe_setzen(name, wert)
+        if name in ("urheber", "copyright") and self.vorgabe_box.isChecked():
+            self._vorgabe_speichern()
+        self._angaben_knoepfe()
+
+    def _datum_fertig(self):
+        """Nach der Eingabe das Datum einheitlich zeigen - oder das gueltige zurueckholen."""
+        if self.sitzung is None:
+            return
+        feld = self.angaben_felder["datum"]
+        datum = self.sitzung.angaben.datum
+        if metadaten.datum_lesen(feld.text()) is None:
+            self.fenster.melden(_("Das Datum ist nicht lesbar – etwa 2024-05-17, 17.05.2024 "
+                                  "oder nur 1965."), fehler=True)
+        self._angaben_fuellen = True
+        feld.setText(datum)
+        self._angaben_fuellen = False
+        self._feld_markieren(feld, False)
+
+    def angaben_zuruecksetzen(self):
+        # Der Knopf schaltet sich gleich selbst ab; Qt gaebe den Fokus sonst an das
+        # naechste Element weiter und rollte die Reglerleiste dorthin
+        if self.angaben_zurueck_knopf.hasFocus():
+            self.alle_metadaten_knopf.setFocus(Qt.FocusReason.OtherFocusReason)
+        if self.sitzung is not None:
+            self.sitzung.werte.angaben = self.sitzung.angaben_grundwerte()
+        self._metadaten_anzeigen()
+
+    def metadaten_zeigen(self):
+        if self.sitzung is not None:
+            daten = self.sitzung.daten
+            MetadatenDialog(self, daten.name, daten.exif, daten.xmp, daten.iptc).exec()
+
+    def _metadaten_vorgabe(self) -> dict:
+        vorgabe = einstellungen.load_config().get("metadaten_vorgabe")
+        return vorgabe if isinstance(vorgabe, dict) else {}
+
+    def _vorgabe_werte(self) -> tuple[str, str]:
+        """Urheber und Copyright fuer jedes Bild - leer, wenn ausgeschaltet."""
+        vorgabe = self._metadaten_vorgabe()
+        if not vorgabe.get("an"):
+            return "", ""
+        return (str(vorgabe.get("urheber") or ""), str(vorgabe.get("copyright") or ""))
+
+    def _vorgabe_speichern(self):
+        daten = einstellungen.load_config()
+        vorgabe = {"an": self.vorgabe_box.isChecked()}
+        if self.sitzung is not None:
+            angaben = self.sitzung.angaben
+            vorgabe.update(urheber=angaben.urheber, copyright=angaben.copyright)
+        else:
+            alt = daten.get("metadaten_vorgabe")
+            alt = alt if isinstance(alt, dict) else {}
+            vorgabe.update(urheber=alt.get("urheber", ""), copyright=alt.get("copyright", ""))
+        daten["metadaten_vorgabe"] = vorgabe
+        einstellungen.save_config(daten)
+
+    def _vorgabe_umgeschaltet(self, _an: bool):
+        self._vorgabe_speichern()
+        if self.sitzung is not None:
+            self.sitzung.angaben_vorgeben(*self._vorgabe_werte())
+        self._metadaten_anzeigen()
+
     def _entfern_modell(self) -> ki.Modell:
         return ki.ENTFERN_MODELLE["lama"]
 
@@ -2297,6 +2527,7 @@ class BearbeitenSeite(QWidget):
         self._ki_bild_anzeigen()            # beschriftet auch Motiv, Entfernen, Tiefe, Erweitern
         self._anonym_anzeigen()
         self._objektiv_anzeigen()
+        self._metadaten_anzeigen()
 
     # ------------------------------------------------------------------
     # Regler und Vorschau
@@ -2345,14 +2576,16 @@ class BearbeitenSeite(QWidget):
         self.sitzung.tiefe_zeigen = self.tiefe_zeigen_box.isChecked() and not self._vorher
         if self.leinwand.zoom is None:
             bild, ms, histogramm = self.sitzung.vorschau(werte=werte,
-                                                         ohne_erweiterung=ohne_raender)
+                                                         ohne_erweiterung=ohne_raender,
+                                                         ohne_flicken=self._vorher)
             self.leinwand.zeigen(bild)
         else:
             bereich = self.leinwand.sichtbarer_bereich()
             if bereich is None:
                 return
             x0, y0, breite, hoehe = bereich
-            bild, ms, histogramm = self.sitzung.ausschnitt(x0, y0, breite, hoehe, werte)
+            bild, ms, histogramm = self.sitzung.ausschnitt(x0, y0, breite, hoehe, werte,
+                                                           ohne_flicken=self._vorher)
             self.leinwand.zeigen_ausschnitt(bild, x0, y0)
         self.kurven.histogramm_zeigen(histogramm)
         self.fenster.rechenzeit_zeigen(ms)
@@ -2372,7 +2605,12 @@ class BearbeitenSeite(QWidget):
             self.erweitern_box.setChecked(False)
         if self.sitzung is not None:
             self.sitzung.werte = self.sitzung.grundwerte()
+            # Auch entfernte Objekte gehoeren zu „alles“
+            self._klick_marken["entfernen"] = []
+            if self.sitzung.entfernungen_verwerfen() and self._klick_ziel is not None:
+                self.sitzung.ki_auswahl_beginnen(self._auswaehler, self._klick_ziel)
         self._alles_anzeigen()
+        self._entfernen_anzeigen()
         self.zeichnen_anfordern()
 
     def _alles_anzeigen(self):
@@ -2386,6 +2624,7 @@ class BearbeitenSeite(QWidget):
         self._ki_bild_anzeigen()
         self._anonym_anzeigen()
         self._objektiv_anzeigen()
+        self._metadaten_anzeigen()
         self._umrisse_setzen()
 
     # ------------------------------------------------------------------
@@ -2448,6 +2687,7 @@ class BearbeitenSeite(QWidget):
                 self.sitzung.schliessen()
                 self.sitzung = None
             self.sitzung = Sitzung(daten, self._vorschau_kante())
+            self.sitzung.angaben_vorgeben(*self._vorgabe_werte())
         except bilddatei.BildFehler as fehler:
             self._fehler(_("Die Datei lässt sich nicht öffnen."), str(fehler))
             return
