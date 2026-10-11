@@ -3,6 +3,45 @@
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/).
 
+## [0.5.0] – 2026-10-11
+
+### Neu
+
+- **Metadaten**: Eine neue Karte zeigt Kamera, Objektiv und Belichtung und
+  lässt Titel, Beschreibung, Stichwörter, Urheber, Copyright, Stadt, Region,
+  Land, Aufnahmedatum und Bewertung ändern – beim Datum genügt für alte Abzüge
+  auch nur das Jahr. Gelesen wird EXIF, IPTC und XMP, auch aus RAW; gibt es
+  eine Angabe mehrfach, gilt XMP vor IPTC vor EXIF. Geschrieben wird erst beim
+  Speichern, als XMP nach IPTC und wo möglich auch als EXIF. „Zurücksetzen“
+  nimmt die Änderungen mit zurück, „Zurücksetzen“ in der Karte nur diese.
+  „Alle Metadaten …“ zeigt den ganzen Inhalt der Datei, nur lesend und mit
+  Filter. Auf Wunsch trägt Silberkorn Urheber und Copyright in jedes Bild ein,
+  das selbst keine hat. „Fürs Netz …“ nimmt Titel, Beschreibung und
+  Stichwörter mit, Ort, Datum und Bewertung nur, wenn die Kameradaten bleiben.
+
+### Geändert
+
+- Das XMP der Datei bleibt beim Speichern erhalten. Drehung, Bildgröße und
+  Entwicklungseinstellungen anderer Programme (Lightroom, darktable) fallen
+  dabei weg, damit sie dort nicht ein zweites Mal wirken. Was nur im alten
+  IPTC-Block stand, wandert nach XMP.
+- „Ohne GPS und Seriennummern speichern“ bereinigt auch das XMP: Es behält dort
+  nur beschreibende Angaben, sodass auch GPS-Daten in Herstellerfeldern
+  wegfallen, etwa die von DJI-Drohnen.
+- „Zurücksetzen“ holt auch entfernte Objekte zurück und verwirft eine noch nicht
+  entfernte Markierung.
+
+### Behoben
+
+- RAW-Dateien wurden ohne EXIF gespeichert; jetzt kommen Kamera, Objektiv und
+  Belichtung mit.
+- Ein Bild mit Kameradaten ließ sich nicht als 8-Bit-TIFF speichern, und
+  16-Bit-TIFF wurde ohne EXIF geschrieben. Alle TIFFs tragen jetzt EXIF, GPS
+  (sofern nicht entfernt) und XMP.
+- Aus TIFF-Dateien gingen beim Öffnen die Objektivdaten verloren; Objektivprofile
+  werden jetzt auch für TIFFs gefunden.
+- „Vorher“ zeigt entfernte Objekte wieder, statt sie weiter auszublenden.
+
 ## [0.4.1] – 2026-10-10
 
 ### Geändert
@@ -351,6 +390,7 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Rechengenauigkeit (FP16, FP8 ab Ada, FP4 ab Blackwell).
 - Programmsymbol, Marken- und Lizenzhinweise (NOTICE).
 
+[0.5.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.5.0
 [0.4.1]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.4.1
 [0.4.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.4.0
 [0.3.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.3.0
