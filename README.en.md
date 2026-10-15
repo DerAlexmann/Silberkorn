@@ -165,6 +165,11 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   resolution – exactly what will be saved.
 - **Non-destructive**: every change is recomputed from the untouched original.
   Double-click resets a slider, "Before" shows the original while the button is held.
+- **Undo and redo** with ↶ ↷ or `Ctrl`+`Z` / `Ctrl`+`Y`: for sliders, curves, crop,
+  metadata and also AI steps such as denoising, a removed object or an extension – and
+  for "Reset". One drag of a slider is one step; the tooltip says what will be undone.
+  Superseded AI results take up at most a fifth of the video memory on top; older steps
+  are dropped for that.
 - **Fast**: the preview is computed at screen resolution in a few milliseconds; the
   computing time is shown in the status bar. Saving uses the full resolution.
 - **Colour-accurate**: processing happens in linear light with 32-bit floating point.
@@ -190,7 +195,8 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 | Key | Action |
 |---|---|
 | `Ctrl`+`O` | open an image (or drag a file onto the canvas) |
-| `Ctrl`+`S` | save as … – the original is never overwritten silently |
+| `Ctrl`+`S` | save … – always under a new name, the original is never overwritten silently |
+| `Ctrl`+`Z` / `Ctrl`+`Y` | undo / redo (also `Ctrl`+`Shift`+`Z`); while selecting by click, `Ctrl`+`Z` first undoes the clicks |
 | `Ctrl`+`0` / `Ctrl`+`1` | fit / 100 % |
 | mouse wheel, drag, double-click | zoom, pan, toggle between fit and 100 % |
 | `Enter` / `Esc` | apply / cancel crop |

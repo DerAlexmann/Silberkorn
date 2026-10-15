@@ -117,3 +117,50 @@ def test_angaben_zuruecksetzen_rollt_nicht(fenster, tmp_path, monkeypatch):
     finally:
         seite.schliessen()
         seite._knoepfe_freischalten()
+
+
+def test_rueckgaengig_und_wiederholen(fenster, tmp_path, monkeypatch):
+    """Ein Zug am Regler ist ein Schritt, festgehalten nach einer kurzen Pause; auch
+    „Zurücksetzen“ laesst sich zuruecknehmen."""
+    from PIL import Image
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    from silberkorn import bearbeiten_seite, einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "bild.jpg")
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert not seite.rueckgaengig_knopf.isEnabled()
+        assert not seite.wiederholen_knopf.isEnabled()
+        belichtung = seite.zeilen["belichtung"]
+        for stufe in (110, 120, 130):              # ein Zug in mehreren Bewegungen
+            belichtung.schieber.setValue(stufe)
+        QTest.qWait(bearbeiten_seite.VERLAUF_PAUSE_MS + 200)
+        assert seite.verlauf.kann_zurueck
+        assert "Belichtung" in seite.rueckgaengig_knopf.toolTip()
+        seite.zeilen["kontrast"].schieber.setValue(150)   # noch nicht festgehalten
+        QApplication.processEvents()
+        assert "Kontrast" in seite.rueckgaengig_knopf.toolTip()
+
+        seite.rueckgaengig()
+        assert seite.sitzung.werte.kontrast == 0 and seite.sitzung.werte.belichtung == 1.5
+        seite.rueckgaengig()
+        assert seite.sitzung.werte.belichtung == 0
+        assert belichtung.wert() == 0 and not seite.rueckgaengig_knopf.isEnabled()
+        seite.wiederholen()
+        assert seite.sitzung.werte.belichtung == 1.5 and belichtung.wert() == 1.5
+        assert "Kontrast" in seite.wiederholen_knopf.toolTip()
+
+        seite.alles_zuruecksetzen()
+        seite._festhalten(sofort=True)
+        assert seite.sitzung.werte.belichtung == 0
+        assert "Zurücksetzen" in seite.rueckgaengig_knopf.toolTip()
+        seite._strg_z()
+        assert seite.sitzung.werte.belichtung == 1.5 and belichtung.wert() == 1.5
+        assert seite.sitzung.geaendert
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()

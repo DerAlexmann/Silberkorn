@@ -50,6 +50,7 @@ from . import (
     lut,
     metadaten,
     objektivprofile,
+    verlauf,
     veroeffentlichen,
 )
 from .bearbeitung import Sitzung
@@ -62,6 +63,9 @@ from .uebersetzung import _
 from .veroeffentlichen_dialog import VeroeffentlichenDialog
 
 REGLERLEISTE_BREITE = 340
+VERLAUF_PAUSE_MS = 400        # so lange ohne Aenderung, dann wird der Stand festgehalten
+VERLAUF_ANTEIL = 0.2          # so viel Grafikspeicher darf der Verlauf zusaetzlich belegen
+VERLAUF_MINDESTENS = 256 * 2**20
 
 
 class Reglerleiste(QScrollArea):
@@ -329,6 +333,12 @@ class BearbeitenSeite(QWidget):
         self._maske_zeigen_vorher = False
         self._entferner: ki.Entferner | None = None
         self._pinsel_letzter = None           # letzter Pinselpunkt im Original
+        self.verlauf = verlauf.Verlauf(0)
+        self._schritt_name = ""               # benennt die naechste Aenderung, wenn noetig
+        # Eine Aenderung wird erst festgehalten, wenn eine Weile nichts mehr kommt - ein
+        # Zug am Regler ist ein Schritt, nicht hundert
+        self._verlauf_uhr = QTimer(self, singleShot=True, interval=VERLAUF_PAUSE_MS)
+        self._verlauf_uhr.timeout.connect(self._festhalten)
 
         aufbau = QHBoxLayout(self)
         aufbau.setContentsMargins(0, 12, 0, 0)
@@ -355,7 +365,9 @@ class BearbeitenSeite(QWidget):
         QShortcut(QKeySequence("Ctrl+1"), self, lambda: self.leinwand.zoom_setzen(1.0))
         QShortcut(QKeySequence(Qt.Key.Key_Return), self, lambda: self.zuschneiden(False))
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self._abbrechen)
-        QShortcut(QKeySequence.StandardKey.Undo, self, self.klick_zuruecknehmen)
+        QShortcut(QKeySequence.StandardKey.Undo, self, self._strg_z)
+        QShortcut(QKeySequence("Ctrl+Y"), self, self.wiederholen)
+        QShortcut(QKeySequence("Ctrl+Shift+Z"), self, self.wiederholen)
         self._knoepfe_freischalten()
 
     # ------------------------------------------------------------------
@@ -392,7 +404,10 @@ class BearbeitenSeite(QWidget):
         leiste = QHBoxLayout()
         leiste.setSpacing(8)
         leiste.addWidget(self._knopf(_("Öffnen …"), self.oeffnen_dialog, "hauptschalter"))
-        self.speichern_knopf = self._knopf(_("Speichern unter …"), self.speichern_dialog)
+        self.speichern_knopf = self._knopf(_("Speichern …"), self.speichern_dialog)
+        self.fenster.beschriften(self.speichern_knopf.setToolTip, _(
+            "Speichert das bearbeitete Bild unter einem neuen Namen (Strg+S) – das Original "
+            "wird nie überschrieben."))
         leiste.addWidget(self.speichern_knopf)
         # Kurze Beschriftungen, damit das Fenster auch auf Bildschirmen um 1100 Pixel
         # Breite passt - die Tooltips sagen, was genau geschieht
@@ -417,7 +432,7 @@ class BearbeitenSeite(QWidget):
         leiste.addWidget(self.einpassen_knopf)
         leiste.addWidget(self.zoom100_knopf)
         leiste.addWidget(self.zoom_anzeige)
-        leiste.addSpacing(12)
+        leiste.addSpacing(6)
         self.vorher_knopf = self._knopf(_("Vorher"), None)
         self.fenster.beschriften(self.vorher_knopf.setToolTip,
                                  _("Gedrückt halten, um das unbearbeitete Bild zu sehen."))
@@ -427,8 +442,16 @@ class BearbeitenSeite(QWidget):
         self.zuruecksetzen_knopf = self._knopf(_("Zurücksetzen"), self.alles_zuruecksetzen)
         self.fenster.beschriften(self.zuruecksetzen_knopf.setToolTip, _(
             "Setzt alle Regler, Drehung, Zuschnitt und geänderte Metadaten zurück, holt "
-            "entfernte Objekte zurück und verwirft eine KI-Erweiterung."))
+            "entfernte Objekte zurück und verwirft eine KI-Erweiterung. Lässt sich mit "
+            "„Rückgängig“ zurücknehmen."))
+        self.rueckgaengig_knopf = self._knopf("↶", self.rueckgaengig, "verlauf")
+        self.wiederholen_knopf = self._knopf("↷", self.wiederholen, "verlauf")
         leiste.addWidget(self.zuruecksetzen_knopf)
+        paar = QHBoxLayout()
+        paar.setSpacing(2)
+        paar.addWidget(self.rueckgaengig_knopf)
+        paar.addWidget(self.wiederholen_knopf)
+        leiste.addLayout(paar)
         return leiste
 
     def _reglerleiste(self) -> QScrollArea:
@@ -1878,6 +1901,7 @@ class BearbeitenSeite(QWidget):
     def _metadaten_umgeschaltet(self, an: bool):
         if self.sitzung is not None:
             self.sitzung.werte.metadaten_entfernen = an
+            self._aenderung_merken()
 
     # ------------------------------------------------------------------
     # Metadaten: Titel, Urheber, Ort ... - geschrieben erst beim Speichern
@@ -2043,6 +2067,7 @@ class BearbeitenSeite(QWidget):
         if name in ("urheber", "copyright") and self.vorgabe_box.isChecked():
             self._vorgabe_speichern()
         self._angaben_knoepfe()
+        self._aenderung_merken()
 
     def _datum_fertig(self):
         """Nach der Eingabe das Datum einheitlich zeigen - oder das gueltige zurueckholen."""
@@ -2066,6 +2091,7 @@ class BearbeitenSeite(QWidget):
         if self.sitzung is not None:
             self.sitzung.werte.angaben = self.sitzung.angaben_grundwerte()
         self._metadaten_anzeigen()
+        self._aenderung_merken()
 
     def metadaten_zeigen(self):
         if self.sitzung is not None:
@@ -2101,6 +2127,7 @@ class BearbeitenSeite(QWidget):
         if self.sitzung is not None:
             self.sitzung.angaben_vorgeben(*self._vorgabe_werte())
         self._metadaten_anzeigen()
+        self._aenderung_merken()
 
     def _entfern_modell(self) -> ki.Modell:
         return ki.ENTFERN_MODELLE["lama"]
@@ -2528,6 +2555,7 @@ class BearbeitenSeite(QWidget):
         self._anonym_anzeigen()
         self._objektiv_anzeigen()
         self._metadaten_anzeigen()
+        self._verlauf_anzeigen()
 
     # ------------------------------------------------------------------
     # Regler und Vorschau
@@ -2546,6 +2574,7 @@ class BearbeitenSeite(QWidget):
 
     def zeichnen_anfordern(self):
         """Faellt bei schnellem Ziehen mehrere Aenderungen in ein Neuzeichnen zusammen."""
+        self._aenderung_merken()
         if not self._zeichnen_angefordert:
             self._zeichnen_angefordert = True
             QTimer.singleShot(0, self._zeichnen)
@@ -2591,6 +2620,7 @@ class BearbeitenSeite(QWidget):
         self.fenster.rechenzeit_zeigen(ms)
         self._ki_anzeigen()
         self._ki_bild_anzeigen()
+        self._verlauf_anzeigen()
         zoom = self.leinwand.zoom
         self.zoom_anzeige.setText("" if zoom is None else f"{zoom * 100:.0f} %")
 
@@ -2600,6 +2630,8 @@ class BearbeitenSeite(QWidget):
 
     def alles_zuruecksetzen(self):
         self.zuschnitt_abbrechen()
+        self._festhalten(sofort=True)             # eine eben gemachte Aenderung zuerst
+        self._schritt_name = "zuruecksetzen"
         if self.erweitern_box.isChecked():
             # Auch die KI-Erweiterung gehoert zu „alles“: Abwaehlen verwirft sie
             self.erweitern_box.setChecked(False)
@@ -2626,6 +2658,168 @@ class BearbeitenSeite(QWidget):
         self._objektiv_anzeigen()
         self._metadaten_anzeigen()
         self._umrisse_setzen()
+
+    # ------------------------------------------------------------------
+    # Verlauf: Rueckgaengig und Wiederholen
+    # ------------------------------------------------------------------
+
+    def _verlauf_beginnen(self):
+        """Neues Bild: der Verlauf beginnt mit seinem Stand. Er darf hoechstens einen Teil
+        des Grafikspeichers zusaetzlich belegen."""
+        self._verlauf_uhr.stop()
+        self._schritt_name = ""
+        budget = max(VERLAUF_MINDESTENS, int(self._vram() * VERLAUF_ANTEIL))
+        self.verlauf = verlauf.Verlauf(budget)
+        if self.sitzung is not None:
+            self.verlauf.beginnen(self.sitzung.stand())
+        self._verlauf_anzeigen()
+
+    def _aenderung_merken(self):
+        if self.sitzung is not None:
+            self._verlauf_uhr.start()             # beginnt bei jeder Aenderung von vorn
+
+    def _festhalten(self, sofort: bool = False):
+        """Den Stand der Sitzung in den Verlauf - nicht, solange eine Maus noch zieht oder
+        die Maske per Klick entsteht: Die Klicks nimmt Strg+Z einzeln zurueck, im
+        Verlauf zaehlt die fertige Auswahl als ein Schritt."""
+        if self.sitzung is None:
+            return
+        if not sofort and (self._klick_ziel == "maske"
+                           or QApplication.mouseButtons() != Qt.MouseButton.NoButton):
+            self._verlauf_uhr.start()
+            return
+        self._verlauf_uhr.stop()
+        self.verlauf.festhalten(self.sitzung.stand(), self._schritt_name)
+        self._schritt_name = ""
+        self._verlauf_anzeigen()
+
+    def _strg_z(self):
+        """Strg+Z nimmt bei der Auswahl per Klick zuerst die Klicks zurueck, danach den Verlauf."""
+        ziel = self._klick_ziel
+        if (ziel in ("maske", "entfernen") and self.sitzung is not None
+                and self.sitzung.klicks_von(ziel)):
+            self.klick_zuruecknehmen()
+        else:
+            self.rueckgaengig()
+
+    def rueckgaengig(self):
+        self._im_verlauf_gehen(zurueck=True)
+
+    def wiederholen(self):
+        self._im_verlauf_gehen(zurueck=False)
+
+    def _im_verlauf_gehen(self, zurueck: bool):
+        if self.sitzung is None:
+            return
+        # Zuschnitt und Klickauswahl zuerst beenden, damit Rahmen und Werte zusammenpassen
+        self.zuschnitt_abbrechen()
+        self.auswahl_beenden()
+        self._festhalten(sofort=True)             # eine eben gemachte Aenderung zuerst
+        schritt = self.verlauf.schritt_zurueck() if zurueck else self.verlauf.schritt_vor()
+        if schritt is None:
+            return
+        text = self._schritt_text(*schritt)
+        stand = self.verlauf.zurueck() if zurueck else self.verlauf.vor()
+        teile_vorher, teile = dict(self.sitzung.stand().teile), dict(stand.teile)
+        self.sitzung.stand_setzen(stand)
+        if teile["maske"][0] is not teile_vorher["maske"][0]:
+            self._klick_marken["maske"] = []
+        if teile["erweiterung"] is not teile_vorher["erweiterung"]:
+            # Die Klickmarken lagen im alten Format
+            self._klick_marken = {"maske": [], "entfernen": []}
+        if self.sitzung.erweitert and not self.erweitern_box.isChecked():
+            self.erweitern_box.blockSignals(True)  # Abwaehlen verwuerfe die Erweiterung
+            self.erweitern_box.setChecked(True)
+            self.erweitern_box.blockSignals(False)
+        self.leinwand.flaeche_gewaehlt = None
+        self._alles_anzeigen()
+        self._entfernen_anzeigen()
+        self._erweitern_anzeigen()
+        self._verlauf_anzeigen()
+        self.fenster.melden((_("Rückgängig: {schritt}") if zurueck else
+                             _("Wiederholt: {schritt}")).format(schritt=text))
+        self.zeichnen_anfordern()
+
+    def _verlauf_anzeigen(self):
+        if not hasattr(self, "rueckgaengig_knopf"):
+            return
+        offen = self.sitzung is not None
+        zurueck = vor = None
+        if offen and self.verlauf.aktuell is not None:
+            jetzt = self.sitzung.stand()
+            if not verlauf.gleich(jetzt, self.verlauf.aktuell):
+                # Noch nicht festgehalten: Rueckgaengig nimmt sie zurueck, Wiederholen
+                # gibt es danach nicht mehr
+                zurueck = (self.verlauf.aktuell, jetzt, self._schritt_name)
+            else:
+                zurueck = self.verlauf.schritt_zurueck()
+                vor = self.verlauf.schritt_vor()
+        self.rueckgaengig_knopf.setEnabled(zurueck is not None)
+        self.wiederholen_knopf.setEnabled(vor is not None)
+        if zurueck is None:
+            text = _("Rückgängig (Strg+Z)")
+        else:
+            text = _("Rückgängig: {schritt} (Strg+Z)").format(schritt=self._schritt_text(*zurueck))
+        self.fenster.beschriften(self.rueckgaengig_knopf.setToolTip, text)
+        if vor is None:
+            text = _("Wiederholen (Strg+Y)")
+        else:
+            text = _("Wiederholen: {schritt} (Strg+Y)").format(schritt=self._schritt_text(*vor))
+        self.fenster.beschriften(self.wiederholen_knopf.setToolTip, text)
+
+    def _schritt_text(self, vorher: verlauf.Stand, nachher: verlauf.Stand, name: str) -> str:
+        """Was ein Schritt geaendert hat, in wenigen Worten - fuer Tooltip und Meldung."""
+        if name == "zuruecksetzen":
+            return _("Zurücksetzen")
+        teile = dict(vorher.teile), dict(nachher.teile)
+        felder = verlauf.unterschied(vorher, nachher)
+        # Eine KI-Berechnung sagt mehr als der Regler, den sie dabei mitstellt - das
+        # Erweitern auch mehr als der Zuschnitt, den es aufhebt
+        ki_felder = [feld for feld in felder if feld in teile[0]]
+        still = {self._aenderung_text(feld, *teile)[1] for feld in ki_felder}
+        if "erweiterung" in ki_felder:
+            still |= {"zuschnitt", "objektivprofil"}
+        texte = []
+        for feld in felder:
+            text, gruppe = self._aenderung_text(feld, *teile)
+            if feld not in ki_felder and gruppe in still:
+                continue
+            if text not in texte:
+                texte.append(text)
+        if not texte:
+            return _("Änderung")
+        return ", ".join(texte) if len(texte) <= 2 else _("mehrere Änderungen")
+
+    @staticmethod
+    def _aenderung_text(feld: str, teile_vorher: dict, teile_nachher: dict) -> tuple[str, str]:
+        """(Text, Gruppe) fuer ein geaendertes Feld der Werte oder ein KI-Ergebnis."""
+        regler = filter.REGLER_NACH_NAME.get(feld)
+        if regler is not None:
+            titel = regler_titel(feld)
+            if regler.gruppe in ("rauschen", "ki_rauschen", "ki_schaerfe", "ki_farbe", "maske",
+                                 "tiefe", "lut"):
+                titel = f"{gruppen_titel(regler.gruppe)}: {titel}"
+            return titel, regler.gruppe
+        if feld == "flicken":
+            mehr = len(teile_nachher[feld]) - len(teile_vorher[feld])
+            if mehr > 0:
+                return _("Objekt entfernt"), "flicken"
+            return (_("Entferntes Objekt zurückgeholt") if mehr == -1 else
+                    _("Entfernte Objekte zurückgeholt")), "flicken"
+        gruppe = {"ki_entrauscht": "ki_rauschen", "ki_geschaerft": "ki_schaerfe",
+                  "ki_koloriert": "ki_farbe", "maske_umkehren": "maske", "freistellen": "maske",
+                  "bokeh_motiv": "tiefe", "erweiterung": "geometrie",
+                  **dict.fromkeys(filter.KURVEN, "kurven"),
+                  **dict.fromkeys(filter.HSL, "hsl"),
+                  **dict.fromkeys(filter.ANONYM_FELDER, "anonym")}.get(feld, feld)
+        if gruppe in ("ki_rauschen", "ki_schaerfe", "ki_farbe", "maske", "tiefe"):
+            return gruppen_titel(gruppe), gruppe
+        texte = {"kurven": _("Gradationskurve"), "hsl": _("Farbbereiche"), "lut": _("LUT"),
+                 "anonym": _("Anonymisieren"), "angaben": _("Metadaten"),
+                 "drehung90": _("Drehen"), "spiegeln": _("Spiegeln"),
+                 "zuschnitt": _("Zuschnitt"), "objektivprofil": _("Objektivprofil"),
+                 "geometrie": _("KI-Erweitern")}
+        return texte.get(gruppe, feld), gruppe
 
     # ------------------------------------------------------------------
     # Oeffnen und Speichern
@@ -2684,8 +2878,10 @@ class BearbeitenSeite(QWidget):
         try:
             daten = bilddatei.laden(pfad, raw_qualitaet=einstellungen.raw_qualitaet())
             if self.sitzung is not None:
+                self.verlauf.leeren()             # haelt sonst Grafikspeicher des alten Bildes
                 self.sitzung.schliessen()
                 self.sitzung = None
+                self._verlauf_anzeigen()
             self.sitzung = Sitzung(daten, self._vorschau_kante())
             self.sitzung.angaben_vorgeben(*self._vorgabe_werte())
         except bilddatei.BildFehler as fehler:
@@ -2703,6 +2899,7 @@ class BearbeitenSeite(QWidget):
         self.leinwand.zoom = None
         self._alles_anzeigen()
         self._knoepfe_freischalten()
+        self._verlauf_beginnen()
         self.fenster.melden(_("{name} geöffnet – {breite} × {hoehe} Pixel, {art}")
                             .format(name=daten.name, breite=daten.breite, hoehe=daten.hoehe,
                                     art=art_anzeige(daten)))
@@ -2849,6 +3046,7 @@ class BearbeitenSeite(QWidget):
         return max(1024, min(4096, max(groesse.width(), groesse.height())))
 
     def schliessen(self):
+        self.verlauf.leeren()
         if self.sitzung is not None:
             self.sitzung.schliessen()
             self.sitzung = None
