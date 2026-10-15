@@ -1028,6 +1028,28 @@ class Sitzung:
         self._flicken_gespeichert = self._flicken_stand
         return (time.perf_counter() - beginn) * 1000
 
+    def druckbild(self, ki_auftrag=None, fortschritt=None) -> np.ndarray:
+        """Das fertige Bild fuer den Drucker: sRGB mit 8 Bit, Durchsichtiges auf Weiss.
+        ki_auftrag wie bei exportieren(). Gilt nicht als Speichern."""
+        if ki_auftrag is None:
+            rgb = cp.asnumpy(self._rendern(self.werte, True, None, bits=8))
+            faktor = 1
+        else:
+            hochskalierer, faktor, kachel = ki_auftrag
+            fertig = self._rendern(self.werte, True, None, bits=16)
+            srgb = fertig.astype(cp.float32) / 65535
+            del fertig
+            cp.get_default_memory_pool().free_all_blocks()
+            rgb = hochskalierer.hochskalieren(srgb, faktor, kachel, 8, fortschritt)
+            del srgb
+        cp.get_default_memory_pool().free_all_blocks()
+        alpha = self._alpha_gesamt(faktor)
+        if alpha is None:
+            return rgb
+        hoechst = 65535.0 if alpha.dtype == np.uint16 else 255.0
+        deckung = alpha.astype(np.float32)[..., None] / hoechst
+        return (rgb * deckung + 255.0 * (1 - deckung) + 0.5).astype(np.uint8)
+
     @property
     def ki_inhalt(self) -> bool:
         """Enthaelt das Bild von der KI erfundene Teile (Erweitern, Objekte entfernen,

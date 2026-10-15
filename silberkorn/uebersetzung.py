@@ -208,6 +208,48 @@ TRANSLATIONS = {
         "„Rückgängig“ zurücknehmen.":
             "Resets all sliders, rotation, crop and changed metadata, brings back removed "
             "objects and discards an AI extension. Can be undone with “Undo”.",
+        # Drucken
+        "Drucken (Strg+P): Drucker, Papier und Bildgröße wählen, mit Vorschau auf dem "
+        "Blatt. Gedruckt wird das bearbeitete Bild in voller Auflösung.":
+            "Print (Ctrl+P): choose printer, paper and image size, with a preview of the "
+            "sheet. The edited image is printed at full resolution.",
+        "Drucken": "Print",
+        "Drucker": "Printer",
+        "Papier": "Paper",
+        "Bildgröße": "Image size",
+        "Seite füllen": "Fill the page",
+        "Eigene Größe": "Custom size",
+        "Bild": "Image",
+        "Ganz zeigen": "Show all of it",
+        "Fläche füllen (beschneidet)": "Fill the area (crops)",
+        "Rand": "Margin",
+        "Randlos": "Borderless",
+        "Weißer Rand zusätzlich zu dem, den der Drucker braucht.":
+            "White margin on top of the one the printer needs.",
+        "Bis an die Kante drucken – nur, wenn Drucker und Papier das können. Sonst fehlt "
+        "am Rand etwas.":
+            "Print up to the edge – only if printer and paper support it. Otherwise "
+            "something is missing at the edge.",
+        "Exemplare": "Copies",
+        "Rechnet das Bild vor dem Drucken mit dem Modell aus der Karte „KI-Hochskalieren“ "
+        "größer – feine Details wirken dann schärfer.":
+            "Enlarges the image before printing with the model from the “AI upscaling” "
+            "card – fine details then look sharper.",
+        "Vorher mit KI hochskalieren ({faktor} ×)": "Upscale with AI first ({faktor} ×)",
+        "Auf dem Papier: {breite} × {hoehe} · {dpi} dpi":
+            "On paper: {breite} × {hoehe} · {dpi} dpi",
+        "Kein Drucker gefunden.": "No printer found.",
+        "Die Bildgröße passt nicht aufs Papier – verkleinert.":
+            "The image size does not fit on the paper – reduced.",
+        "Für diese Größe hat das Bild wenig Pixel – der Druck kann weich wirken.":
+            "The image has few pixels for this size – the print may look soft.",
+        "Mit einem geladenen Modell der Karte „KI-Hochskalieren“ ließe es sich vorher "
+        "vergrößern.":
+            "With a downloaded model from the “AI upscaling” card it could be enlarged "
+            "first.",
+        "Drucken abgebrochen.": "Printing cancelled.",
+        "Das Bild ließ sich nicht drucken.": "The image could not be printed.",
+        "An {drucker} gesendet.": "Sent to {drucker}.",
         # Verlauf: Rueckgaengig und Wiederholen
         "Rückgängig (Strg+Z)": "Undo (Ctrl+Z)",
         "Rückgängig: {schritt} (Strg+Z)": "Undo: {schritt} (Ctrl+Z)",
