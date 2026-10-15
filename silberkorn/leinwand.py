@@ -484,6 +484,22 @@ class Leinwand(QFrame):
             for farbe, breite in ((QColor(0, 0, 0, 160), 3), (QColor(255, 255, 255), 1)):
                 maler.setPen(QPen(farbe, breite))
                 maler.drawEllipse(self._maus, self.pinsel_radius, self.pinsel_radius)
+        if self.zoom is not None:
+            self._zoom_zeichnen(maler)
+
+    def _zoom_zeichnen(self, maler: QPainter):
+        """Die Vergroesserung oben rechts im Bild - nur, solange gezoomt ist."""
+        text = f"{self.zoom * 100:.0f} %"
+        breite = maler.fontMetrics().horizontalAdvance(text) + 14
+        hoehe = maler.fontMetrics().height() + 6
+        flaeche = self._flaeche()
+        feld = QRectF(flaeche.right() - breite - 8, flaeche.top() + 8, breite, hoehe)
+        maler.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        maler.setPen(Qt.PenStyle.NoPen)
+        maler.setBrush(QColor(0, 0, 0, 150))
+        maler.drawRoundedRect(feld, 6, 6)
+        maler.setPen(QColor(255, 255, 255))
+        maler.drawText(feld, Qt.AlignmentFlag.AlignCenter, text)
 
     def leaveEvent(self, ereignis):                   # noqa: N802 - Qt-Name
         super().leaveEvent(ereignis)

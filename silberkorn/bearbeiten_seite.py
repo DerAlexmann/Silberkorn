@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 from . import (
     anonym,
     bilddatei,
+    drucken,
     einstellungen,
     filter,
     geometrie,
@@ -55,6 +56,7 @@ from . import (
 )
 from .bearbeitung import Sitzung
 from .cuda import cupy as cp
+from .drucken_dialog import DruckenDialog
 from .geometrie import VOLLER_ZUSCHNITT
 from .kurveneditor import KurvenEditor
 from .leinwand import Leinwand, rahmen_mit_verhaeltnis
@@ -361,6 +363,7 @@ class BearbeitenSeite(QWidget):
 
         QShortcut(QKeySequence.StandardKey.Open, self, self.oeffnen_dialog)
         QShortcut(QKeySequence.StandardKey.Save, self, self.speichern_dialog)
+        QShortcut(QKeySequence.StandardKey.Print, self, self.drucken_dialog)
         QShortcut(QKeySequence("Ctrl+0"), self, lambda: self.leinwand.zoom_setzen(None))
         QShortcut(QKeySequence("Ctrl+1"), self, lambda: self.leinwand.zoom_setzen(1.0))
         QShortcut(QKeySequence(Qt.Key.Key_Return), self, lambda: self.zuschneiden(False))
@@ -416,6 +419,11 @@ class BearbeitenSeite(QWidget):
             "Verkleinert, mit Wasserzeichen und Rechteangaben speichern – etwa für Bilder "
             "im Netz. Das Original bleibt unverändert."))
         leiste.addWidget(self.veroeffentlichen_knopf)
+        self.drucken_knopf = self._knopf("🖶", self.drucken_dialog, "zoomsymbol")
+        self.fenster.beschriften(self.drucken_knopf.setToolTip, _(
+            "Drucken (Strg+P): Drucker, Papier und Bildgröße wählen, mit Vorschau auf dem "
+            "Blatt. Gedruckt wird das bearbeitete Bild in voller Auflösung."))
+        leiste.addWidget(self.drucken_knopf)
         leiste.addStretch(1)
         self.einpassen_knopf = self._knopf("⤢", lambda: self.leinwand.zoom_setzen(None),
                                            "zoomsymbol")
@@ -425,13 +433,8 @@ class BearbeitenSeite(QWidget):
         self.fenster.beschriften(self.zoom100_knopf.setToolTip, _(
             "100 %: ein Bildpixel je Bildschirmpixel (Strg+1). Mausrad zoomt, Ziehen "
             "verschiebt, Doppelklick wechselt."))
-        self.zoom_anzeige = QLabel(objectName="nebentext")
-        # Platz fuer „400 %“ von Anfang an, sonst wird das Fenster beim Zoomen breiter
-        self.zoom_anzeige.setMinimumWidth(self.zoom_anzeige.fontMetrics().horizontalAdvance(
-            "400 %") + 4)
         leiste.addWidget(self.einpassen_knopf)
         leiste.addWidget(self.zoom100_knopf)
-        leiste.addWidget(self.zoom_anzeige)
         leiste.addSpacing(6)
         self.vorher_knopf = self._knopf(_("Vorher"), None)
         self.fenster.beschriften(self.vorher_knopf.setToolTip,
@@ -1069,9 +1072,11 @@ class BearbeitenSeite(QWidget):
             self._ki_bild_anzeigen()
         self.fenster.melden(_("KI-Modell geladen: {ordner}").format(ordner=ziel))
 
-    def _ki_auftrag(self):
-        """(Hochskalierer, Faktor, Kachel) fuer den Export - oder None, wenn KI aus ist."""
-        faktor = self.ki_faktor.currentData()
+    def _ki_auftrag(self, faktor: int | None = None):
+        """(Hochskalierer, Faktor, Kachel) fuer den Export - oder None, wenn KI aus ist.
+        faktor: statt des Faktors der Karte (fuers Drucken)."""
+        if faktor is None:
+            faktor = self.ki_faktor.currentData()
         if not faktor:
             return None
         modell, stufe = self._ki_modell(), self._ki_stufe()
@@ -2536,8 +2541,8 @@ class BearbeitenSeite(QWidget):
 
     def _knoepfe_freischalten(self):
         offen = self.sitzung is not None
-        for widget in (self.speichern_knopf, self.veroeffentlichen_knopf, self.vorher_knopf,
-                       self.zuruecksetzen_knopf):
+        for widget in (self.speichern_knopf, self.veroeffentlichen_knopf, self.drucken_knopf,
+                       self.vorher_knopf, self.zuruecksetzen_knopf):
             widget.setEnabled(offen)
         for zeile in [*self.zeilen.values(), *self.hsl_zeilen]:
             zeile.schieber.setEnabled(offen)
@@ -2621,8 +2626,6 @@ class BearbeitenSeite(QWidget):
         self._ki_anzeigen()
         self._ki_bild_anzeigen()
         self._verlauf_anzeigen()
-        zoom = self.leinwand.zoom
-        self.zoom_anzeige.setText("" if zoom is None else f"{zoom * 100:.0f} %")
 
     def _vorher_zeigen(self, an: bool):
         self._vorher = an
@@ -3030,6 +3033,65 @@ class BearbeitenSeite(QWidget):
                               "Pixel ({ms} ms)").format(name=os.path.basename(pfad),
                                                         breite=breite, hoehe=hoehe,
                                                         ms=f"{ms:.0f}"))
+
+    def drucken_dialog(self):
+        if self.sitzung is None:
+            return
+        sitzung = self.sitzung
+        zeigen = sitzung.maske_zeigen, sitzung.tiefe_zeigen
+        sitzung.maske_zeigen = sitzung.tiefe_zeigen = False
+        try:
+            vorschau, _ms, _histogramm = sitzung.vorschau()
+        finally:
+            sitzung.maske_zeigen, sitzung.tiefe_zeigen = zeigen
+        daten = einstellungen.load_config()
+        vorgaben = drucken.Vorgaben.aus_dict(daten.get("drucken"))
+        modell = self._ki_modell()
+        ki_moeglich = ki.angeboten(modell, self._ki_stufe()) and ki.vorhanden(modell)
+        dialog = DruckenDialog(self, vorschau, sitzung.ausgabe_form(), vorgaben, ki_moeglich)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        daten = einstellungen.load_config()
+        daten["drucken"] = dialog.vorgaben().als_dict()
+        einstellungen.save_config(daten)
+        drucker, platz, faktor = dialog.drucker(), dialog.platz(), dialog.ki_faktor()
+        if drucker is None:
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        anzeige = None
+        try:
+            fortschritt = None
+            auftrag = self._ki_auftrag(faktor) if faktor else None
+            if auftrag is not None:
+                anzeige = QProgressDialog(_("KI vergrößert das Bild …"), _("Abbrechen"),
+                                          0, 100, self)
+                anzeige.setWindowTitle(self.fenster.windowTitle())
+                anzeige.setWindowModality(Qt.WindowModality.WindowModal)
+                anzeige.setMinimumDuration(0)
+
+                def fortschritt(nummer, anzahl):
+                    anzeige.setValue(round(100 * nummer / anzahl))
+                    QApplication.processEvents()
+                    return not anzeige.wasCanceled()
+            rgb = sitzung.druckbild(auftrag, fortschritt)
+            drucken.drucken(drucker, rgb, platz, faktor or 1)
+        except ki.KiAbbruch:
+            self.fenster.melden(_("Drucken abgebrochen."))
+            return
+        except ki.KiFehler as fehler:
+            self._fehler(_("Die KI-Vergrößerung ist fehlgeschlagen."), str(fehler))
+            return
+        except OSError as fehler:
+            self._fehler(_("Das Bild ließ sich nicht drucken."), str(fehler))
+            return
+        except cp.cuda.memory.OutOfMemoryError:
+            self._fehler(_("Für dieses Bild reicht der Grafikspeicher nicht."), "")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            if anzeige is not None:
+                anzeige.close()
+        self.fenster.melden(_("An {drucker} gesendet.").format(drucker=drucker.printerName()))
 
     def _fehler(self, text: str, einzelheiten: str):
         box = QMessageBox(QMessageBox.Icon.Warning, self.fenster.windowTitle(), text,

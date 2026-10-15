@@ -143,6 +143,13 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   stays unchanged. Copying published images cannot be prevented entirely – but the
   watermark and rights information make it unattractive and show where an image came
   from.
+- **Print** (🖶 or `Ctrl`+`P`): choose printer and paper, fit the image to the whole page
+  or to 9 × 13, 10 × 15, 13 × 18, 20 × 30 cm or a custom size – shown in full or filling
+  the area and cropped, with a margin or borderless. A preview shows the sheet, along
+  with the resolution on paper. If it is low, the dialog offers to enlarge the image with
+  AI first. The edited image is printed at full resolution as sRGB; colour matching is
+  left to the printer driver. By default the dialog picks 10 × 15 cm paper if the printer
+  knows it.
 - **Geometry**: rotate by 90°, flip, straighten, vertical and horizontal perspective, crop
   with a frame and fixed aspect ratios. Empty corners after straightening are cropped
   away automatically.
@@ -162,7 +169,8 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   optional [TensorRT](#tensorrt-optional) makes it about twice as fast again.
 - **100 % view**: zoom to 100, 200 and 400 % with the mouse wheel, pan by dragging,
   double-click toggles between fit and 100 %. It shows a part of the image at full
-  resolution – exactly what will be saved.
+  resolution – exactly what will be saved. The zoom level is shown at the top right of
+  the image.
 - **Non-destructive**: every change is recomputed from the untouched original.
   Double-click resets a slider, "Before" shows the original while the button is held.
 - **Undo and redo** with ↶ ↷ or `Ctrl`+`Z` / `Ctrl`+`Y`: for sliders, curves, crop,
@@ -196,6 +204,7 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 |---|---|
 | `Ctrl`+`O` | open an image (or drag a file onto the canvas) |
 | `Ctrl`+`S` | save … – always under a new name, the original is never overwritten silently |
+| `Ctrl`+`P` | print … |
 | `Ctrl`+`Z` / `Ctrl`+`Y` | undo / redo (also `Ctrl`+`Shift`+`Z`); while selecting by click, `Ctrl`+`Z` first undoes the clicks |
 | `Ctrl`+`0` / `Ctrl`+`1` | fit / 100 % |
 | mouse wheel, drag, double-click | zoom, pan, toggle between fit and 100 % |

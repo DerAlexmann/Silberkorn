@@ -162,6 +162,14 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Ganz verhindern lässt sich das Kopieren veröffentlichter Bilder nicht – das
   Wasserzeichen und die Rechteangaben machen es aber unattraktiv und belegen,
   woher ein Bild stammt.
+- **Drucken** (🖶 oder `Strg`+`P`): Drucker und Papier wählen, das Bild auf die
+  ganze Seite oder auf 9 × 13, 10 × 15, 13 × 18, 20 × 30 cm oder eine eigene
+  Größe bringen – ganz gezeigt oder die Fläche füllend und beschnitten, mit
+  Rand oder randlos. Eine Vorschau zeigt das Blatt; angezeigt wird auch die
+  Auflösung auf dem Papier. Ist sie knapp, bietet der Dialog an, das Bild
+  vorher mit KI zu vergrößern. Gedruckt wird das bearbeitete Bild in voller
+  Auflösung als sRGB; den Farbabgleich übernimmt der Druckertreiber. Ohne
+  Angabe wählt der Dialog Papier in 10 × 15 cm, wenn der Drucker es kennt.
 - **Geometrie**: um 90° drehen, spiegeln, begradigen, Perspektive senkrecht
   und waagrecht, Zuschneiden mit Rahmen und festen Seitenverhältnissen. Leere
   Ecken nach dem Begradigen werden automatisch weggeschnitten.
@@ -185,6 +193,7 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 - **100-%-Ansicht**: Zoom auf 100, 200 und 400 % per Mausrad, Verschieben durch
   Ziehen, Doppelklick wechselt zwischen eingepasst und 100 %. Gezeigt wird ein
   Ausschnitt des Bildes in voller Auflösung – genau das, was gespeichert wird.
+  Die Zoomstufe steht dabei oben rechts im Bild.
 - **Nicht-destruktiv**: Jede Änderung wird aus dem unveränderten Original neu
   gerechnet. Doppelklick setzt einen Regler zurück, „Vorher“ zeigt das Original,
   solange der Knopf gedrückt ist.
@@ -225,6 +234,7 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 |---|---|
 | `Strg`+`O` | Bild öffnen (oder Datei auf die Fläche ziehen) |
 | `Strg`+`S` | Speichern … – immer unter neuem Namen, das Original wird nie stillschweigend überschrieben |
+| `Strg`+`P` | Drucken … |
 | `Strg`+`Z` / `Strg`+`Y` | Rückgängig / Wiederholen (auch `Strg`+`Umschalt`+`Z`); bei der Auswahl per Klick nimmt `Strg`+`Z` zuerst die Klicks zurück |
 | `Strg`+`0` / `Strg`+`1` | eingepasst / 100 % |
 | Mausrad, Ziehen, Doppelklick | zoomen, verschieben, zwischen eingepasst und 100 % wechseln |
