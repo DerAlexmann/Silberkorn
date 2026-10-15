@@ -3,6 +3,40 @@
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/).
 
+## [0.6.0] – 2026-10-15
+
+### Neu
+
+- **Rückgängig und Wiederholen** mit ↶ ↷ neben „Zurücksetzen“ oder `Strg`+`Z`
+  / `Strg`+`Y` (auch `Strg`+`Umschalt`+`Z`): für Regler, Kurven,
+  Farbbereiche, LUT, Drehen, Zuschnitt, Objektivprofil, Anonymisieren und
+  Metadaten, ebenso für KI-Schritte – Entrauschen, Schärfen, Kolorieren,
+  Maske, Tiefe, entfernte Objekte und Erweitern – und für „Zurücksetzen“
+  selbst. Ein Zug am Regler ist ein Schritt; Tooltip und Statuszeile nennen,
+  was zurückgenommen wird. Bei der Auswahl per Klick nimmt `Strg`+`Z` zuerst
+  die Klicks zurück. Überholte KI-Ergebnisse belegen höchstens ein Fünftel des
+  Grafikspeichers zusätzlich, ältere Schritte fallen dafür weg.
+- **Drucken** mit 🖶 oder `Strg`+`P`: Drucker und Papier wählen – ohne Angabe
+  10 × 15 cm, wenn der Drucker es kennt –, das Bild auf die ganze Seite oder
+  auf 9 × 13, 10 × 15, 13 × 18, 20 × 30 cm oder eine eigene Größe bringen,
+  ganz gezeigt oder die Fläche füllend, mit Rand oder randlos. Eine Vorschau
+  zeigt das Blatt, dazu die Auflösung auf dem Papier; ist sie knapp, lässt
+  sich das Bild vorher mit KI vergrößern. Gedruckt wird das bearbeitete Bild
+  in voller Auflösung als sRGB.
+
+### Geändert
+
+- „Speichern unter …“ heißt jetzt „Speichern …“; der Tooltip sagt, dass immer
+  nach einem neuen Namen gefragt und das Original nie überschrieben wird.
+- Die Zoomstufe steht beim Zoomen oben rechts im Bild statt in der
+  Werkzeugleiste. So passt das Fenster mit den neuen Knöpfen weiter auf
+  1366 × 768 Pixel bei 125 % Skalierung.
+
+### Behoben
+
+- Stand KI-Entrauschen auf 100 %, schrieb die Vorschau entfernte Objekte in
+  das entrauschte Bild hinein – „Vorher“ zeigte sie dann nicht mehr.
+
 ## [0.5.0] – 2026-10-11
 
 ### Neu
@@ -390,6 +424,7 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Rechengenauigkeit (FP16, FP8 ab Ada, FP4 ab Blackwell).
 - Programmsymbol, Marken- und Lizenzhinweise (NOTICE).
 
+[0.6.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.6.0
 [0.5.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.5.0
 [0.4.1]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.4.1
 [0.4.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.4.0
