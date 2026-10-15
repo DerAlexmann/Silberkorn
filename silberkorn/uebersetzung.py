@@ -95,7 +95,10 @@ TRANSLATIONS = {
         "Bild hierher ziehen oder „Öffnen …“ wählen.":
             "Drag an image here or choose “Open …”.",
         "Öffnen …": "Open …",
-        "Speichern unter …": "Save as …",
+        "Speichert das bearbeitete Bild unter einem neuen Namen (Strg+S) – das Original "
+        "wird nie überschrieben.":
+            "Saves the edited image under a new name (Ctrl+S) – the original is never "
+            "overwritten.",
         "Vorher": "Before",
         "Gedrückt halten, um das unbearbeitete Bild zu sehen.":
             "Hold down to see the unedited image.",
@@ -201,9 +204,27 @@ TRANSLATIONS = {
         "IPTC (IIM) – ältere Beschreibung": "IPTC (IIM) – older description",
         "XMP – Beschreibung": "XMP – description",
         "Setzt alle Regler, Drehung, Zuschnitt und geänderte Metadaten zurück, holt "
-        "entfernte Objekte zurück und verwirft eine KI-Erweiterung.":
+        "entfernte Objekte zurück und verwirft eine KI-Erweiterung. Lässt sich mit "
+        "„Rückgängig“ zurücknehmen.":
             "Resets all sliders, rotation, crop and changed metadata, brings back removed "
-            "objects and discards an AI extension.",
+            "objects and discards an AI extension. Can be undone with “Undo”.",
+        # Verlauf: Rueckgaengig und Wiederholen
+        "Rückgängig (Strg+Z)": "Undo (Ctrl+Z)",
+        "Rückgängig: {schritt} (Strg+Z)": "Undo: {schritt} (Ctrl+Z)",
+        "Wiederholen (Strg+Y)": "Redo (Ctrl+Y)",
+        "Wiederholen: {schritt} (Strg+Y)": "Redo: {schritt} (Ctrl+Y)",
+        "Rückgängig: {schritt}": "Undone: {schritt}",
+        "Wiederholt: {schritt}": "Redone: {schritt}",
+        "Änderung": "Change",
+        "mehrere Änderungen": "several changes",
+        "Objekt entfernt": "Object removed",
+        "Entferntes Objekt zurückgeholt": "Removed object brought back",
+        "Entfernte Objekte zurückgeholt": "Removed objects brought back",
+        "Drehen": "Rotate",
+        "Spiegeln": "Flip",
+        "Zuschnitt": "Crop",
+        "Objektivprofil": "Lens profile",
+        "KI-Erweitern": "AI extend",
         "Doppelklick setzt den Regler zurück.": "Double-click resets the slider.",
 
         # Reglergruppen und Regler

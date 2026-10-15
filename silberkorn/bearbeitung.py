@@ -42,6 +42,11 @@ fortgesetzt. Die KI-Netze (Freistellen, Klicks, Entfernen, Tiefe) sehen weiter
 nur das Original - so bleiben ihre Ergebnisse gueltig, wenn die Erweiterung
 wegfaellt oder neu erzeugt wird.
 
+Fuer Rueckgaengig haelt der Verlauf (verlauf.py) Staende der Sitzung fest:
+die Werte als Kopie, die KI-Ergebnisse als Verweise. Deshalb ersetzt jede
+KI-Aenderung ihr Ergebnis durch ein neues Objekt, statt das alte zu
+veraendern - der Verlauf behielte sonst nicht, was vorher war.
+
 Dieses Modul importiert CuPy und darf deshalb erst nach der Startprufung
 geladen werden.
 
@@ -53,13 +58,24 @@ Created with assistance of Claude AI
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import math
 import time
 from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import anonym, bilddatei, filter, geometrie, ki, metadaten, objektivprofile, veroeffentlichen
+from . import (
+    anonym,
+    bilddatei,
+    filter,
+    geometrie,
+    ki,
+    metadaten,
+    objektivprofile,
+    verlauf,
+    veroeffentlichen,
+)
 from .cuda import cupy as cp
 from .filter import Einstellungen
 
@@ -137,7 +153,10 @@ class Sitzung:
         self._entfern_klick = None            # (voll, Vorschau): per Klick markiert
         self._pinsel = None                   # (voll, Vorschau): mit dem Pinsel markiert
         self._flicken: list[_Flicken] = []    # entfernte Objekte, in Reihenfolge
-        self._flicken_stand = 0               # zaehlt jede Aenderung an Flicken und Erweiterung
+        # Kennung des Inhalts von Flicken und Erweiterung: jede Aenderung bekommt eine neue
+        # Nummer - auch nach Rueckgaengig und einer neuen Aenderung nie eine schon vergebene
+        self._nummern = itertools.count(1)
+        self._flicken_stand = 0
         self._flicken_gespeichert = 0
         self._ki_tiefe = None                 # Tiefe 0..1 (1 = nah), verkleinert, im Original
         self._ki_farbe = None                 # (voll, Vorschau): Farbanteile a, b der KI
@@ -207,6 +226,42 @@ class Sitzung:
     def erweitert_auf(self, verhaeltnis: float) -> bool:
         """Ist das Bild schon auf dieses Seitenverhaeltnis erweitert?"""
         return self._erweiterung is not None and self._erweiterung.verhaeltnis == verhaeltnis
+
+    # ------------------------------------------------------------------
+    # Verlauf: Stand festhalten und wiederherstellen
+    # ------------------------------------------------------------------
+
+    def stand(self) -> verlauf.Stand:
+        """Der jetzige Stand fuer Rueckgaengig: Werte als Kopie, KI-Ergebnisse als Verweise.
+        Die Markierung zum Entfernen und laufende Klicks gehoeren nicht dazu - sie sind
+        Arbeitsstand, kein Ergebnis."""
+        return verlauf.Stand(dataclasses.replace(self.werte), (
+            ("ki_entrauscht", self._ki_rauschfrei),
+            ("ki_geschaerft", self._ki_schaerfe),
+            ("ki_koloriert", self._ki_farbe),
+            ("maske", (self._ki_maske, self.maske_per_klick)),
+            ("tiefe", self._ki_tiefe),
+            ("flicken", tuple(self._flicken)),
+            ("erweiterung", self._erweiterung),
+        ), self._flicken_stand)
+
+    def stand_setzen(self, stand: verlauf.Stand):
+        """Einen Stand aus dem Verlauf wiederherstellen."""
+        teile = dict(stand.teile)
+        maske_vorher = self._ki_maske
+        self.werte = dataclasses.replace(stand.werte)
+        self._ki_rauschfrei = teile["ki_entrauscht"]
+        self._ki_schaerfe = teile["ki_geschaerft"]
+        self._ki_farbe = teile["ki_koloriert"]
+        self._ki_maske, self.maske_per_klick = teile["maske"]
+        self._ki_tiefe = teile["tiefe"]
+        self._flicken = list(teile["flicken"])
+        self._erweiterung = teile["erweiterung"]
+        self._flicken_stand = stand.nummer
+        if self._ki_maske is not maske_vorher:
+            # Die Klicks gehoerten zur alten Maske; weitere Klicks beginnen neu
+            self._klickstand["maske"] = _Klicks()
+        self._ki_fertig(0.0)
 
     def ki_freistellen(self, freisteller) -> float:
         """Die Maske des Motivs einmal mit KI berechnen; Rueckgabe: Rechenzeit in ms.
@@ -370,7 +425,7 @@ class Sitzung:
         gefuellt = filter.srgb_zu_linear(fuellung) * deckkraft[..., None]
         voll = (y0, y1, x0, x1, deckkraft, gefuellt)
         self._flicken.append(_Flicken(voll, self._flicken_vorschau(voll)))
-        self._flicken_stand += 1
+        self._flicken_stand = next(self._nummern)
         self.markierung_verwerfen()
         return self._ki_fertig(beginn)
 
@@ -403,7 +458,7 @@ class Sitzung:
         if not self._flicken:
             return False
         self._flicken.clear()
-        self._flicken_stand += 1
+        self._flicken_stand = next(self._nummern)
         self._speicher.clear()
         self._vollbild = None
         return True
@@ -413,14 +468,15 @@ class Sitzung:
         if not self._flicken:
             return False
         self._flicken.pop()
-        self._flicken_stand += 1
+        self._flicken_stand = next(self._nummern)
         self._speicher.clear()
         self._vollbild = None
         return True
 
     def _flicken_auflegen(self, bild, stelle: int):
-        if bild is self.original or bild is self.vorschau_original:
-            bild = bild.copy()                    # das Original bleibt unberuehrt
+        gespeichert = (self.original, self.vorschau_original, *(self._ki_rauschfrei or ()))
+        if any(bild is teil for teil in gespeichert):
+            bild = bild.copy()                    # Original und KI-Ergebnis bleiben unberuehrt
         for flicken in self._flicken:
             y0, y1, x0, x1, deckkraft, gefuellt = flicken.vorschau if stelle else flicken.voll
             if y1 <= y0 or x1 <= x0:
@@ -468,7 +524,7 @@ class Sitzung:
         self._erweiterung = None                  # die alte Leinwand zuerst freigeben
         self._erweiterung = _Erweiterung(x, y, voll, vorschau, seed, verhaeltnis)
         self._profil_nachfuehren()
-        self._flicken_stand += 1
+        self._flicken_stand = next(self._nummern)
         return self._ki_fertig(beginn)
 
     def erweiterung_verwerfen(self) -> bool:
@@ -476,7 +532,7 @@ class Sitzung:
             return False
         self._erweiterung = None
         self._profil_nachfuehren()
-        self._flicken_stand += 1
+        self._flicken_stand = next(self._nummern)
         self._ki_fertig(time.perf_counter())
         return True
 

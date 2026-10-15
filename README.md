@@ -188,6 +188,12 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 - **Nicht-destruktiv**: Jede Änderung wird aus dem unveränderten Original neu
   gerechnet. Doppelklick setzt einen Regler zurück, „Vorher“ zeigt das Original,
   solange der Knopf gedrückt ist.
+- **Rückgängig und Wiederholen** mit ↶ ↷ oder `Strg`+`Z` / `Strg`+`Y`: für
+  Regler, Kurven, Zuschnitt, Metadaten und auch für KI-Schritte wie Entrauschen,
+  ein entferntes Objekt oder eine Erweiterung – und für „Zurücksetzen“. Ein Zug
+  am Regler ist ein Schritt; der Tooltip nennt, was zurückgenommen wird.
+  Überholte KI-Ergebnisse belegen höchstens ein Fünftel des Grafikspeichers
+  zusätzlich, ältere Schritte fallen dafür weg.
 - **Schnell**: Die Vorschau entsteht in Bildschirmauflösung in wenigen
   Millisekunden; die Rechenzeit steht in der Statuszeile. Gespeichert wird in
   voller Auflösung.
@@ -218,7 +224,8 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 | Taste | Wirkung |
 |---|---|
 | `Strg`+`O` | Bild öffnen (oder Datei auf die Fläche ziehen) |
-| `Strg`+`S` | Speichern unter … – das Original wird nie stillschweigend überschrieben |
+| `Strg`+`S` | Speichern … – immer unter neuem Namen, das Original wird nie stillschweigend überschrieben |
+| `Strg`+`Z` / `Strg`+`Y` | Rückgängig / Wiederholen (auch `Strg`+`Umschalt`+`Z`); bei der Auswahl per Klick nimmt `Strg`+`Z` zuerst die Klicks zurück |
 | `Strg`+`0` / `Strg`+`1` | eingepasst / 100 % |
 | Mausrad, Ziehen, Doppelklick | zoomen, verschieben, zwischen eingepasst und 100 % wechseln |
 | `Eingabe` / `Esc` | Zuschnitt übernehmen / abbrechen |
