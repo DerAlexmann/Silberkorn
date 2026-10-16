@@ -95,3 +95,15 @@ def startup_theme() -> str:
     """Gespeichertes Farbschema, sonst das helle."""
     gespeichert = load_config().get("theme")
     return gespeichert if gespeichert in farben.THEMES else farben.DEFAULT_THEME
+
+
+def begleitdateien() -> bool | None:
+    """Darf Silberkorn Begleitdateien neben die Bilder schreiben? None: noch nicht gefragt."""
+    wert = load_config().get("begleitdateien")
+    return wert if isinstance(wert, bool) else None
+
+
+def begleitdateien_setzen(erlaubt: bool) -> bool:
+    daten = load_config()
+    daten["begleitdateien"] = bool(erlaubt)
+    return save_config(daten)

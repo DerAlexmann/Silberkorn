@@ -63,15 +63,18 @@ Created with assistance of Claude AI
 from __future__ import annotations
 
 import dataclasses
+import io
 import itertools
 import math
 import time
 from dataclasses import dataclass, field
 
 import numpy as np
+from PIL import Image
 
 from . import (
     anonym,
+    begleitdatei,
     bilddatei,
     film,
     filter,
@@ -98,6 +101,7 @@ BOKEH_MAX = 0.012              # Bokeh 100 %: Sigma als Anteil der laengsten Bil
 BOKEH_STUFEN = (0.125, 0.25, 0.5, 1.0)   # weichgezeichnete Fassungen, Anteile davon
 TIEFE_BEREICH = 0.35           # Schaerfentiefe 100 %: so viel der Tiefe bleibt scharf
 TIEFE_UEBERGANG = 0.4          # danach waechst die Unschaerfe ueber so viel Tiefe auf voll
+BEGLEIT_VORSCHAU = 256         # laengste Kante des Vorschaubildes in der Begleitdatei
 
 # a + s * d - eine Korrektur mit Staerke auflegen
 _auflegen = cp.ElementwiseKernel("float32 a, float32 d, float32 s", "float32 c",
@@ -184,6 +188,7 @@ class Sitzung:
         self.staub_zeigen = False             # Vorschau zeigt die Fundstellen
         self._anonym_stand = ((), "mosaik", 8.0)   # wofuer die Zwischenstufen gelten
         self._film_stand: tuple = ()          # ebenso fuer die Umwandlung eines Negativs
+        self._begleit_stand: verlauf.Stand | None = None   # was in der Begleitdatei steht
 
         self.original = daten.linear(cp)
         # Zwischenpuffer des Demosaicing an den Grafikspeicher zurueckgeben
@@ -197,6 +202,7 @@ class Sitzung:
             pass                                  # ohne Profil weiter
         self.vorgefunden = metadaten.lesen(daten.exif, daten.xmp, daten.iptc)
         self._angaben_vorgabe: tuple = ()         # Urheber und Copyright aus den Einstellungen
+        self.begleit_gesichert()                  # nach dem Oeffnen gibt es nichts zu sichern
 
     @property
     def geaendert(self) -> bool:
@@ -313,6 +319,158 @@ class Sitzung:
             # Die Klicks gehoerten zur alten Maske; weitere Klicks beginnen neu
             self._klickstand["maske"] = _Klicks()
         self._ki_fertig(0.0)
+
+    # ------------------------------------------------------------------
+    # Begleitdatei: die Bearbeitung neben dem Bild (begleitdatei.py)
+    # ------------------------------------------------------------------
+
+    def begleit_gesichert(self):
+        """Der jetzige Stand ist in der Begleitdatei - oder es gibt nichts zu sichern."""
+        self._begleit_stand = self.stand()
+
+    def begleit_veraltet(self):
+        """Die Begleitdatei gehoert zu einer anderen Fassung des Bildes - beim Verlassen
+        neu schreiben."""
+        self._begleit_stand = None
+
+    @property
+    def begleit_geaendert(self) -> bool:
+        """Weicht die Bearbeitung von dem ab, was in der Begleitdatei steht?"""
+        return self._begleit_stand is None or not verlauf.gleich(self.stand(),
+                                                                 self._begleit_stand)
+
+    def _still_aendern(self):
+        """Fuer Aenderungen, die wie die Datei selbst zum Bild gehoeren (Urheber aus den
+        Einstellungen, Objektivprofil einer RAW): Rueckgabe eine Funktion, die danach
+        alles, was vorher als gespeichert galt, wieder als gespeichert markiert."""
+        gespeichert = not self.geaendert
+        gesichert = self._begleit_stand is not None and not self.begleit_geaendert
+
+        def danach():
+            if gespeichert:
+                self.gespeicherte_werte = dataclasses.replace(self.werte)
+            if gesichert:
+                self.begleit_gesichert()
+        return danach
+
+    @property
+    def bearbeitet(self) -> bool:
+        """Gibt es ueberhaupt etwas zu sichern - oder ist alles wie nach dem Oeffnen?"""
+        return (self.werte != self.grundwerte() or self._ki_rauschfrei is not None
+                or self._ki_schaerfe is not None or self._ki_farbe is not None
+                or self._ki_maske is not None or self._ki_tiefe is not None
+                or bool(self._flicken) or self._erweiterung is not None
+                or self._staub is not None)
+
+    def begleit_vorschau(self) -> bytes:
+        """Das bearbeitete Bild klein als WebP - ohne eingeblendete Maske, Tiefe oder
+        Fundstellen, aber anonymisiert wie das gespeicherte Bild."""
+        bild = Image.fromarray(cp.asnumpy(self._rendern(self.werte, False, self._speicher)))
+        bild.thumbnail((BEGLEIT_VORSCHAU, BEGLEIT_VORSCHAU), Image.Resampling.LANCZOS)
+        puffer = io.BytesIO()
+        bild.save(puffer, "WEBP", quality=80)
+        return puffer.getvalue()
+
+    def begleit_inhalt(self, vorschau: bytes | None = None) -> begleitdatei.Inhalt:
+        """Die Bearbeitung fuer die Begleitdatei - Arrays vom Grafikspeicher geholt."""
+        inhalt = begleitdatei.Inhalt(dataclasses.replace(self.werte), vorschau=vorschau)
+        if self._ki_maske is not None:
+            maske = cp.clip(self._ki_maske[0], 0, 1) * 255 + 0.5
+            inhalt.maske = cp.asnumpy(maske.astype(cp.uint8))
+            inhalt.maske_per_klick = self.maske_per_klick
+        if self._ki_tiefe is not None:
+            inhalt.tiefe = cp.asnumpy(self._ki_tiefe).astype(np.float16)
+        for flicken in self._flicken:
+            y0, y1, x0, x1, deckkraft, gefuellt = flicken.voll
+            inhalt.flicken.append(begleitdatei.Flicken(
+                int(y0), int(y1), int(x0), int(x1), cp.asnumpy(deckkraft).astype(np.float16),
+                cp.asnumpy(gefuellt).astype(np.float16)))
+        if self._staub is not None:
+            inhalt.staub = begleitdatei.Staub(cp.asnumpy(self._staub.stellen).astype(np.int64),
+                                              cp.asnumpy(self._staub.werte).astype(np.float32),
+                                              int(self._staub.anzahl))
+        if self._erweiterung is not None:
+            e = self._erweiterung
+            rand, deckkraft = e.voll
+            srgb = filter.linear_zu_srgb(cp.clip(rand, 0, 1)) * 65535 + 0.5
+            srgb = srgb.astype(cp.uint16)
+            # Wo das Original ganz deckt, zaehlt die Leinwand nicht - Nullen packen sich klein
+            hoehe, breite = deckkraft.shape
+            srgb[e.y:e.y + hoehe, e.x:e.x + breite][deckkraft >= 1] = 0
+            inhalt.erweiterung = begleitdatei.Erweiterung(e.x, e.y, int(e.seed),
+                                                          float(e.verhaeltnis), cp.asnumpy(srgb))
+            del srgb
+        return inhalt
+
+    def begleit_anwenden(self, inhalt: begleitdatei.Inhalt):
+        """Eine gelesene Begleitdatei uebernehmen. Die Arrays hat begleitdatei.lesen schon
+        auf Typ und Form zum Original geprueft; die Leinwand der Erweiterung muss
+        zusaetzlich genau so liegen, wie Silberkorn sie fuer ihr Seitenverhaeltnis plant -
+        sonst BegleitFehler, und nichts ist uebernommen."""
+        hoehe, breite = self.original.shape[:2]
+        erweiterung = None
+        if inhalt.erweiterung is not None:
+            e = inhalt.erweiterung
+            gross_b, gross_h, x, y = self.erweiterung_planen(e.verhaeltnis)
+            if e.rand.shape != (gross_h, gross_b, 3) or (e.x, e.y) != (x, y):
+                raise begleitdatei.BegleitFehler("erweiterung passt nicht zum Bild")
+            rand = filter.srgb_zu_linear(cp.asarray(e.rand, dtype=cp.float32) / 65535)
+            deckkraft = ki.saum_deckkraft(gross_b, gross_h, x, y, breite, hoehe,
+                                          ki.saum_breite(breite, hoehe), cp)
+            voll = (rand, deckkraft)
+            faktor = self._vorschau_faktor()
+            vorschau = voll if faktor == 1 else tuple(
+                filter.verkleinern_box(teil, faktor).astype(cp.float32) for teil in voll)
+            erweiterung = _Erweiterung(x, y, voll, vorschau, e.seed, e.verhaeltnis)
+
+        werte = dataclasses.replace(inhalt.werte)
+        werte.objektivprofil = ()
+        self.werte = werte
+        self._ki_rauschfrei = self._ki_schaerfe = self._ki_farbe = None
+        self._ki_maske, self.maske_per_klick = None, False
+        if inhalt.maske is not None:
+            voll = cp.asarray(inhalt.maske, dtype=cp.float32) / 255
+            self._ki_maske = (voll, self._vorschau_von(voll))
+            self.maske_per_klick = inhalt.maske_per_klick
+        self._klickstand = {"maske": _Klicks(), "entfernen": _Klicks()}
+        self._ki_tiefe = (None if inhalt.tiefe is None
+                          else cp.asarray(inhalt.tiefe, dtype=cp.float32))
+        self._flicken = []
+        for f in inhalt.flicken:
+            voll = (f.y0, f.y1, f.x0, f.x1, cp.asarray(f.deckkraft, dtype=cp.float32),
+                    cp.asarray(f.fuellung, dtype=cp.float32))
+            self._flicken.append(_Flicken(voll, self._flicken_vorschau(voll)))
+        self._staub = None
+        if inhalt.staub is not None:
+            stellen = cp.asarray(inhalt.staub.stellen, dtype=cp.int64)
+            werte_staub = cp.asarray(inhalt.staub.werte, dtype=cp.float32)
+            sauber = self.original.copy()
+            sauber.reshape(-1, 3)[stellen] = werte_staub
+            vorschau = self._vorschau_von(sauber)
+            if vorschau is sauber:
+                vorschau = sauber.copy()
+            del sauber
+            self._staub = _Staub(stellen, werte_staub, vorschau, inhalt.staub.anzahl)
+        self._erweiterung = erweiterung
+        if inhalt.objektivprofil and self.objektiv.profil is not None:
+            self.werte.objektivprofil = self.objektiv_terme()
+        self._flicken_stand = next(self._nummern)
+        self._ki_fertig(0.0)
+        # Was in der Begleitdatei steht, gilt als gesichert - und, wie die Datei selbst,
+        # nicht als ungespeicherte Aenderung
+        self.gespeicherte_werte = dataclasses.replace(self.werte)
+        self._flicken_gespeichert = self._flicken_stand
+        self.begleit_gesichert()
+
+    def ki_neu_zu_rechnen(self) -> list[str]:
+        """Gruppen (ki_rauschen, ki_schaerfe, ki_farbe), deren Staerke gesetzt ist, deren
+        Ergebnis aber fehlt - nach dem Oeffnen einer Begleitdatei. In dieser Reihenfolge
+        zu rechnen: Das Schaerfen sieht das entrauschte Bild."""
+        fehlt = {"ki_rauschen": self._ki_rauschfrei is None,
+                 "ki_schaerfe": self._ki_schaerfe is None,
+                 "ki_farbe": self._ki_farbe is None}
+        return [gruppe for gruppe, offen in fehlt.items()
+                if offen and getattr(self.werte, gruppe) > 0]
 
     def ki_freistellen(self, freisteller) -> float:
         """Die Maske des Motivs einmal mit KI berechnen; Rueckgabe: Rechenzeit in ms.
@@ -600,10 +758,9 @@ class Sitzung:
         schon in der Kamera korrigiert, dort entscheidet der Anwender."""
         self.objektiv = objektivprofile.suchen(self.daten.aufnahme)
         if self.objektiv.profil is not None and self.daten.raw and not self.werte.objektivprofil:
-            ungeaendert = not self.geaendert
+            danach = self._still_aendern()
             self.werte.objektivprofil = self.objektiv_terme()
-            if ungeaendert:
-                self.gespeicherte_werte = dataclasses.replace(self.werte)
+            danach()
         return self.objektiv
 
     def grundwerte(self) -> Einstellungen:
@@ -636,10 +793,9 @@ class Sitzung:
                 vorgabe = metadaten.aendern(vorgabe, self.vorgefunden.angaben, name, wert)
         alt, self._angaben_vorgabe = self._angaben_vorgabe, vorgabe
         if self.werte.angaben == alt:
-            ungeaendert = not self.geaendert
+            danach = self._still_aendern()
             self.werte.angaben = vorgabe
-            if ungeaendert:
-                self.gespeicherte_werte = dataclasses.replace(self.werte)
+            danach()
 
     def angaben_grundwerte(self) -> tuple:
         """Was „Angaben zurücksetzen“ herstellt."""

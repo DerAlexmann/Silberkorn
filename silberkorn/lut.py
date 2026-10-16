@@ -10,6 +10,12 @@ die leichten Farbverschiebungen an Graukanten.
 1D-LUTs werden beim Lesen in eine 3D-LUT umgerechnet; die Anwendung kennt
 dann nur noch einen Weg.
 
+Eine LUT aus einer Begleitdatei oder Voreinstellung (werteformat.py) steht als
+Text darin, nicht als Pfad - ein fremder Pfad koennte auf eine Netzwerkfreigabe
+zeigen, und schon der Versuch, sie zu oeffnen, schickte die Windows-Anmeldung
+dorthin. Solche LUTs liegen nur im Speicher; ihr "Pfad" ist ein Schluessel
+mit EINGEBETTET davor.
+
 Licensed under MIT License
 Copyright 2026 Alexander Unverhau
 Created with assistance of Claude AI
@@ -18,6 +24,7 @@ Created with assistance of Claude AI
 from __future__ import annotations
 
 import functools
+import hashlib
 import os
 from dataclasses import dataclass
 
@@ -27,6 +34,8 @@ from . import filter as f
 
 MAX_GROESSE = 129
 GROESSE_AUS_1D = 65
+MAX_TEXT = 64 * 2**20            # so gross ist keine LUT - 129er-Gitter als Text rund 60 MB
+EINGEBETTET = "eingebettet:"     # "Pfad" einer LUT, die nur im Speicher liegt
 
 
 class LutFehler(Exception):
@@ -78,9 +87,11 @@ def lesen_text(text: str, name: str = "") -> Lut:
         except (ValueError, IndexError) as fehler:
             raise LutFehler(f"unlesbare Zeile: {zeile!r}") from fehler
 
-    if (oben <= unten).any():
+    if not (np.isfinite(unten).all() and np.isfinite(oben).all()) or (oben <= unten).any():
         raise LutFehler("ungültiger Wertebereich")
     daten = np.asarray(werte, dtype=np.float64)
+    if not np.isfinite(daten).all():
+        raise LutFehler("ungültige Einträge")
     if groesse_3d:
         if not 2 <= groesse_3d <= MAX_GROESSE or len(daten) != groesse_3d ** 3:
             raise LutFehler("LUT_3D_SIZE passt nicht zur Zahl der Einträge")
@@ -110,22 +121,62 @@ def _aus_1d(kurven: np.ndarray) -> np.ndarray:
     return tabelle
 
 
-@functools.lru_cache(maxsize=8)
-def _laden(pfad: str, _zeitstempel: float) -> Lut:
+_eingebettet: dict[str, tuple[str, str, Lut]] = {}   # Schluessel -> (Text, Name, LUT)
+
+
+def _text_lesen(pfad: str) -> str:
     try:
         with open(pfad, encoding="utf-8", errors="replace") as datei:
-            return lesen_text(datei.read(), os.path.splitext(os.path.basename(pfad))[0])
+            text = datei.read(MAX_TEXT + 1)
     except OSError as fehler:
         raise LutFehler(str(fehler)) from fehler
+    if len(text) > MAX_TEXT:
+        raise LutFehler("Datei zu groß")
+    return text
+
+
+def _name(pfad: str) -> str:
+    return os.path.splitext(os.path.basename(pfad))[0]
+
+
+@functools.lru_cache(maxsize=8)
+def _laden(pfad: str, _zeitstempel: float) -> Lut:
+    return lesen_text(_text_lesen(pfad), _name(pfad))
 
 
 def laden(pfad: str) -> Lut:
-    """LUT aus einer Datei - zwischengespeichert, bis sich die Datei aendert."""
+    """LUT aus einer Datei - zwischengespeichert, bis sich die Datei aendert - oder eine
+    eingebettete."""
+    if pfad.startswith(EINGEBETTET):
+        if pfad not in _eingebettet:
+            raise LutFehler("eingebettete LUT nicht vorhanden")
+        return _eingebettet[pfad][2]
     try:
         zeitstempel = os.path.getmtime(pfad)
     except OSError as fehler:
         raise LutFehler(str(fehler)) from fehler
     return _laden(pfad, zeitstempel)
+
+
+def einbetten(text: str, name: str) -> str:
+    """Eine LUT aus Text in den Speicher legen; Rueckgabe: ihr Schluessel fuer
+    Einstellungen.lut. Derselbe Text ergibt denselben Schluessel."""
+    if len(text) > MAX_TEXT:
+        raise LutFehler("LUT zu groß")
+    schluessel = EINGEBETTET + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if schluessel not in _eingebettet:
+        _eingebettet[schluessel] = (text, name, lesen_text(text, name))
+    return schluessel
+
+
+def text_von(pfad: str) -> tuple[str, str]:
+    """(Text, Name) einer LUT - zum Einbetten in eine Begleitdatei oder Voreinstellung."""
+    if pfad.startswith(EINGEBETTET):
+        if pfad not in _eingebettet:
+            raise LutFehler("eingebettete LUT nicht vorhanden")
+        text, name, _lut = _eingebettet[pfad]
+        return text, name
+    return _text_lesen(pfad), _name(pfad)
 
 
 def anwenden(v, lut: Lut):

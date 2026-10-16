@@ -245,7 +245,23 @@ class Hauptfenster(QMainWindow):
             "nächsten Öffnen einer RAW."))
         self.raw_wahl.currentIndexChanged.connect(lambda _i: self._einstellungen_sichern())
         aufbau.addWidget(self.raw_wahl)
+
+        aufbau.addSpacing(12)
+        self.begleit_box = QCheckBox()
+        self.beschriften(self.begleit_box.setText, _("Begleitdateien"))
+        self.beschriften(self.begleit_box.setToolTip, _(
+            "Die Bearbeitung beim Wechsel des Bildes und beim Beenden in einer kleinen Datei "
+            "neben dem Bild sichern (foto.jpg.silberkorn). Beim nächsten Öffnen ist alles wie "
+            "zuvor; das Bild selbst bleibt unverändert."))
+        self.begleitdateien_anzeigen()
+        self.begleit_box.toggled.connect(einstellungen.begleitdateien_setzen)
+        aufbau.addWidget(self.begleit_box)
         return kopf
+
+    def begleitdateien_anzeigen(self):
+        self.begleit_box.blockSignals(True)
+        self.begleit_box.setChecked(einstellungen.begleitdateien() is True)
+        self.begleit_box.blockSignals(False)
 
     def _sprache_gewechselt(self):
         _.language = self.sprachwahl.currentData() or SOURCE_LANGUAGE

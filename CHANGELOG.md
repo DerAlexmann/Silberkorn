@@ -3,6 +3,27 @@
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Neu
+
+- **Begleitdatei**: Die Bearbeitung wird beim Wechsel des Bildes und beim Beenden
+  neben dem Bild gesichert (`foto.jpg.silberkorn`) und beim nächsten Öffnen
+  wiederhergestellt – mit entfernten Objekten, Staub, Maske, Tiefe und
+  KI-Erweiterung. KI-Entrauschen, -Schärfen und -Kolorieren werden auf Nachfrage
+  neu berechnet. Beim ersten Mal fragt Silberkorn; der Schalter „Begleitdateien“
+  oben ändert die Wahl. Fremde Begleitdateien werden streng geprüft gelesen.
+- **Voreinstellungen**: eine neue Karte ganz oben. Einstellungen unter einem
+  Namen sichern, anwenden, löschen, importieren und exportieren – mit Auswahl
+  der Gruppen, die mitgehen, beim Film wahlweise mit gemessener Filmmaske.
+  Einstellungen kopieren und einfügen mit `Strg`+`Umschalt`+`C` / `V`.
+
+### Geändert
+
+- Nach KI-Entrauschen, -Schärfen oder -Kolorieren bleibt eine schon gesetzte
+  Stärke erhalten, statt auf 100 % zu springen.
+- Eine LUT mit ungültigen Zahlen (NaN, unendlich) wird abgelehnt.
+
 ## [0.7.0] – 2026-10-16
 
 ### Neu

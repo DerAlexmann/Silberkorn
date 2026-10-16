@@ -207,6 +207,24 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   am Regler ist ein Schritt; der Tooltip nennt, was zurückgenommen wird.
   Überholte KI-Ergebnisse belegen höchstens ein Fünftel des Grafikspeichers
   zusätzlich, ältere Schritte fallen dafür weg.
+- **Begleitdatei**: Beim Wechsel des Bildes und beim Beenden sichert Silberkorn
+  die Bearbeitung in einer kleinen Datei neben dem Bild (`foto.jpg.silberkorn`) –
+  Regler, Kurven, LUT, entfernte Objekte, Staub, Maske, Tiefe und KI-Erweiterung.
+  Beim nächsten Öffnen ist alles wie zuvor. KI-Entrauschen, -Schärfen und
+  -Kolorieren stehen nicht darin – sie kosteten Hunderte MB – und werden auf
+  Nachfrage neu berechnet. Beim ersten Mal fragt Silberkorn, ob es Begleitdateien
+  anlegen darf; oben über „Begleitdateien“ lässt sich das ändern. Passt eine
+  Begleitdatei nicht mehr zum Bild, weil es verändert wurde, übernimmt Silberkorn
+  auf Nachfrage nur die Reglerwerte. Ist alles zurückgesetzt, verschwindet sie.
+- **Voreinstellungen**: Einstellungen unter einem Namen sichern und auf andere
+  Bilder legen – mit Auswahl, was mitgeht: Grundregler, Kurven, Farbbereiche,
+  LUT, Rauschminderung und Film sind vorgewählt, Geometrie, Anonymisieren und
+  Metadaten gehören meist nur zu einem Bild. Beim Film wahlweise mit der
+  gemessenen Filmmaske, für Bilder vom selben Streifen, sonst wird sie je Bild
+  neu geschätzt. Mit `Strg`+`Umschalt`+`C` / `V` gehen Einstellungen direkt von
+  einem Bild aufs nächste. Voreinstellungen liegen als JSON im Ordner
+  `voreinstellungen` neben dem Programm und lassen sich importieren und
+  exportieren.
 - **Schnell**: Die Vorschau entsteht in Bildschirmauflösung in wenigen
   Millisekunden; die Rechenzeit steht in der Statuszeile. Gespeichert wird in
   voller Auflösung.
@@ -265,6 +283,7 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 | `Strg`+`S` | Speichern … – immer unter neuem Namen, das Original wird nie stillschweigend überschrieben |
 | `Strg`+`P` | Drucken … |
 | `Strg`+`Z` / `Strg`+`Y` | Rückgängig / Wiederholen (auch `Strg`+`Umschalt`+`Z`); bei der Auswahl per Klick nimmt `Strg`+`Z` zuerst die Klicks zurück |
+| `Strg`+`Umschalt`+`C` / `V` | Einstellungen kopieren / auf ein anderes Bild einfügen |
 | `Strg`+`0` / `Strg`+`1` | eingepasst / 100 % |
 | Mausrad, Ziehen, Doppelklick | zoomen, verschieben, zwischen eingepasst und 100 % wechseln |
 | `Eingabe` / `Esc` | Zuschnitt übernehmen / abbrechen |
@@ -339,6 +358,12 @@ Größe und Lizenz bestätigt. Die EXE lädt außerdem beim ersten Start – ebe
 erst nach Zustimmung – die NVIDIA-Bibliotheken von pypi.org. Die
 Objektivdatenbank von lensfun kommt nur auf Knopfdruck in der Karte „Objektiv“,
 ebenso die Frage nach einer neueren.
+
+Eine Begleitdatei enthält neben den Reglerwerten ein kleines Vorschaubild der
+Bearbeitung und eingegebene Metadaten wie Titel oder Urheber – wer ein Bild samt
+Begleitdatei weitergibt, gibt beides mit. Begleitdateien und Voreinstellungen
+von anderen liest Silberkorn streng geprüft: nur bekannte Werte in ihren
+Grenzen, keine Dateipfade, nichts Ausführbares.
 
 ## KI-Modelle
 
