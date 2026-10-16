@@ -23,6 +23,10 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 - **Vorschau-Cache** für teure Vorschaubilder: eine Datei mit fester, selbst
   gewählter Größe, gleich vorbelegt, mit DPAPI verschlüsselt, mit Ausnahmen für
   Ordner und überschriebenen Löschungen.
+- **Stapel**: mehrere Bilder der Ordneransicht auf einmal bearbeiten –
+  Voreinstellung oder kopierte Einstellungen, Staub über Infrarot, Begleitdatei
+  sichern, ausgeben (Format, Ordner, Namenszusatz, KI-Schritte und
+  KI-Hochskalieren). Nie überschreiben, abbrechbar, mit Bericht.
 
 ### Geändert
 

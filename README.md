@@ -226,6 +226,14 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Jedes Vorschaubild und jeder Pfad darin ist mit der Windows-Datenschutz-API für
   die eigene Anmeldung verschlüsselt; Gelöschtes wird überschrieben, Ordner lassen
   sich ganz ausnehmen.
+- **Stapel**: In der Ordneransicht mehrere Bilder wählen (`Strg`/`Umschalt`) und
+  mit „Stapel …“ auf einmal bearbeiten – eine Voreinstellung oder kopierte
+  Einstellungen darauflegen, Staub über den Infrarotkanal entfernen, die
+  Bearbeitung als Begleitdatei sichern und/oder die Bilder ausgeben: in einen
+  Ordner, als JPEG, PNG, TIFF oder WebP, mit Namenszusatz, auf Wunsch mit
+  KI-Entrauschen, -Schärfen, -Kolorieren und KI-Hochskalieren. Vorhandene Dateien
+  werden nie überschrieben. Ein Bild nach dem anderen, abbrechbar; ein Fehler
+  betrifft nur sein Bild, am Ende steht ein Bericht.
 - **Voreinstellungen**: Einstellungen unter einem Namen sichern und auf andere
   Bilder legen – mit Auswahl, was mitgeht: Grundregler, Kurven, Farbbereiche,
   LUT, Rauschminderung und Film sind vorgewählt, Geometrie, Anonymisieren und

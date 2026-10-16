@@ -518,3 +518,56 @@ def test_vorschau_cache_einrichten(fenster, tmp_path, monkeypatch):
         assert _warten(lambda: not datei.exists())
     finally:
         seite.ordner_zeigen("")
+
+
+def test_stapel(fenster, tmp_path, monkeypatch):
+    """Eine Voreinstellung auf mehrere Bilder legen, Begleitdateien schreiben und ausgeben -
+    nie ueber eine vorhandene Datei; ein kaputtes Bild haelt die anderen nicht auf."""
+    from PIL import Image
+
+    from silberkorn import begleitdatei, einstellungen, ordner_seite, voreinstellungen
+    from silberkorn.filter import Einstellungen
+    from silberkorn.stapel_dialog import StapelDialog
+    monkeypatch.setattr(einstellungen, "programm_ordner", lambda: str(tmp_path / "programm"))
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    voreinstellungen.sichern("Kontrast", voreinstellungen.als_dict(
+        Einstellungen(kontrast=30.0), voreinstellungen.Auswahl()))
+    bilder = tmp_path / "bilder"
+    bilder.mkdir()
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(bilder / "a.jpg")
+    Image.new("RGB", (64, 48), (150, 120, 90)).save(bilder / "b.png")
+    (bilder / "kaputt.jpg").write_bytes(b"kein jpeg")
+    ziel = bilder / "bearbeitet"
+    ziel.mkdir()
+    (ziel / "a-bearbeitet.jpg").write_bytes(b"schon da")
+
+    def annehmen(dialog):
+        dialog.wahl.setCurrentIndex(dialog.wahl.findData("Kontrast"))
+        dialog.begleit.setChecked(True)
+        dialog.ausgeben.setChecked(True)
+        dialog.format.setCurrentIndex(0)                      # JPEG
+        return StapelDialog.DialogCode.Accepted
+
+    berichte = []
+    monkeypatch.setattr(StapelDialog, "exec", annehmen)
+    monkeypatch.setattr(ordner_seite.QMessageBox, "exec",
+                        lambda box: berichte.append((box.text(), box.detailedText())) or 0)
+    seite = fenster.ordner
+    seite.ordner_zeigen(str(bilder))
+    try:
+        seite.liste.selectAll()
+        assert sorted(os.path.basename(p) for p in seite.gewaehlte_bilder()) == \
+            ["a.jpg", "b.png", "kaputt.jpg"]                  # ohne den Ordner
+        assert seite.stapel_knopf.isEnabled()
+        seite.stapel_starten()
+        assert berichte and berichte[0][0].startswith("2 von 3")
+        assert "kaputt.jpg" in berichte[0][1]
+        assert (ziel / "a-bearbeitet.jpg").read_bytes() == b"schon da"   # nicht ueberschrieben
+        assert sorted(p.name for p in ziel.iterdir()) == \
+            ["a-bearbeitet-2.jpg", "a-bearbeitet.jpg", "b-bearbeitet.jpg"]
+        for name in ("a.jpg", "b.png"):
+            pfad = str(bilder / name)
+            inhalt = begleitdatei.lesen(pfad, 48, 64)
+            assert inhalt.werte.kontrast == 30.0 and inhalt.vorschau is not None
+    finally:
+        seite.ordner_zeigen("")
