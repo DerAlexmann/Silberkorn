@@ -32,6 +32,13 @@ def fenster():
     fenster.close()
 
 
+@pytest.fixture(autouse=True)
+def ohne_begleitdateien(monkeypatch):
+    """Keine Begleitdateien und keine Frage danach - es sei denn, ein Test will sie."""
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: False)
+
+
 def test_alle_sichtbaren_knoepfe_beschriftet(fenster):
     """Beim Start setzte niemand die Texte der KI-Karten, wenn ihre Modelle schon
     da waren - die Knoepfe blieben leer, bis ein Bild geoeffnet wurde."""
@@ -312,6 +319,90 @@ def test_fotos_trennen(fenster, tmp_path, monkeypatch):
         namen = sorted(p.name for p in tmp_path.iterdir())
         assert namen == ["platte-01.png", "platte-02.png", "platte.png"]
         assert seite.sitzung.daten.name == "platte-02.png"   # Foto 3 ist die zweite Datei
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_begleitdatei_beim_wechsel(fenster, tmp_path, monkeypatch):
+    """Beim Wechsel des Bildes wird die Bearbeitung neben das Bild gesichert und beim
+    naechsten Oeffnen wiederhergestellt; alles zurueckgesetzt, verschwindet die Datei."""
+    from PIL import Image
+
+    from silberkorn import begleitdatei, einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: True)
+    erstes, zweites = str(tmp_path / "a.jpg"), str(tmp_path / "b.jpg")
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(erstes)
+    Image.new("RGB", (64, 48), (150, 120, 90)).save(zweites)
+    seite = fenster.bearbeiten
+    seite.oeffnen(erstes)
+    try:
+        seite.zeilen["kontrast"].schieber.setValue(140)
+        assert seite.sitzung.werte.kontrast != 0
+        kontrast = seite.sitzung.werte.kontrast
+        seite.oeffnen(zweites)                     # ohne Nachfrage: die Bearbeitung ist gesichert
+        assert seite.sitzung.daten.name == "b.jpg"
+        assert os.path.isfile(begleitdatei.pfad_fuer(erstes))
+        assert not os.path.exists(begleitdatei.pfad_fuer(zweites))   # unbearbeitet
+
+        seite.oeffnen(erstes)
+        assert seite.sitzung.werte.kontrast == kontrast
+        assert seite.zeilen["kontrast"].wert() == kontrast
+        assert not seite.sitzung.begleit_geaendert and not seite.verlauf.kann_zurueck
+
+        seite.alles_zuruecksetzen()
+        seite.oeffnen(zweites)
+        assert not os.path.exists(begleitdatei.pfad_fuer(erstes))
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_voreinstellung_und_kopieren(fenster, tmp_path, monkeypatch):
+    """Eine Voreinstellung sichern und anwenden, Einstellungen kopieren und einfuegen -
+    beides laesst sich zuruecknehmen."""
+    from PIL import Image
+
+    from silberkorn import einstellungen, voreinstellungen
+    from silberkorn.voreinstellung_dialog import VoreinstellungDialog
+    monkeypatch.setattr(einstellungen, "programm_ordner", lambda: str(tmp_path))
+
+    def annehmen(dialog):
+        if dialog.name is not None:
+            dialog.name.setText("Mein Look")
+        return VoreinstellungDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(VoreinstellungDialog, "exec", annehmen)
+    pfad = str(tmp_path / "bild.jpg")
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        seite.zeilen["kontrast"].schieber.setValue(140)
+        seite.zeilen["begradigen"].schieber.setValue(120)    # Geometrie geht nicht mit
+        kontrast = seite.sitzung.werte.kontrast
+        seite.voreinstellung_sichern()
+        assert voreinstellungen.namen() == ["Mein Look"]
+        assert seite.vor_wahl.currentText() == "Mein Look"
+
+        seite.alles_zuruecksetzen()
+        seite._festhalten(sofort=True)
+        seite.voreinstellung_anwenden()
+        seite._festhalten(sofort=True)
+        assert seite.sitzung.werte.kontrast == kontrast
+        assert seite.sitzung.werte.begradigen == 0
+        assert "Voreinstellung" in seite.rueckgaengig_knopf.toolTip()
+        seite.rueckgaengig()
+        assert seite.sitzung.werte.kontrast == 0
+
+        seite.zeilen["kontrast"].schieber.setValue(60)
+        seite.einstellungen_kopieren()
+        assert seite.vor_einfuegen_knopf.isEnabled()
+        wert = seite.sitzung.werte.kontrast
+        seite.alles_zuruecksetzen()
+        seite.einstellungen_einfuegen()
+        assert seite.sitzung.werte.kontrast == wert
     finally:
         seite.schliessen()
         seite._knoepfe_freischalten()

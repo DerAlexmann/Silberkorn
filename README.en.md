@@ -182,6 +182,21 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   for "Reset". One drag of a slider is one step; the tooltip says what will be undone.
   Superseded AI results take up at most a fifth of the video memory on top; older steps
   are dropped for that.
+- **Sidecar file**: when switching images and on exit, Silberkorn saves the edit in a
+  small file next to the image (`photo.jpg.silberkorn`) – sliders, curves, LUT, removed
+  objects, dust, mask, depth and AI expansion. The next time the image is opened,
+  everything is as before. AI denoise, sharpen and colourise are not stored – they would
+  take hundreds of MB – and are recomputed on request. The first time, Silberkorn asks
+  whether it may create sidecar files; "Sidecar files" at the top changes that. If a
+  sidecar file no longer matches the image because the image was changed, Silberkorn
+  applies only the slider values after asking. Once everything is reset, it disappears.
+- **Presets**: save settings under a name and apply them to other images – choosing
+  what to include: basic adjustments, curves, colour ranges, LUT, noise reduction and
+  film are preselected; geometry, anonymisation and metadata usually belong to one image
+  only. For film, optionally with the measured film base for images from the same strip;
+  otherwise it is estimated anew for each image. `Ctrl`+`Shift`+`C` / `V` copy settings
+  straight from one image to the next. Presets are stored as JSON in the `voreinstellungen`
+  folder next to the program and can be imported and exported.
 - **Fast**: the preview is computed at screen resolution in a few milliseconds; the
   computing time is shown in the status bar. Saving uses the full resolution.
 - **Colour-accurate**: processing happens in linear light with 32-bit floating point.
@@ -233,6 +248,7 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 | `Ctrl`+`S` | save … – always under a new name, the original is never overwritten silently |
 | `Ctrl`+`P` | print … |
 | `Ctrl`+`Z` / `Ctrl`+`Y` | undo / redo (also `Ctrl`+`Shift`+`Z`); while selecting by click, `Ctrl`+`Z` first undoes the clicks |
+| `Ctrl`+`Shift`+`C` / `V` | copy settings / paste them onto another image |
 | `Ctrl`+`0` / `Ctrl`+`1` | fit / 100 % |
 | mouse wheel, drag, double-click | zoom, pan, toggle between fit and 100 % |
 | `Enter` / `Esc` | apply / cancel crop |
@@ -304,6 +320,11 @@ card or at "Extend with AI" in the "Geometry" card and confirm the prompt that n
 licence. The executable also downloads the NVIDIA libraries from pypi.org at first
 start – likewise only after you agree. The lensfun lens database is only downloaded at
 the push of a button in the "Lens" card, and the same goes for checking for a newer one.
+
+Besides the slider values, a sidecar file contains a small preview of the edit and any
+metadata entered, such as title or creator – passing on an image together with its
+sidecar file passes on both. Sidecar files and presets from others are read with strict
+checks: only known values within their limits, no file paths, nothing executable.
 
 ## AI models
 

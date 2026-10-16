@@ -936,5 +936,128 @@ TRANSLATIONS = {
             "always removed.",
         "Das Bild enthält von der KI erfundene Teile – das wird in den Metadaten vermerkt.":
             "The image contains parts invented by AI – this is noted in the metadata.",
+        # Voreinstellungen und Begleitdatei
+        "Voreinstellungen": "Presets",
+        "Voreinstellung": "Preset",
+        "Einstellungen unter einem Namen sichern und auf andere Bilder legen – oder "
+        "von einem Bild aufs nächste kopieren.":
+            "Save settings under a name and apply them to other images – or copy them from "
+            "one image to the next.",
+        "Anwenden": "Apply",
+        "Die gewählte Voreinstellung auf dieses Bild legen. Lässt sich mit „Rückgängig“ "
+        "zurücknehmen.":
+            "Apply the selected preset to this image. Can be reverted with “Undo”.",
+        "Sichern …": "Save …",
+        "Die Einstellungen dieses Bildes als Voreinstellung sichern – welche, steht im "
+        "nächsten Schritt zur Wahl.":
+            "Save this image's settings as a preset – the next step lets you choose which.",
+        "Löschen": "Delete",
+        "Die gewählte Voreinstellung löschen": "Delete the selected preset",
+        "Voreinstellungen importieren und exportieren": "Import and export presets",
+        "Importieren …": "Import …",
+        "Exportieren …": "Export …",
+        "Kopieren": "Copy",
+        "Einstellungen dieses Bildes merken, um sie auf ein anderes zu legen "
+        "(Strg+Umschalt+C)":
+            "Remember this image's settings to apply them to another one (Ctrl+Shift+C)",
+        "Einfügen": "Paste",
+        "Die kopierten Einstellungen auf dieses Bild legen (Strg+Umschalt+V)":
+            "Apply the copied settings to this image (Ctrl+Shift+V)",
+        "Die LUT lässt sich nicht mehr lesen.": "The LUT can no longer be read.",
+        "Voreinstellung ersetzen": "Replace preset",
+        "Die Voreinstellung „{name}“ gibt es schon. Ersetzen?":
+            "The preset “{name}” already exists. Replace it?",
+        "Die Voreinstellung lässt sich nicht sichern.": "The preset cannot be saved.",
+        "Voreinstellung „{name}“ gesichert.": "Preset “{name}” saved.",
+        "Die Voreinstellung lässt sich nicht lesen.": "The preset cannot be read.",
+        "Voreinstellung „{name}“ angewendet.": "Preset “{name}” applied.",
+        "Voreinstellung löschen": "Delete preset",
+        "Die Voreinstellung „{name}“ löschen?": "Delete the preset “{name}”?",
+        "Die Voreinstellung lässt sich nicht löschen.": "The preset cannot be deleted.",
+        "Voreinstellung importieren": "Import preset",
+        "Voreinstellung (*.json)": "Preset (*.json)",
+        "Die Datei ist keine lesbare Voreinstellung.": "The file is not a readable preset.",
+        "Dieser Name taugt nicht für eine Voreinstellung.":
+            "This name cannot be used for a preset.",
+        "Voreinstellung „{name}“ importiert.": "Preset “{name}” imported.",
+        "Voreinstellung exportieren": "Export preset",
+        "Die Voreinstellung lässt sich nicht exportieren.": "The preset cannot be exported.",
+        "Voreinstellung exportiert: {name}": "Preset exported: {name}",
+        "Einstellungen kopiert – mit Strg+Umschalt+V auf ein anderes Bild legen.":
+            "Settings copied – apply them to another image with Ctrl+Shift+V.",
+        "Einstellungen eingefügt.": "Settings pasted.",
+        "Einstellungen eingefügt": "Settings pasted",
+        "Einige Werte waren ungültig und wurden übergangen.":
+            "Some values were invalid and have been skipped.",
+        "Voreinstellung sichern": "Save preset",
+        "Einstellungen kopieren": "Copy settings",
+        "z. B. Kodak Portra": "e.g. Kodak Portra",
+        "Was mitgenommen wird:": "What to include:",
+        "Gemessene Filmmaske mitnehmen": "Include the measured film base",
+        "Für Bilder vom selben Filmstreifen. Sonst wird die Filmmaske an jedem Bild neu "
+        "geschätzt.":
+            "For images from the same strip of film. Otherwise the film base is estimated "
+            "anew for each image.",
+        "Grundregler": "Basic adjustments",
+        "KI-Stärken": "AI strengths",
+        "Weißabgleich, Licht, Präsenz, Farbe und Details":
+            "White balance, light, presence, colour and details",
+        "Die Filmart – und auf Wunsch die gemessene Filmmaske":
+            "The film type – and, if wanted, the measured film base",
+        "Nur die Stärke von KI-Entrauschen, -Schärfen und -Kolorieren. Berechnet "
+        "werden muss jedes Bild selbst.":
+            "Only the strength of AI denoise, sharpen and colourise. Each image has to be "
+            "computed itself.",
+        "Die Regler für den Hintergrund – sie wirken erst mit einer Maske.":
+            "The background sliders – they only take effect with a mask.",
+        "Bokeh, Fokus und Schärfentiefe – sie wirken erst mit einer Tiefe.":
+            "Bokeh, focus and depth of field – they only take effect with a depth map.",
+        "Verzeichnung, Vignette, Farbsäume und ob das Objektivprofil gilt":
+            "Distortion, vignette, colour fringing and whether the lens profile applies",
+        "Drehen, Spiegeln, Zuschnitt, Begradigen und Perspektive – meist nur für "
+        "ein bestimmtes Bild richtig":
+            "Rotate, flip, crop, straighten and perspective – usually only right for one "
+            "particular image",
+        "Die Flächen zum Anonymisieren – sie gehören zu einem bestimmten Bild":
+            "The areas to anonymise – they belong to one particular image",
+        "Titel, Beschreibung, Urheber, Ort, Datum und Bewertung":
+            "Title, description, creator, location, date and rating",
+        "Begleitdateien": "Sidecar files",
+        "Die Bearbeitung beim Wechsel des Bildes und beim Beenden in einer kleinen Datei "
+        "neben dem Bild sichern (foto.jpg.silberkorn). Beim nächsten Öffnen ist alles wie "
+        "zuvor; das Bild selbst bleibt unverändert.":
+            "Save the edit in a small file next to the image when switching images and on "
+            "exit (photo.jpg.silberkorn). The next time it is opened, everything is as "
+            "before; the image itself stays unchanged.",
+        "Bearbeitung neben dem Bild sichern?": "Save the edit next to the image?",
+        "Silberkorn kann die Bearbeitung in einer kleinen Begleitdatei neben dem Bild "
+        "sichern – „{name}“. Wird das Bild später wieder geöffnet, ist alles wie zuvor: "
+        "Regler, entfernte Objekte, Staub, Maske und KI-Erweiterung. Das Bild selbst "
+        "bleibt unverändert.\n\nBegleitdateien anlegen? Das lässt sich oben über "
+        "„Begleitdateien“ jederzeit ändern.":
+            "Silberkorn can save the edit in a small sidecar file next to the image – "
+            "“{name}”. When the image is opened again later, everything is as before: "
+            "sliders, removed objects, dust, mask and AI expansion. The image itself stays "
+            "unchanged.\n\nCreate sidecar files? This can be changed at any time via "
+            "“Sidecar files” at the top.",
+        "Die Bearbeitung ließ sich nicht neben dem Bild sichern – der Ordner ist "
+        "schreibgeschützt oder nicht erreichbar.":
+            "The edit could not be saved next to the image – the folder is read-only or "
+            "not reachable.",
+        "Begleitdatei passt nicht": "Sidecar file does not match",
+        "Die Begleitdatei zu {name} gehört zu einer anderen Fassung des Bildes – das Bild "
+        "wurde seither verändert. Nur die Reglerwerte übernehmen? Entfernte Objekte, Staub, "
+        "Maske und KI-Erweiterung gehen dabei nicht mit.":
+            "The sidecar file for {name} belongs to a different version of the image – the "
+            "image has been changed since. Apply only the slider values? Removed objects, "
+            "dust, mask and AI expansion are left out.",
+        "Die Begleitdatei lässt sich nicht lesen – das Bild ist unbearbeitet geöffnet.":
+            "The sidecar file cannot be read – the image has been opened unedited.",
+        "KI-Schritte neu berechnen": "Recompute AI steps",
+        "Die gesicherte Bearbeitung nutzt {schritte}. Diese Ergebnisse stehen nicht in der "
+        "Begleitdatei, sie werden für das Bild neu berechnet. Jetzt berechnen?":
+            "The saved edit uses {schritte}. These results are not stored in the sidecar "
+            "file; they are recomputed for the image. Compute now?",
+        "{name} geöffnet – mit der gesicherten Bearbeitung": "{name} opened – with the saved edit",
     },
 }

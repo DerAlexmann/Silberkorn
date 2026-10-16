@@ -8,6 +8,7 @@ Created with assistance of Claude AI
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import os
 import random
@@ -28,8 +29,10 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressDialog,
@@ -43,7 +46,9 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
+    VERSION,
     anonym,
+    begleitdatei,
     bilddatei,
     drucken,
     einstellungen,
@@ -58,6 +63,7 @@ from . import (
     trennen,
     verlauf,
     veroeffentlichen,
+    voreinstellungen,
 )
 from .bearbeitung import Sitzung
 from .cuda import cupy as cp
@@ -69,6 +75,7 @@ from .metadaten_dialog import MetadatenDialog
 from .trennen_dialog import TrennenDialog
 from .uebersetzung import _
 from .veroeffentlichen_dialog import VeroeffentlichenDialog
+from .voreinstellung_dialog import VoreinstellungDialog
 
 REGLERLEISTE_BREITE = 340
 KARTE_SPRUNG_MS = 200        # so lange rollt die Liste zur gewaehlten Karte
@@ -127,6 +134,15 @@ def gruppen_titel(gruppe: str) -> str:
         "maske": _("Motiv & Hintergrund"),
         "tiefe": _("Tiefe & Bokeh"),
     }[gruppe]
+
+
+@contextlib.contextmanager
+def _sanduhr():
+    QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+    try:
+        yield
+    finally:
+        QApplication.restoreOverrideCursor()
 
 
 def farbbereich_titel(nummer: int) -> str:
@@ -362,6 +378,7 @@ class BearbeitenSeite(QWidget):
         self._pinsel_letzter = None           # letzter Pinselpunkt im Original
         self.verlauf = verlauf.Verlauf(0)
         self._schritt_name = ""               # benennt die naechste Aenderung, wenn noetig
+        self._zwischenablage: dict | None = None   # kopierte Einstellungen (voreinstellungen.py)
         # Eine Aenderung wird erst festgehalten, wenn eine Weile nichts mehr kommt - ein
         # Zug am Regler ist ein Schritt, nicht hundert
         self._verlauf_uhr = QTimer(self, singleShot=True, interval=VERLAUF_PAUSE_MS)
@@ -399,6 +416,8 @@ class BearbeitenSeite(QWidget):
         QShortcut(QKeySequence.StandardKey.Undo, self, self._strg_z)
         QShortcut(QKeySequence("Ctrl+Y"), self, self.wiederholen)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, self.wiederholen)
+        QShortcut(QKeySequence("Ctrl+Shift+C"), self, self.einstellungen_kopieren)
+        QShortcut(QKeySequence("Ctrl+Shift+V"), self, self.einstellungen_einfuegen)
         self._knoepfe_freischalten()
 
     # ------------------------------------------------------------------
@@ -542,6 +561,7 @@ class BearbeitenSeite(QWidget):
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 3, self._metadaten_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]), self._film_karte())
         spalte.addWidget(self._ki_karte())
+        spalte.insertWidget(0, self._voreinstellungen_karte())
         spalte.addStretch(1)
         flaeche.setWidget(inhalt)
         self.reglerleiste = flaeche
@@ -1331,11 +1351,11 @@ class BearbeitenSeite(QWidget):
         else:
             self.ki_bild_berechnen(gruppe)
 
-    def ki_bild_berechnen(self, gruppe: str):
+    def ki_bild_berechnen(self, gruppe: str) -> bool:
         """Das ganze Bild einmal mit KI entrauschen oder schaerfen - mit Fortschritt und
-        Abbrechen."""
+        Abbrechen. Rueckgabe: ob es fertig wurde."""
         if self.sitzung is None:
-            return
+            return False
         art = self._ki_bild_art(gruppe)
         modell = art["modell"]
         kachel = ki.kachelgroesse(modell, self._ki_stufe())
@@ -1362,13 +1382,13 @@ class BearbeitenSeite(QWidget):
             del netz                             # Grafikspeicher fuer die Bearbeitung frei
         except ki.KiAbbruch:
             self.fenster.melden(art["abgebrochen"])
-            return
+            return False
         except ki.KiFehler as fehler:
             self._fehler(art["fehlgeschlagen"], str(fehler))
-            return
+            return False
         except cp.cuda.memory.OutOfMemoryError:
             self._fehler(_("Für dieses Bild reicht der Grafikspeicher nicht."), "")
-            return
+            return False
         finally:
             QApplication.restoreOverrideCursor()
             if anzeige is not None:
@@ -1376,8 +1396,11 @@ class BearbeitenSeite(QWidget):
             cp.get_default_memory_pool().free_all_blocks()
             self._ki_bild_anzeigen()
         self.fenster.melden(art["geschafft"].format(s=f"{ms / 1000:.1f}", weg=weg))
-        self.zeilen[gruppe].setzen(100)
-        self.wert_geaendert(gruppe, 100.0)
+        # Eine Staerke aus der Begleitdatei bleibt; sonst wirkt das Ergebnis erst einmal ganz
+        staerke = getattr(self.sitzung.werte, gruppe) or 100.0
+        self.zeilen[gruppe].setzen(staerke)
+        self.wert_geaendert(gruppe, staerke)
+        return True
 
     # ------------------------------------------------------------------
     # Motiv & Hintergrund: Maske mit KI, eigene Werte fuer den Hintergrund
@@ -2886,6 +2909,8 @@ class BearbeitenSeite(QWidget):
     def _lut_bedienung(self, innen: QVBoxLayout):
         self.lut_name = QLabel(objectName="nebentext")
         self.lut_name.setWordWrap(True)
+        # Der Titel steht in der LUT - auch in einer fremden Begleitdatei; nie als HTML zeigen
+        self.lut_name.setTextFormat(Qt.TextFormat.PlainText)
         innen.addWidget(self.lut_name)
         leiste = QHBoxLayout()
         leiste.setSpacing(6)
@@ -2956,6 +2981,7 @@ class BearbeitenSeite(QWidget):
         for widget in (self.speichern_knopf, self.veroeffentlichen_knopf, self.drucken_knopf,
                        self.vorher_knopf, self.zuruecksetzen_knopf):
             widget.setEnabled(offen)
+        self._voreinstellungen_freischalten()
         for zeile in [*self.zeilen.values(), *self.hsl_zeilen]:
             zeile.schieber.setEnabled(offen)
         for knopf in self._hsl_knoepfe.values():
@@ -3189,6 +3215,10 @@ class BearbeitenSeite(QWidget):
         """Was ein Schritt geaendert hat, in wenigen Worten - fuer Tooltip und Meldung."""
         if name == "zuruecksetzen":
             return _("Zurücksetzen")
+        if name == "voreinstellung":
+            return _("Voreinstellung")
+        if name == "einfuegen":
+            return _("Einstellungen eingefügt")
         teile = dict(vorher.teile), dict(nachher.teile)
         felder = verlauf.unterschied(vorher, nachher)
         # Eine KI-Berechnung sagt mehr als der Regler, den sie dabei mitstellt - das
@@ -3245,6 +3275,395 @@ class BearbeitenSeite(QWidget):
         return texte.get(gruppe, feld), gruppe
 
     # ------------------------------------------------------------------
+    # Voreinstellungen und Einstellungen kopieren (voreinstellungen.py)
+    # ------------------------------------------------------------------
+
+    def _voreinstellungen_karte(self) -> QFrame:
+        karte, innen = self._karte(_("Voreinstellungen"))
+        hinweis = QLabel(objectName="nebentext")
+        hinweis.setWordWrap(True)
+        self.fenster.beschriften(hinweis.setText, _(
+            "Einstellungen unter einem Namen sichern und auf andere Bilder legen – oder "
+            "von einem Bild aufs nächste kopieren."))
+        innen.addWidget(hinweis)
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.vor_wahl = QComboBox()
+        self.vor_wahl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.vor_wahl.currentIndexChanged.connect(lambda _i: self._voreinstellungen_freischalten())
+        self.vor_anwenden_knopf = self._knopf(_("Anwenden"), self.voreinstellung_anwenden,
+                                              "kanal")
+        self.fenster.beschriften(self.vor_anwenden_knopf.setToolTip, _(
+            "Die gewählte Voreinstellung auf dieses Bild legen. Lässt sich mit „Rückgängig“ "
+            "zurücknehmen."))
+        leiste.addWidget(self.vor_wahl, 1)
+        leiste.addWidget(self.vor_anwenden_knopf)
+        innen.addLayout(leiste)
+
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.vor_sichern_knopf = self._knopf(_("Sichern …"), self.voreinstellung_sichern, "kanal")
+        self.fenster.beschriften(self.vor_sichern_knopf.setToolTip, _(
+            "Die Einstellungen dieses Bildes als Voreinstellung sichern – welche, steht im "
+            "nächsten Schritt zur Wahl."))
+        self.vor_loeschen_knopf = self._knopf(_("Löschen"), self.voreinstellung_loeschen,
+                                              "kanal")
+        self.fenster.beschriften(self.vor_loeschen_knopf.setToolTip,
+                                 _("Die gewählte Voreinstellung löschen"))
+        self.vor_mehr_knopf = self._knopf("…", None, "kanal")
+        self.fenster.beschriften(self.vor_mehr_knopf.setToolTip,
+                                 _("Voreinstellungen importieren und exportieren"))
+        menue = QMenu(self.vor_mehr_knopf)
+        import_aktion = menue.addAction("")
+        self.fenster.beschriften(import_aktion.setText, _("Importieren …"))
+        import_aktion.triggered.connect(self.voreinstellung_importieren)
+        self.vor_export_aktion = menue.addAction("")
+        self.fenster.beschriften(self.vor_export_aktion.setText, _("Exportieren …"))
+        self.vor_export_aktion.triggered.connect(self.voreinstellung_exportieren)
+        self.vor_mehr_knopf.setMenu(menue)
+        leiste.addWidget(self.vor_sichern_knopf)
+        leiste.addWidget(self.vor_loeschen_knopf)
+        leiste.addWidget(self.vor_mehr_knopf)
+        leiste.addStretch(1)
+        innen.addLayout(leiste)
+
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.vor_kopieren_knopf = self._knopf(_("Kopieren"), self.einstellungen_kopieren, "kanal")
+        self.fenster.beschriften(self.vor_kopieren_knopf.setToolTip, _(
+            "Einstellungen dieses Bildes merken, um sie auf ein anderes zu legen "
+            "(Strg+Umschalt+C)"))
+        self.vor_einfuegen_knopf = self._knopf(_("Einfügen"), self.einstellungen_einfuegen,
+                                               "kanal")
+        self.fenster.beschriften(self.vor_einfuegen_knopf.setToolTip, _(
+            "Die kopierten Einstellungen auf dieses Bild legen (Strg+Umschalt+V)"))
+        leiste.addWidget(self.vor_kopieren_knopf)
+        leiste.addWidget(self.vor_einfuegen_knopf)
+        leiste.addStretch(1)
+        innen.addLayout(leiste)
+        self._voreinstellungen_auffrischen()
+        return karte
+
+    def _voreinstellungen_auffrischen(self, waehlen: str | None = None):
+        gewaehlt = waehlen if waehlen is not None else self.vor_wahl.currentText()
+        self.vor_wahl.blockSignals(True)
+        self.vor_wahl.clear()
+        self.vor_wahl.addItems(voreinstellungen.namen())
+        self.vor_wahl.setCurrentIndex(max(0, self.vor_wahl.findText(gewaehlt)))
+        self.vor_wahl.blockSignals(False)
+        self._voreinstellungen_freischalten()
+
+    def _voreinstellungen_freischalten(self):
+        if not hasattr(self, "vor_einfuegen_knopf"):
+            return                                # waehrend des Aufbaus
+        offen = self.sitzung is not None
+        da = self.vor_wahl.count() > 0
+        self.vor_wahl.setEnabled(da)
+        self.vor_anwenden_knopf.setEnabled(offen and da)
+        self.vor_loeschen_knopf.setEnabled(da)
+        self.vor_export_aktion.setEnabled(da)
+        self.vor_sichern_knopf.setEnabled(offen)
+        self.vor_kopieren_knopf.setEnabled(offen)
+        self.vor_einfuegen_knopf.setEnabled(offen and self._zwischenablage is not None)
+
+    @staticmethod
+    def _auswahl_vorgabe() -> voreinstellungen.Auswahl:
+        """Die zuletzt gewaehlten Gruppen - sonst die Vorgabe."""
+        gemerkt = einstellungen.load_config().get("voreinstellung_auswahl")
+        if isinstance(gemerkt, dict) and isinstance(gemerkt.get("gruppen"), list):
+            gruppen = tuple(g for g in voreinstellungen.GRUPPEN if g in gemerkt["gruppen"])
+            if gruppen:
+                return voreinstellungen.Auswahl(gruppen, gemerkt.get("film_messung") is True)
+        return voreinstellungen.Auswahl()
+
+    @staticmethod
+    def _auswahl_merken(auswahl: voreinstellungen.Auswahl):
+        daten = einstellungen.load_config()
+        daten["voreinstellung_auswahl"] = {"gruppen": list(auswahl.gruppen),
+                                           "film_messung": auswahl.film_messung}
+        einstellungen.save_config(daten)
+
+    def _werte_fuer_voreinstellung(self, auswahl: voreinstellungen.Auswahl) -> dict | None:
+        try:
+            return voreinstellungen.als_dict(self.sitzung.werte, auswahl, VERSION)
+        except lut.LutFehler as fehler:
+            self._fehler(_("Die LUT lässt sich nicht mehr lesen."), str(fehler))
+            return None
+
+    def _ersetzen_ok(self, name: str) -> bool:
+        if not voreinstellungen.vorhanden(name):
+            return True
+        return QMessageBox.question(
+            self, _("Voreinstellung ersetzen"),
+            _("Die Voreinstellung „{name}“ gibt es schon. Ersetzen?").format(name=name)
+        ) == QMessageBox.StandardButton.Yes
+
+    def voreinstellung_sichern(self):
+        if self.sitzung is None:
+            return
+        dialog = VoreinstellungDialog(self, self._auswahl_vorgabe(), True,
+                                      self.vor_wahl.currentText())
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, auswahl = dialog.gewaehlter_name(), dialog.auswahl()
+        self._auswahl_merken(auswahl)
+        if not self._ersetzen_ok(name):
+            return
+        daten = self._werte_fuer_voreinstellung(auswahl)
+        if daten is None:
+            return
+        try:
+            voreinstellungen.sichern(name, daten)
+        except voreinstellungen.VoreinstellungFehler as fehler:
+            self._fehler(_("Die Voreinstellung lässt sich nicht sichern."), str(fehler))
+            return
+        self._voreinstellungen_auffrischen(name)
+        self.fenster.melden(_("Voreinstellung „{name}“ gesichert.").format(name=name))
+
+    def voreinstellung_anwenden(self):
+        name = self.vor_wahl.currentText()
+        if self.sitzung is None or not name:
+            return
+        try:
+            daten = voreinstellungen.laden(name)
+        except voreinstellungen.VoreinstellungFehler as fehler:
+            self._fehler(_("Die Voreinstellung lässt sich nicht lesen."), str(fehler))
+            return
+        if self._einstellungen_uebernehmen(daten, "voreinstellung"):
+            self.fenster.melden(_("Voreinstellung „{name}“ angewendet.").format(name=name))
+
+    def voreinstellung_loeschen(self):
+        name = self.vor_wahl.currentText()
+        if not name or QMessageBox.question(
+                self, _("Voreinstellung löschen"),
+                _("Die Voreinstellung „{name}“ löschen?").format(name=name)
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            voreinstellungen.loeschen(name)
+        except voreinstellungen.VoreinstellungFehler as fehler:
+            self._fehler(_("Die Voreinstellung lässt sich nicht löschen."), str(fehler))
+        self._voreinstellungen_auffrischen("")
+
+    def voreinstellung_importieren(self):
+        pfad, _filter = QFileDialog.getOpenFileName(
+            self, _("Voreinstellung importieren"), self._letzter_ordner(),
+            _("Voreinstellung (*.json)"))
+        if not pfad:
+            return
+        try:
+            voreinstellungen.datei_lesen(pfad)          # erst pruefen, dann nach dem Namen fragen
+        except voreinstellungen.VoreinstellungFehler as fehler:
+            self._fehler(_("Die Datei ist keine lesbare Voreinstellung."), str(fehler))
+            return
+        name, ok = QInputDialog.getText(self, _("Voreinstellung importieren"), _("Name"),
+                                        text=voreinstellungen.vorgeschlagener_name(pfad))
+        if not ok:
+            return
+        name = voreinstellungen.name_pruefen(name)
+        if name is None:
+            self._fehler(_("Dieser Name taugt nicht für eine Voreinstellung."), "")
+            return
+        if not self._ersetzen_ok(name):
+            return
+        try:
+            voreinstellungen.importieren(pfad, name)
+        except voreinstellungen.VoreinstellungFehler as fehler:
+            self._fehler(_("Die Datei ist keine lesbare Voreinstellung."), str(fehler))
+            return
+        self._voreinstellungen_auffrischen(name)
+        self.fenster.melden(_("Voreinstellung „{name}“ importiert.").format(name=name))
+
+    def voreinstellung_exportieren(self):
+        name = self.vor_wahl.currentText()
+        if not name:
+            return
+        pfad, _filter = QFileDialog.getSaveFileName(
+            self, _("Voreinstellung exportieren"),
+            os.path.join(self._letzter_ordner(), name + voreinstellungen.ENDUNG),
+            _("Voreinstellung (*.json)"))
+        if not pfad:
+            return
+        try:
+            voreinstellungen.datei_schreiben(pfad, voreinstellungen.laden(name))
+        except voreinstellungen.VoreinstellungFehler as fehler:
+            self._fehler(_("Die Voreinstellung lässt sich nicht exportieren."), str(fehler))
+            return
+        self.fenster.melden(_("Voreinstellung exportiert: {name}")
+                            .format(name=os.path.basename(pfad)))
+
+    def einstellungen_kopieren(self):
+        if self.sitzung is None:
+            return
+        dialog = VoreinstellungDialog(self, self._auswahl_vorgabe(), False)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        auswahl = dialog.auswahl()
+        self._auswahl_merken(auswahl)
+        daten = self._werte_fuer_voreinstellung(auswahl)
+        if daten is None:
+            return
+        self._zwischenablage = daten
+        self._voreinstellungen_freischalten()
+        self.fenster.melden(_("Einstellungen kopiert – mit Strg+Umschalt+V auf ein anderes "
+                              "Bild legen."))
+
+    def einstellungen_einfuegen(self):
+        if self.sitzung is None or self._zwischenablage is None:
+            return
+        if self._einstellungen_uebernehmen(self._zwischenablage, "einfuegen"):
+            self.fenster.melden(_("Einstellungen eingefügt."))
+
+    def _einstellungen_uebernehmen(self, daten: dict, schritt: str) -> bool:
+        """Eine Voreinstellung oder kopierte Einstellungen auf das Bild legen - als ein
+        Schritt fuer Rueckgaengig."""
+        sitzung = self.sitzung
+        try:
+            gelesen = voreinstellungen.anwenden(daten, sitzung.werte)
+        except voreinstellungen.VoreinstellungFehler as fehler:
+            self._fehler(_("Die Voreinstellung lässt sich nicht lesen."), str(fehler))
+            return False
+        werte = gelesen.ergebnis.werte
+        if "objektivprofil" in gelesen.ergebnis.felder:
+            werte.objektivprofil = (sitzung.objektiv_terme() if gelesen.ergebnis.objektivprofil
+                                    else ())
+        if gelesen.film_schaetzen:
+            werte.film_maske, werte.film_umfang = sitzung.film_schaetzen(werte.film)
+        self.zuschnitt_abbrechen()
+        self._festhalten(sofort=True)             # eine eben gemachte Aenderung zuerst
+        self._schritt_name = schritt
+        sitzung.werte = werte
+        self._alles_anzeigen()
+        self.zeichnen_anfordern()
+        if gelesen.ergebnis.verworfen:
+            self._fehler(_("Einige Werte waren ungültig und wurden übergangen."),
+                         ", ".join(gelesen.ergebnis.verworfen))
+        return True
+
+    # ------------------------------------------------------------------
+    # Begleitdatei: die Bearbeitung neben dem Bild (begleitdatei.py)
+    # ------------------------------------------------------------------
+
+    def _begleitdateien_erlaubt(self) -> bool:
+        """Darf Silberkorn Begleitdateien schreiben? Beim ersten Mal wird gefragt."""
+        erlaubt = einstellungen.begleitdateien()
+        if erlaubt is not None:
+            return erlaubt
+        antwort = QMessageBox.question(
+            self, _("Bearbeitung neben dem Bild sichern?"),
+            _("Silberkorn kann die Bearbeitung in einer kleinen Begleitdatei neben dem Bild "
+              "sichern – „{name}“. Wird das Bild später wieder geöffnet, ist alles wie zuvor: "
+              "Regler, entfernte Objekte, Staub, Maske und KI-Erweiterung. Das Bild selbst "
+              "bleibt unverändert.\n\nBegleitdateien anlegen? Das lässt sich oben über "
+              "„Begleitdateien“ jederzeit ändern.").format(
+                name=os.path.basename(begleitdatei.pfad_fuer(self.sitzung.daten.pfad))),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        erlaubt = antwort == QMessageBox.StandardButton.Yes
+        einstellungen.begleitdateien_setzen(erlaubt)
+        self.fenster.begleitdateien_anzeigen()
+        return erlaubt
+
+    def begleitdatei_sichern(self) -> bool:
+        """Die Bearbeitung neben das Bild schreiben, wenn sie sich geaendert hat - ist alles
+        zurueckgesetzt, die Begleitdatei loeschen. Rueckgabe: ob nichts verloren geht."""
+        sitzung = self.sitzung
+        if sitzung is None or not sitzung.begleit_geaendert:
+            return True
+        if not self._begleitdateien_erlaubt():
+            return False
+        pfad = sitzung.daten.pfad
+        if not sitzung.bearbeitet:
+            begleitdatei.entfernen(pfad)
+            sitzung.begleit_gesichert()
+            return True
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            inhalt = sitzung.begleit_inhalt(sitzung.begleit_vorschau())
+            begleitdatei.schreiben(pfad, inhalt, begleitdatei.fingerabdruck(pfad), VERSION)
+        except begleitdatei.BegleitFehler:
+            self.fenster.melden(_("Die Bearbeitung ließ sich nicht neben dem Bild sichern – "
+                                  "der Ordner ist schreibgeschützt oder nicht erreichbar."),
+                                fehler=True)
+            return False
+        except cp.cuda.memory.OutOfMemoryError:
+            self.fenster.melden(_("Für dieses Bild reicht der Grafikspeicher nicht."),
+                                fehler=True)
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        sitzung.begleit_gesichert()
+        return True
+
+    def _begleitdatei_laden(self) -> bool:
+        """Liegt neben dem eben geoeffneten Bild eine Begleitdatei, ihre Bearbeitung
+        uebernehmen. Rueckgabe: ob etwas uebernommen wurde."""
+        sitzung = self.sitzung
+        pfad = sitzung.daten.pfad
+        if not os.path.isfile(begleitdatei.pfad_fuer(pfad)):
+            return False
+        hoehe, breite = sitzung.original.shape[:2]
+        try:
+            with _sanduhr():
+                inhalt = begleitdatei.lesen(pfad, hoehe, breite, sitzung.grundwerte())
+            if not inhalt.passt and QMessageBox.question(
+                    self, _("Begleitdatei passt nicht"),
+                    _("Die Begleitdatei zu {name} gehört zu einer anderen Fassung des Bildes – "
+                      "das Bild wurde seither verändert. Nur die Reglerwerte übernehmen? "
+                      "Entfernte Objekte, Staub, Maske und KI-Erweiterung gehen dabei nicht "
+                      "mit.").format(name=sitzung.daten.name)
+            ) != QMessageBox.StandardButton.Yes:
+                return False
+            with _sanduhr():
+                sitzung.begleit_anwenden(inhalt)
+            if not inhalt.passt:
+                sitzung.begleit_veraltet()        # beim Verlassen fuer dieses Bild neu schreiben
+        except begleitdatei.BegleitFehler as fehler:
+            self._fehler(_("Die Begleitdatei lässt sich nicht lesen – das Bild ist "
+                           "unbearbeitet geöffnet."), str(fehler))
+            return False
+        except cp.cuda.memory.OutOfMemoryError:
+            self._fehler(_("Für dieses Bild reicht der Grafikspeicher nicht."), "")
+            return False
+        if inhalt.verworfen:
+            self._fehler(_("Einige Werte waren ungültig und wurden übergangen."),
+                         ", ".join(inhalt.verworfen))
+        return True
+
+    def _ki_neu_rechnen_anbieten(self):
+        """Nach dem Oeffnen einer Begleitdatei: KI-Entrauschen, -Schaerfen und -Kolorieren
+        neu berechnen - sie stehen nicht darin."""
+        sitzung = self.sitzung
+        if sitzung is None:
+            return
+        stufe = self._ki_stufe()
+        offen = []
+        for gruppe in sitzung.ki_neu_zu_rechnen():
+            modell = self._ki_bild_art(gruppe)["modell"]
+            if ki.angeboten(modell, stufe) and ki.vorhanden(modell):
+                offen.append(gruppe)
+        if not offen:
+            return
+        antwort = QMessageBox.question(
+            self, _("KI-Schritte neu berechnen"),
+            _("Die gesicherte Bearbeitung nutzt {schritte}. Diese Ergebnisse stehen nicht in "
+              "der Begleitdatei, sie werden für das Bild neu berechnet. Jetzt berechnen?")
+            .format(schritte=", ".join(gruppen_titel(g) for g in offen)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        gesichert = not sitzung.begleit_geaendert
+        for gruppe in offen:
+            if not self.ki_bild_berechnen(gruppe):
+                break
+        if self.sitzung is not sitzung:
+            return
+        if gesichert:
+            sitzung.begleit_gesichert()           # gerechnet ist, was die Datei verlangt
+        self._verlauf_beginnen()                  # Rueckgaengig beginnt beim fertigen Stand
+
+    # ------------------------------------------------------------------
     # Oeffnen und Speichern
     # ------------------------------------------------------------------
 
@@ -3258,8 +3677,9 @@ class BearbeitenSeite(QWidget):
         einstellungen.save_config(daten)
 
     def aenderungen_verwerfen_ok(self) -> bool:
-        """Fragt nach, bevor ungespeicherte Aenderungen verloren gehen."""
-        if self.sitzung is None or not self.sitzung.geaendert:
+        """Vor dem Wechsel des Bildes oder dem Beenden: die Bearbeitung in die Begleitdatei -
+        geht das nicht, wird nachgefragt, bevor ungespeicherte Aenderungen verloren gehen."""
+        if self.sitzung is None or self.begleitdatei_sichern() or not self.sitzung.geaendert:
             return True
         antwort = QMessageBox.question(
             self, _("Ungespeicherte Änderungen"),
@@ -3320,6 +3740,7 @@ class BearbeitenSeite(QWidget):
         finally:
             QApplication.restoreOverrideCursor()
 
+        geladen = self._begleitdatei_laden()
         self._letzten_ordner_merken(pfad)
         self.leinwand.zuschnitt = None
         self.zuschneiden_knopf.setChecked(False)
@@ -3327,9 +3748,14 @@ class BearbeitenSeite(QWidget):
         self._alles_anzeigen()
         self._knoepfe_freischalten()
         self._verlauf_beginnen()
-        self.fenster.melden(_("{name} geöffnet – {breite} × {hoehe} Pixel, {art}")
-                            .format(name=daten.name, breite=daten.breite, hoehe=daten.hoehe,
-                                    art=art_anzeige(daten)))
+        if geladen:
+            self.fenster.melden(_("{name} geöffnet – mit der gesicherten Bearbeitung")
+                                .format(name=daten.name))
+            QTimer.singleShot(0, self._ki_neu_rechnen_anbieten)
+        else:
+            self.fenster.melden(_("{name} geöffnet – {breite} × {hoehe} Pixel, {art}")
+                                .format(name=daten.name, breite=daten.breite,
+                                        hoehe=daten.hoehe, art=art_anzeige(daten)))
         self.zeichnen_anfordern()
 
     def speichern_dialog(self):
