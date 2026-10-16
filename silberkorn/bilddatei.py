@@ -20,6 +20,11 @@ Die EXIF-Ausrichtung wird beim Laden angewendet. EXIF, IPTC und XMP werden
 mitgelesen (metadaten.py), auch aus RAW; beim Speichern schreiben alle Formate
 EXIF und XMP, dazu den Alphakanal, soweit das Zielformat ihn traegt.
 
+Einen zusaetzlichen Kanal im TIFF bestimmt das Feld ExtraSamples: Als Alpha
+markiert, bleibt er Alpha; nicht naeher bezeichnet, ist er der Infrarotkanal
+eines Filmscanners (RGBI, so speichern ihn VueScan und SilverFast). Der dient
+nur der Bearbeitung und wird nicht mitgespeichert.
+
 Licensed under MIT License
 Copyright 2026 Alexander Unverhau
 Created with assistance of Claude AI
@@ -68,6 +73,8 @@ SCHREIBBAR = {
 JPEG_QUALITAET = 95
 EXIF_AUSRICHTUNG = 0x0112
 TIFF_ICC = 34675
+# ExtraSamples im TIFF: nicht naeher bezeichnet, Alpha vormultipliziert, Alpha frei
+EXTRA_UNBESTIMMT, EXTRA_ALPHA = 0, (1, 2)
 
 
 class BildFehler(Exception):
@@ -86,6 +93,7 @@ class Bilddaten:
     aufnahme: Aufnahme | None = None           # Kamera und Objektiv, fuer Objektivprofile
     xmp: bytes = b""                           # XMP-Paket der Datei
     iptc: dict = field(default_factory=dict)   # IPTC-IIM: {(Satz, Feld): [Bytes, ...]}
+    infrarot: np.ndarray | None = None         # (H, W) Infrarotkanal eines Filmscans
 
     @property
     def form(self) -> tuple[int, int]:
@@ -155,6 +163,22 @@ def _kanaele_trennen(pixel: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
     if kanaele == 4:
         return pixel[..., :3], pixel[..., 3].copy()
     return pixel[..., :3], None
+
+
+def _infrarot_abtrennen(pixel: np.ndarray, grundkanaele: int,
+                        extras: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray | None]:
+    """Den Infrarotkanal eines TIFF abtrennen: den ersten zusaetzlichen Kanal, der nicht
+    naeher bezeichnet ist. Uebrig bleiben die Farbkanaele und hoechstens ein Alphakanal."""
+    if pixel.ndim != 3 or pixel.shape[2] <= grundkanaele:
+        return pixel, None
+    extras = extras[:pixel.shape[2] - grundkanaele]
+    alpha = next((grundkanaele + i for i, art in enumerate(extras) if art in EXTRA_ALPHA), None)
+    infrarot = next((grundkanaele + i for i, art in enumerate(extras)
+                     if art == EXTRA_UNBESTIMMT), None)
+    if infrarot is None:
+        return pixel, None
+    behalten = list(range(grundkanaele)) + ([alpha] if alpha is not None else [])
+    return pixel[..., behalten], pixel[..., infrarot].copy()
 
 
 def _bittiefe_angleichen(pixel: np.ndarray) -> np.ndarray:
@@ -310,6 +334,8 @@ def _tiff_laden(pfad: str) -> Bilddaten | None:
             pixel = seite.asarray()
             if seite.planarconfig == tifffile.PLANARCONFIG.SEPARATE and pixel.ndim == 3:
                 pixel = np.moveaxis(pixel, 0, -1)
+            grundkanaele = 3 if seite.photometric == tifffile.PHOTOMETRIC.RGB else 1
+            extras = tuple(int(e) for e in (seite.extrasamples or ()))
             icc_tag = seite.tags.get(TIFF_ICC)
             icc_daten = bytes(icc_tag.value) if icc_tag is not None else None
             tag = seite.tags.get(EXIF_AUSRICHTUNG)
@@ -319,14 +345,17 @@ def _tiff_laden(pfad: str) -> Bilddaten | None:
 
     if pixel.dtype == np.uint8 and icc_daten and icc.lesen(icc_daten) is None:
         return None                           # Tabellenprofil: LittleCMS ueber Pillow
-    rgb, alpha = _kanaele_trennen(_bittiefe_angleichen(pixel))
-    rgb, alpha = ausrichten(rgb, ausrichtung), (ausrichten(alpha, ausrichtung)
-                                                if alpha is not None else None)
+    pixel, infrarot = _infrarot_abtrennen(_bittiefe_angleichen(pixel), grundkanaele, extras)
+    rgb, alpha = _kanaele_trennen(pixel)
+    rgb, alpha, infrarot = (ausrichten(rgb, ausrichtung),
+                            *(None if ebene is None else
+                              np.ascontiguousarray(ausrichten(ebene, ausrichtung))
+                              for ebene in (alpha, infrarot)))
     _icc, exif, xmp, iptc = _metadaten(pfad)
     aufnahme = aufnahme_aus_exif(exif)
-    return Bilddaten(np.ascontiguousarray(rgb), _profil_oder_fehler(icc_daten),
-                     None if alpha is None else np.ascontiguousarray(alpha),
-                     _exif_ohne_ausrichtung(exif), pfad, aufnahme=aufnahme, xmp=xmp, iptc=iptc)
+    return Bilddaten(np.ascontiguousarray(rgb), _profil_oder_fehler(icc_daten), alpha,
+                     _exif_ohne_ausrichtung(exif), pfad, aufnahme=aufnahme, xmp=xmp, iptc=iptc,
+                     infrarot=infrarot)
 
 
 def _png_bittiefe(pfad: str) -> int:

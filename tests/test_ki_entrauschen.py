@@ -82,8 +82,8 @@ def test_lichter_ueber_eins_bleiben(sitzung):
             return srgb.copy()
 
     sitzung.ki_entrauschen(Unveraendert(), 64)
-    voll = sitzung._ki_rauschfrei[0]
-    assert float(cp.abs(voll - sitzung.original).max()) < 1e-4
+    korrektur = sitzung._ki_rauschfrei[0]
+    assert float(cp.abs(korrektur).max()) < 1e-4
 
 
 def test_berechnung_leert_die_zwischenspeicher(sitzung):

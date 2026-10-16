@@ -208,6 +208,113 @@ TRANSLATIONS = {
         "„Rückgängig“ zurücknehmen.":
             "Resets all sliders, rotation, crop and changed metadata, brings back removed "
             "objects and discards an AI extension. Can be undone with “Undo”.",
+        "Zu einer Karte springen": "Jump to a card",
+        # Scan & Film
+        "Scan & Film": "Scan & film",
+        "Film": "Film",
+        "Kein Film": "No film",
+        "Farbnegativ": "Colour negative",
+        "Schwarzweiß-Negativ": "Black-and-white negative",
+        "Dia": "Slide",
+        "Ein Negativ wird ins Positiv gewandelt – über die Dichte des Films, wie im "
+        "Labor. Filmmaske sowie Schwarz- und Weißpunkt schätzt Silberkorn dabei selbst.":
+            "A negative is converted into a positive – via the density of the film, as in "
+            "the lab. Silberkorn estimates the film base as well as black and white point "
+            "by itself.",
+        "Filmmaske anklicken": "Pick film base",
+        "Ein Klick auf unbelichteten Film – den Rand oder den Steg zwischen zwei Bildern "
+        "– misst die Farbe der Filmmaske genau.":
+            "A click on unexposed film – the border or the gap between two frames – "
+            "measures the colour of the film base exactly.",
+        "Automatisch": "Automatic",
+        "Schätzt Filmmaske, Schwarz- und Weißpunkt neu aus dem Bild – etwa nach einem "
+        "Klick mit der Pipette.":
+            "Estimates film base, black and white point again from the image – for "
+            "instance after a click with the eyedropper.",
+        "Auf unbelichteten Film klicken – den Rand oder den Steg zwischen zwei "
+        "Bildern. Esc bricht ab.":
+            "Click on unexposed film – the border or the gap between two frames. Esc "
+            "cancels.",
+        "Umgewandelt. Weißabgleich, Licht und Kurven wirken danach wie gewohnt. "
+        "Ist der Filmrand mitgescannt, misst die Pipette die Maske genauer.":
+            "Converted. White balance, light and curves then work as usual. If the film "
+            "border is part of the scan, the eyedropper measures the film base more exactly.",
+        "Dias sind schon positiv und werden nicht umgewandelt.":
+            "Slides are positive already and are not converted.",
+        "Wandelt gescannte oder abfotografierte Negative ins Positiv – am besten "
+        "als ersten Schritt, vor den KI-Karten.":
+            "Converts scanned or photographed negatives into positives – best as the "
+            "first step, before the AI cards.",
+        "Empfindlichkeit": "Sensitivity",
+        "Wie schwach eine Stelle im Infrarot sein darf, um als Staub zu gelten. Mehr "
+        "findet auch feine Fusseln, kann aber Bildteile erfassen.":
+            "How faint a spot in the infrared may be to count as dust. More also finds fine "
+            "fibres, but may catch parts of the image.",
+        "Fundstellen zeigen": "Show findings",
+        "Färbt in der Vorschau blau, was als Staub oder Kratzer gefunden ist.":
+            "Colours in blue in the preview what has been found as dust or scratches.",
+        "Staub entfernen": "Remove dust",
+        "Füllt alle Fundstellen: kleine Punkte und dünne Kratzer die Grafikkarte, breite "
+        "Stellen LaMa, wenn das Modell von „Objekte entfernen“ geladen ist.":
+            "Fills all findings: small specks and thin scratches on the graphics card, wide "
+            "spots with LaMa if the model of \"Remove objects\" is downloaded.",
+        "Zurückholen": "Bring back",
+        "Nimmt das Füllen von Staub und Kratzern zurück.":
+            "Undoes the filling of dust and scratches.",
+        "Der Infrarotkanal zeigt das Motiv selbst, nicht den Film – etwa bei "
+        "Luftbildern. Staub lässt sich daraus nicht erkennen.":
+            "The infrared channel shows the scene itself, not the film – for instance in "
+            "aerial images. Dust cannot be detected from it.",
+        "{n} Stellen gefüllt. Ändert sich die Empfindlichkeit, füllt „Staub "
+        "entfernen“ neu.":
+            "{n} spots filled. If the sensitivity changes, \"Remove dust\" fills again.",
+        "{n} Stellen gefunden.": "{n} spots found.",
+        "Bei Schwarzweißfilm hält das Silber selbst Infrarot auf – dann findet "
+        "die Suche oft das Bild statt Staub. Mit „Fundstellen zeigen“ prüfen.":
+            "With black-and-white film the silver itself blocks infrared – the search then "
+            "often finds the image instead of dust. Check with \"Show findings\".",
+        "Der Scan hat einen Infrarotkanal: Staub und Kratzer sind darin dunkel "
+        "und lassen sich finden und füllen.":
+            "The scan has an infrared channel: dust and scratches are dark in it and can be "
+            "found and filled.",
+        "Staub wird entfernt …": "Removing dust …",
+        "Staub entfernt ({s} s)": "Dust removed ({s} s)",
+        "Staub entfernt": "Dust removed",
+        "Staub zurückgeholt": "Dust brought back",
+        "Fotos trennen …": "Split photos …",
+        "Sucht auf einem Flachbett-Scan die einzelnen Abzüge, richtet sie gerade aus, "
+        "beschneidet sie auf ihren Rand und speichert jeden als eigene Datei.":
+            "Finds the individual prints on a flatbed scan, straightens them, crops them to "
+            "their edge and saves each one as a file of its own.",
+        "Auf diesem Scan sind keine einzelnen Fotos zu erkennen.":
+            "No individual photos can be found on this scan.",
+        "Die Fotos ließen sich nicht speichern.": "The photos could not be saved.",
+        "Den Ordner gibt es nicht: {ordner}": "The folder does not exist: {ordner}",
+        "{n} Fotos gespeichert in {ordner}": "{n} photos saved in {ordner}",
+        "Fotos trennen": "Split photos",
+        "{n} Fotos gefunden, gerade gerichtet und auf ihren Rand beschnitten. Gespeichert "
+        "wird jedes gewählte Foto als eigene Datei – ausgeschnitten aus dem unbearbeiteten "
+        "Scan.":
+            "{n} photos found, straightened and cropped to their edge. Every selected photo "
+            "is saved as a file of its own – cut from the unedited scan.",
+        "Foto {n}": "Photo {n}",
+        "Anklicken, um dieses Foto nicht zu speichern.": "Click to not save this photo.",
+        "Ordner": "Folder",
+        "Ändern …": "Change …",
+        "Name": "Name",
+        "Die Dateien heißen Name-01, Name-02 … – vorhandene "
+        "Dateien werden nie überschrieben.":
+            "The files are called Name-01, Name-02 … – existing files are never "
+            "overwritten.",
+        "Format": "Format",
+        "Danach öffnen": "Open afterwards",
+        "Dieses Foto wird nach dem Speichern zum Bearbeiten "
+        "geöffnet.":
+            "This photo is opened for editing after saving.",
+        "Speichern": "Save",
+        "Keines": "None",
+        "Ordner wählen": "Choose folder",
+        "{art} mit Infrarotkanal": "{art} with infrared channel",
         # Drucken
         "Drucken (Strg+P): Drucker, Papier und Bildgröße wählen, mit Vorschau auf dem "
         "Blatt. Gedruckt wird das bearbeitete Bild in voller Auflösung.":

@@ -122,6 +122,8 @@ ANONYM_FELDER = {"anonym_flaechen": (), "anonym_art": "mosaik", "anonym_bloecke"
                  "metadaten_entfernen": False}
 # Geaenderte Angaben (Titel, Urheber ...) gegenueber der Datei, siehe metadaten.py
 METADATEN_FELDER = {"angaben": ()}
+# Scan & Film (film.py): Filmart, Durchlaessigkeit der Filmmaske, Schwarz- und Weisspunkt
+FILM_FELDER = {"film": "", "film_maske": (), "film_umfang": ()}
 HINTERGRUND = ("hg_belichtung", "hg_kontrast", "hg_saettigung", "hg_temperatur",
                "hg_unschaerfe")
 
@@ -136,6 +138,10 @@ REGLER_NACH_NAME = {r.name: r for r in REGLER}
 @dataclass
 class Einstellungen:
     """Die Werte aller Regler. Die Vorgaben lassen das Bild unveraendert."""
+    # Scan & Film: vor allem anderen wird ein Negativ ins Positiv gewandelt (film.py)
+    film: str = ""
+    film_maske: tuple[float, ...] = ()
+    film_umfang: tuple[float, ...] = ()
     temperatur: float = 0.0
     toenung: float = 0.0
     belichtung: float = 0.0
@@ -224,6 +230,9 @@ class Einstellungen:
                     return False
             elif feld.name in METADATEN_FELDER:
                 if wert != METADATEN_FELDER[feld.name]:
+                    return False
+            elif feld.name in FILM_FELDER:
+                if wert != FILM_FELDER[feld.name]:
                     return False
             elif feld.name not in ("schaerfe_radius", "lut_staerke", "fokus", "schaerfentiefe") \
                     and wert != REGLER_NACH_NAME[feld.name].vorgabe:

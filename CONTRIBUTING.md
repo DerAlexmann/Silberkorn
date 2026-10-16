@@ -109,7 +109,9 @@ SHA-256-Prüfsumme.
 - Für sichtbare Änderungen einen Eintrag in `CHANGELOG.md` unter
   „Unveröffentlicht" ergänzen.
 - Bildschirmfotos zeigen ausschließlich das Programmfenster – kein Desktop,
-  keine anderen Fenster, keine persönlichen Pfade.
+  keine anderen Fenster, keine persönlichen Pfade. Die Bilder der READMEs
+  erneuert `python werkzeuge/bildschirmfotos.py` (mit Grafikkarte) – mit
+  gerechneten Motiven und ohne die eigene Einstellungsdatei.
 
 ## Lizenz
 

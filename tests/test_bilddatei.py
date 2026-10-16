@@ -232,3 +232,55 @@ def test_kaputtes_raw(tmp_path):
     pfad.write_bytes(b"kein raw")
     with pytest.raises(b.BildFehler):
         b.laden(str(pfad))
+
+
+# ----------------------------------------------------------------------
+# Vierter Kanal im TIFF: Alpha oder Infrarot (ExtraSamples)
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("bits", [8, 16])
+def test_tiff_mit_infrarot(tmp_path, bits):
+    """Ein Filmscan mit Infrarot (RGBI): der vierte Kanal ist nicht naeher bezeichnet - er
+    ist kein Alphakanal, das Bild bleibt deckend."""
+    import tifffile
+    rgb = muster(bits=bits)
+    infrarot = np.full(rgb.shape[:2], 9, dtype=rgb.dtype)
+    pfad = str(tmp_path / "rgbi.tif")
+    tifffile.imwrite(pfad, np.dstack([rgb, infrarot]), photometric="rgb", extrasamples=[0])
+    geladen = b.laden(pfad)
+    assert geladen.alpha is None and np.array_equal(geladen.pixel, rgb)
+    assert geladen.infrarot is not None and (geladen.infrarot == 9).all()
+
+
+def test_tiff_mit_alpha_und_infrarot(tmp_path):
+    import tifffile
+    rgb = muster()
+    alpha = np.full(rgb.shape[:2], 200, dtype=np.uint8)
+    infrarot = np.full(rgb.shape[:2], 30, dtype=np.uint8)
+    pfad = str(tmp_path / "rgbai.tif")
+    tifffile.imwrite(pfad, np.dstack([rgb, alpha, infrarot]), photometric="rgb",
+                     extrasamples=[2, 0])
+    geladen = b.laden(pfad)
+    assert (geladen.alpha == 200).all() and (geladen.infrarot == 30).all()
+    assert np.array_equal(geladen.pixel, rgb)
+
+
+def test_tiff_mit_alpha_bleibt_alpha(tmp_path):
+    rgb = muster()
+    pfad = str(tmp_path / "rgba.tif")
+    b.speichern(pfad, rgb, np.full(rgb.shape[:2], 77, dtype=np.uint8))
+    geladen = b.laden(pfad)
+    assert geladen.infrarot is None and (geladen.alpha == 77).all()
+
+
+def test_infrarot_folgt_der_ausrichtung(tmp_path):
+    import tifffile
+    rgb = muster()
+    infrarot = np.zeros(rgb.shape[:2], dtype=np.uint8)
+    infrarot[0, 0] = 255
+    pfad = str(tmp_path / "gedreht.tif")
+    tifffile.imwrite(pfad, np.dstack([rgb, infrarot]), photometric="rgb", extrasamples=[0],
+                     extratags=[(b.EXIF_AUSRICHTUNG, "H", 1, 6, True)])
+    geladen = b.laden(pfad)
+    assert geladen.infrarot.shape == geladen.pixel.shape[:2] == (40, 24)
+    assert geladen.infrarot[0, -1] == 255             # um 90 Grad im Uhrzeigersinn

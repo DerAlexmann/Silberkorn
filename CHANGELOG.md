@@ -3,6 +3,38 @@
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Neu
+
+- **Kartenauswahl**: Ein Auswahlfeld über den Karten springt direkt zu jeder
+  Karte und zeigt beim Rollen, welche gerade oben steht. Die Liste ist so
+  kompakt, dass alle Karten auch auf 768 Pixel hohen Bildschirmen hineinpassen.
+- **Scan & Film**, eine neue Karte vor „Motiv & Hintergrund“:
+  - Negative umwandeln – Farbe oder Schwarzweiß, gescannt oder mit der Kamera
+    abfotografiert. Gerechnet wird über die Dichte des Films; Filmmaske sowie
+    Schwarz- und Weißpunkt je Kanal schätzt Silberkorn selbst, den
+    unbelichteten Filmrand kann man auch mit der Pipette anklicken.
+  - Staub und Kratzer über den Infrarotkanal eines RGBI-Scans finden und
+    füllen – kleine Punkte auf der GPU, breite Stellen mit LaMa. Ein
+    Infrarotkanal, der das Motiv selbst zeigt (Luftbilder, Schwarzweißfilm mit
+    Silber), wird erkannt und nicht für Staub gehalten.
+  - „Fotos trennen …“: mehrere Abzüge auf einem Flachbett-Scan finden, auch
+    schräg liegende, gerade richten, beschneiden und einzeln speichern; eines
+    davon wird danach geöffnet.
+  - Umwandlung und Staubentfernung lassen sich wie alles andere rückgängig
+    machen; „Vorher“ zeigt den Scan.
+- Bildschirmfotos in beiden READMEs, mit gerechneten Motiven
+  (`werkzeuge/bildschirmfotos.py`).
+
+### Behoben
+
+- Ein TIFF mit vier Kanälen galt immer als Bild mit Alphakanal. Der
+  Infrarotkanal eines Filmscans (RGBI) machte das Bild so teilweise
+  durchsichtig; jetzt entscheidet das Feld ExtraSamples.
+- War „Fokus ins Bild klicken“ (Tiefe & Bokeh) aktiv und wurde dabei ein
+  Objekt entfernt, stürzte das Programm ab.
+
 ## [0.6.0] – 2026-10-15
 
 ### Neu
@@ -424,6 +456,7 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Rechengenauigkeit (FP16, FP8 ab Ada, FP4 ab Blackwell).
 - Programmsymbol, Marken- und Lizenzhinweise (NOTICE).
 
+[Unveröffentlicht]: https://github.com/DerAlexmann/Silberkorn/compare/v0.6.0...HEAD
 [0.6.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.6.0
 [0.5.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.5.0
 [0.4.1]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.4.1

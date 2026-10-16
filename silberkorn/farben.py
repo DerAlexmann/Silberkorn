@@ -205,6 +205,10 @@ def stylesheet() -> str:
         background: {t["CARD"]}; color: {t["TEXT"]};
         selection-background-color: {t["ACCENT"]}; selection-color: {t["ON_ACCENT"]};
     }}
+    QComboBox#kartenwahl QAbstractItemView::item {{ padding: 0 8px; }}
+    QComboBox#kartenwahl QAbstractItemView::item:selected {{
+        background: {t["ACCENT"]}; color: {t["ON_ACCENT"]};
+    }}
     QFrame#kopf {{ background: {t["HEADER"]}; }}
     QFrame#kopf QLabel {{ color: {t["HEADER_TEXT"]}; background: transparent; }}
     QLabel#titel {{ color: {t["HEADER_TITLE"]}; font-size: 13pt; font-weight: bold; }}
@@ -225,6 +229,12 @@ def stylesheet() -> str:
     QFrame#karte {{
         background: {t["CARD"]}; border: 1px solid {t["BORDER"]}; border-radius: 8px;
     }}
+    QFrame#karte[markiert="true"] {{ border: 1px solid {t["ACCENT"]}; }}
+    QToolButton#fotokachel {{
+        background: {t["CARD"]}; color: {t["MUTED"]}; border: 2px solid {t["BORDER"]};
+        border-radius: 6px; padding: 6px;
+    }}
+    QToolButton#fotokachel:checked {{ color: {t["TEXT"]}; border-color: {t["ACCENT"]}; }}
     QFrame#karte QLabel {{ background: transparent; }}
     QLabel#kartentitel {{ font-size: 12pt; font-weight: bold; }}
     QLabel#nebentext {{ color: {t["MUTED"]}; }}

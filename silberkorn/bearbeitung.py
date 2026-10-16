@@ -9,12 +9,17 @@ Jede Aenderung an einem Regler rechnet die Vorschau aus dem unveraenderten
 Original neu; nichts wird ueberschrieben, jeder Regler bleibt jederzeit
 umkehrbar.
 
+Ein Negativ (Scan & Film, film.py) wird vor allem anderen ins Positiv
+gewandelt - jedes Mal neu aus dem Original, das kostet einen Durchlauf. So
+sehen alle Regler und KI-Netze das Positiv. Noch davor liegt, was ueber den
+Infrarotkanal an Staub gefuellt ist (staub.py): als Werte des Scans, nur die
+geaenderten Pixel in voller Groesse, die Vorschau ganz.
+
 KI-Entrauschen und KI-Schaerfen sind zu teuer, um sie bei jeder
 Reglerbewegung zu rechnen. Sie laufen einmal ueber das ganze Bild und liegen
-danach im Grafikspeicher - das Entrauschen als zweites Original, das
-Schaerfen als Korrektur, die aufs Ergebnis des Entrauschens gelegt wird. Die
-Staerkeregler mischen nur noch; das kostet je Vorschau Bruchteile einer
-Millisekunde.
+danach als Korrektur im Grafikspeicher - die des Schaerfens wird aufs
+Ergebnis des Entrauschens gelegt. Die Staerkeregler mischen nur noch; das
+kostet je Vorschau Bruchteile einer Millisekunde.
 
 Ebenso die Maske des Motivs (KI-Freistellen oder per Klick ausgewaehlt):
 einmal berechnet, liegt sie in der Geometrie des Originals im Grafikspeicher.
@@ -68,20 +73,20 @@ import numpy as np
 from . import (
     anonym,
     bilddatei,
+    film,
     filter,
     geometrie,
     ki,
     metadaten,
     objektivprofile,
+    staub,
+    trennen,
     verlauf,
     veroeffentlichen,
 )
 from .cuda import cupy as cp
 from .filter import Einstellungen
 
-# a + s * (b - a) in einem Durchlauf, ohne Zwischenpuffer
-_mischen = cp.ElementwiseKernel("float32 a, float32 b, float32 s", "float32 c",
-                                "c = a + s * (b - a)", "ne_mischen")
 SCHAERFE_GROB = 10.0           # Sigma in Pixeln: groebere Anteile der KI-Schaerfung fallen weg
 MASKE_KANTE = 20.0             # Kante weicher: Sigma bei 100 % in Pixeln des Originals
 MASKE_VERSCHIEBEN = 20.0       # Kante verschieben: Pixel des Originals bei +-100 %
@@ -126,6 +131,16 @@ class _Flicken:
 
 
 @dataclass
+class _Staub:
+    """Staub und Kratzer gefuellt, in den Werten des Scans: die geaenderten Pixel in voller
+    Groesse (Stelle im flachen Bild, Werte) und der ganze gesaeuberte Scan als Vorschau."""
+    stellen: object                 # (n,) Stellen in H * W
+    werte: object                   # (n, 3) linear
+    vorschau: object                # (h, w, 3) in der Groesse der Vorschau
+    anzahl: int                     # gefuellte Stellen
+
+
+@dataclass
 class _Erweiterung:
     """Die KI-Erweiterung: Leinwand (linear) mit den erfundenen Raendern und die
     Deckkraft, mit der das Ausgangsbild an (x, y) eingesetzt wird."""
@@ -144,7 +159,7 @@ class Sitzung:
         self.gespeicherte_werte = Einstellungen()
         self._speicher: dict = {}            # Zwischenergebnisse der Filter, je Bildgroesse
         self._vollbild = None                 # (Einstellungen, fertiges Bild auf der GPU)
-        self._ki_rauschfrei = None            # (voll, Vorschau): KI-entrauschtes Original
+        self._ki_rauschfrei = None            # (voll, Vorschau): Korrektur des KI-Entrauschens
         self._ki_schaerfe = None              # (voll, Vorschau): Korrektur des KI-Schaerfens
         self._ki_maske = None                 # (voll, Vorschau): Maske des Motivs, 0..1
         self.maske_zeigen = False             # Vorschau faerbt den Hintergrund ein
@@ -153,7 +168,7 @@ class Sitzung:
         self._entfern_klick = None            # (voll, Vorschau): per Klick markiert
         self._pinsel = None                   # (voll, Vorschau): mit dem Pinsel markiert
         self._flicken: list[_Flicken] = []    # entfernte Objekte, in Reihenfolge
-        # Kennung des Inhalts von Flicken und Erweiterung: jede Aenderung bekommt eine neue
+        # Kennung des Inhalts von Flicken, Staub und Erweiterung: jede Aenderung bekommt eine neue
         # Nummer - auch nach Rueckgaengig und einer neuen Aenderung nie eine schon vergebene
         self._nummern = itertools.count(1)
         self._flicken_stand = 0
@@ -162,7 +177,13 @@ class Sitzung:
         self._ki_farbe = None                 # (voll, Vorschau): Farbanteile a, b der KI
         self.tiefe_zeigen = False             # Vorschau zeigt die Tiefenkarte
         self._erweiterung: _Erweiterung | None = None
+        self._staub: _Staub | None = None     # Staub und Kratzer gefuellt (Infrarot)
+        self._staub_dunkel = None             # wie dunkel jede Stelle im Infrarot ist
+        self._staub_film: bool | None = None  # sieht das Infrarot nach Film aus?
+        self._staub_fund = None               # (Empfindlichkeit, Maske, Vorschau, Anzahl, Kern)
+        self.staub_zeigen = False             # Vorschau zeigt die Fundstellen
         self._anonym_stand = ((), "mosaik", 8.0)   # wofuer die Zwischenstufen gelten
+        self._film_stand: tuple = ()          # ebenso fuer die Umwandlung eines Negativs
 
         self.original = daten.linear(cp)
         # Zwischenpuffer des Demosaicing an den Grafikspeicher zurueckgeben
@@ -204,6 +225,34 @@ class Sitzung:
         return len(self._flicken)
 
     @property
+    def infrarot_da(self) -> bool:
+        """Hat der Scan einen Infrarotkanal (RGBI)?"""
+        return self.daten.infrarot is not None
+
+    @property
+    def infrarot_film(self) -> bool:
+        """Taugt der Infrarotkanal fuer die Staubsuche - stammt er von Film?"""
+        if self.daten.infrarot is None:
+            return False
+        if self._staub_film is None:
+            self._staub_film = staub.ist_filmscan(staub.normiert(self.daten.infrarot))
+        return self._staub_film
+
+    @property
+    def staub_entfernt(self) -> bool:
+        return self._staub is not None
+
+    @property
+    def staub_gefuellt(self) -> int:
+        """Wie viele Stellen gefuellt sind."""
+        return self._staub.anzahl if self._staub is not None else 0
+
+    @property
+    def staub_fund(self) -> tuple[float, int] | None:
+        """Empfindlichkeit und Anzahl der letzten Suche, oder None."""
+        return None if self._staub_fund is None else (self._staub_fund[0], self._staub_fund[3])
+
+    @property
     def ki_entrauscht(self) -> bool:
         return self._ki_rauschfrei is not None
 
@@ -243,6 +292,7 @@ class Sitzung:
             ("tiefe", self._ki_tiefe),
             ("flicken", tuple(self._flicken)),
             ("erweiterung", self._erweiterung),
+            ("staub", self._staub),
         ), self._flicken_stand)
 
     def stand_setzen(self, stand: verlauf.Stand):
@@ -257,6 +307,7 @@ class Sitzung:
         self._ki_tiefe = teile["tiefe"]
         self._flicken = list(teile["flicken"])
         self._erweiterung = teile["erweiterung"]
+        self._staub = teile["staub"]
         self._flicken_stand = stand.nummer
         if self._ki_maske is not maske_vorher:
             # Die Klicks gehoerten zur alten Maske; weitere Klicks beginnen neu
@@ -452,12 +503,14 @@ class Sitzung:
                 filter.verkleinern_box(g, faktor).astype(cp.float32))
 
     def entfernungen_verwerfen(self) -> bool:
-        """Alle Entfernungen und die Markierung verwerfen - fuer „Zurücksetzen“.
+        """Alle Entfernungen, gefuellten Staub und die Markierung verwerfen - fuer
+        „Zurücksetzen“.
         Rueckgabe: ob es Entfernungen gab."""
         self.markierung_verwerfen()
-        if not self._flicken:
+        if not self._flicken and self._staub is None:
             return False
         self._flicken.clear()
+        self._staub = None
         self._flicken_stand = next(self._nummern)
         self._speicher.clear()
         self._vollbild = None
@@ -474,9 +527,10 @@ class Sitzung:
         return True
 
     def _flicken_auflegen(self, bild, stelle: int):
-        gespeichert = (self.original, self.vorschau_original, *(self._ki_rauschfrei or ()))
+        gespeichert = (self.original, self.vorschau_original,
+                       self._staub.vorschau if self._staub is not None else None)
         if any(bild is teil for teil in gespeichert):
-            bild = bild.copy()                    # Original und KI-Ergebnis bleiben unberuehrt
+            bild = bild.copy()                    # Original und gefuellter Staub bleiben
         for flicken in self._flicken:
             y0, y1, x0, x1, deckkraft, gefuellt = flicken.vorschau if stelle else flicken.voll
             if y1 <= y0 or x1 <= x0:
@@ -755,7 +809,7 @@ class Sitzung:
         leinwand=False: ohne die Raender einer KI-Erweiterung, flicken=False: ohne
         entfernte Objekte (beides fuer „Vorher“)."""
         massstab = 1.0 if voll else self.vorschau_massstab
-        if not flicken and self._flicken:
+        if not flicken and (self._flicken or self._staub is not None):
             speicher = {}       # die Zwischenstufen im Speicher enthalten die Flicken
         eingang = self._anonymisieren(self._ausgang(werte, voll, leinwand=leinwand,
                                                     flicken=flicken), werte, voll, leinwand)
@@ -763,6 +817,9 @@ class Sitzung:
         if not leinwand and self._erweiterung is not None:
             return bild                 # Masken, Tiefe und Markierung liegen auf der Leinwand
         markierung = self._markierung(voll) if zeigen else None
+        if zeigen and self.staub_zeigen and self._staub_fund is not None:
+            fund = self._staub_fund[1].astype(cp.float32) if voll else self._staub_fund[2]
+            markierung = fund if markierung is None else cp.maximum(markierung, fund)
         tiefe_zeigen = zeigen and self.tiefe_zeigen and self._ki_tiefe is not None
         zeigen = zeigen and self.maske_zeigen
         hintergrund = self._ki_maske is not None and (werte.hintergrund_aktiv() or zeigen)
@@ -843,10 +900,11 @@ class Sitzung:
         return (time.perf_counter() - beginn) * 1000
 
     def ki_entrauschen(self, entrauscher, kachel: int, fortschritt=None) -> float:
-        """Das Original einmal mit KI entrauschen; Rueckgabe: Rechenzeit in ms."""
+        """Das Original einmal mit KI entrauschen; Rueckgabe: Rechenzeit in ms. Ein Negativ
+        sieht das Netz schon umgewandelt - gespeichert wird nur seine Korrektur."""
         beginn = time.perf_counter()
-        voll = self._ki_korrektur(entrauscher, self.original, kachel, fortschritt)
-        voll += self.original
+        voll = self._ki_korrektur(entrauscher, self._film_bild(self.werte, True), kachel,
+                                  fortschritt)
         self._ki_rauschfrei = (voll, self._vorschau_von(voll))
         return self._ki_fertig(beginn)
 
@@ -890,17 +948,123 @@ class Sitzung:
         self._ki_farbe = (cp.ascontiguousarray(voll), cp.ascontiguousarray(vorschau))
         return self._ki_fertig(beginn)
 
+    def _film_bild(self, werte: Einstellungen, voll: bool, mit_staub: bool = True):
+        """Original bzw. Vorschau - vom Staub befreit und ein Negativ schon ins Positiv
+        gewandelt."""
+        bild = self.original if voll else self.vorschau_original
+        if mit_staub and self._staub is not None:
+            if voll:
+                bild = bild.copy()
+                bild.reshape(-1, 3)[self._staub.stellen] = self._staub.werte
+            else:
+                bild = self._staub.vorschau
+        stand = (werte.film, werte.film_maske, werte.film_umfang)
+        if not film.aktiv(*stand):
+            stand = ()
+        if stand != self._film_stand:
+            # Zwischenstufen (Entrauschen, Dunst) gelten nur fuer denselben Bildinhalt
+            self._speicher.clear()
+            self._film_stand = stand
+        return film.umkehren(bild, *stand) if stand else bild
+
+    def film_schaetzen(self, art: str) -> tuple[tuple, tuple]:
+        """Filmmaske und Umfang fuer die Filmart aus dem Scan schaetzen - an der Vorschau,
+        das genuegt fuer Perzentile und geht schnell."""
+        return film.schaetzen(self.vorschau_original, art)
+
+    def film_maske_messen(self, x: float, y: float) -> tuple[tuple, tuple]:
+        """Die Pipette: Filmmaske an (x, y) im Original messen - sie ist dann der
+        Schwarzpunkt -, den Weisspunkt dazu neu."""
+        m = self.vorschau_massstab
+        maske = film.maske_messen(self.vorschau_original, x * m, y * m)
+        return maske, film.umfang_schaetzen(self.vorschau_original, maske,
+                                            schwarz_ist_maske=True)
+
+    # ------------------------------------------------------------------
+    # Scan & Film: Staub und Kratzer ueber den Infrarotkanal
+    # ------------------------------------------------------------------
+
+    def staub_finden(self, empfindlichkeit: float) -> int:
+        """Die Fehler im Infrarot suchen; Rueckgabe: wie viele Stellen. Die Fundstellen
+        zeigt die Vorschau, wenn staub_zeigen gesetzt ist."""
+        if self._staub_dunkel is None:
+            self._staub_dunkel = staub.dunkelheit(staub.normiert(self.daten.infrarot))
+        maske, kern, anzahl = staub.finden(self._staub_dunkel, empfindlichkeit)
+        # In der Vorschau zeigt auch ein Staubkorn, das kleiner ist als ein Pixel
+        vorschau = (self._vorschau_von(maske.astype(cp.float32)) > 0).astype(cp.float32)
+        self._staub_fund = (empfindlichkeit, maske, vorschau, anzahl, kern)
+        self._vollbild = None
+        return anzahl
+
+    def staub_entfernen(self, empfindlichkeit: float, entferner=None,
+                        fortschritt=None) -> float:
+        """Die gefundenen Stellen fuellen - breite mit LaMa, wenn entferner gegeben ist;
+        Rueckgabe: Rechenzeit in ms. Ersetzt eine fruehere Fuellung."""
+        beginn = time.perf_counter()
+        if self._staub_fund is None or self._staub_fund[0] != empfindlichkeit:
+            self.staub_finden(empfindlichkeit)
+        _e, maske, _vorschau, anzahl, kern = self._staub_fund
+        w = self.werte
+        sauber = staub.entfernen(self.original, maske, kern, w.film, w.film_maske,
+                                 w.film_umfang, entferner, fortschritt)
+        flach = sauber.reshape(-1, 3)
+        stellen = cp.flatnonzero((flach != self.original.reshape(-1, 3)).any(axis=1))
+        werte = cp.ascontiguousarray(flach[stellen])
+        vorschau = self._vorschau_von(sauber)
+        if vorschau is sauber:
+            vorschau = sauber.copy()
+        del sauber, flach
+        self._staub = _Staub(stellen, werte, vorschau, anzahl)
+        self._flicken_stand = next(self._nummern)
+        return self._ki_fertig(beginn)
+
+    def staub_verwerfen(self) -> bool:
+        """Den gefuellten Staub zuruecknehmen; Rueckgabe: ob es ihn gab."""
+        if self._staub is None:
+            return False
+        self._staub = None
+        self._flicken_stand = next(self._nummern)
+        self._ki_fertig(0.0)
+        return True
+
+    # ------------------------------------------------------------------
+    # Scan & Film: mehrere Fotos von der Scannerplatte trennen
+    # ------------------------------------------------------------------
+
+    def fotos_finden(self) -> list[trennen.Foto]:
+        """Die einzelnen Fotos auf dem Scan, in Pixeln des Originals. Gesucht wird in der
+        Vorschau - sie ist ganzzahlig verkleinert, die Lage laesst sich genau umrechnen."""
+        faktor = 1 / self.vorschau_massstab
+        return [foto.skaliert(faktor) for foto in trennen.finden(self.vorschau_original)]
+
+    def foto_vorschau(self, foto: trennen.Foto) -> np.ndarray:
+        """Ein gefundenes Foto klein, als sRGB uint8 - fuer die Auswahl."""
+        teil = trennen.ausschneiden(self.vorschau_original, foto.skaliert(self.vorschau_massstab))
+        return cp.asnumpy(filter.nach_8bit(teil))
+
+    def fotos_speichern(self, fotos: list[trennen.Foto], pfade: list[str], bits: int = 8):
+        """Jedes Foto gerade gerichtet aus dem unbearbeiteten Scan ausschneiden und als eigene
+        Datei speichern, mit den Metadaten des Scans. Die Bearbeitung bleibt unberuehrt."""
+        for foto, pfad in zip(fotos, pfade, strict=True):
+            teil = trennen.ausschneiden(self.original, foto)
+            rgb = cp.asnumpy(filter.nach_16bit(teil) if bits == 16 else filter.nach_8bit(teil))
+            del teil
+            exif, xmp = metadaten.fuer_speichern(self.daten.exif, self.daten.xmp,
+                                                 self.vorgefunden, (), rgb.shape[1],
+                                                 rgb.shape[0])
+            bilddatei.speichern(pfad, rgb, None, exif, xmp)
+        cp.get_default_memory_pool().free_all_blocks()
+
     def _ausgang(self, werte: Einstellungen, voll: bool, schaerfen: bool = True,
                  leinwand: bool = True, farbe: bool = True, flicken: bool = True):
-        """Original - je nach Staerke mit dem KI-entrauschten gemischt und KI-geschaerft,
+        """Original - als Negativ umgewandelt, je nach Staerke KI-entrauscht und KI-geschaerft,
         mit den Flicken, KI-koloriert und, wenn erweitert und leinwand gesetzt, auf der
         Leinwand."""
         stelle = 0 if voll else 1
-        bild = self.original if voll else self.vorschau_original
+        bild = self._film_bild(werte, voll, mit_staub=flicken)
         if self._ki_rauschfrei is not None and werte.ki_rauschen > 0:
-            glatt = self._ki_rauschfrei[stelle]
-            bild = glatt if werte.ki_rauschen >= 100 else \
-                _mischen(bild, glatt, cp.float32(werte.ki_rauschen / 100))
+            bild = _auflegen(bild, self._ki_rauschfrei[stelle],
+                             cp.float32(min(werte.ki_rauschen, 100) / 100))
         if schaerfen and self._ki_schaerfe is not None and werte.ki_schaerfe > 0:
             bild = _auflegen(bild, self._ki_schaerfe[stelle], cp.float32(werte.ki_schaerfe / 100))
         if flicken and self._flicken:
@@ -948,7 +1112,7 @@ class Sitzung:
         werte = self.werte if werte is None else werte
         # Metadaten aendern das Bild nicht - ihretwegen nicht neu rechnen
         schluessel = (dataclasses.replace(werte, angaben=(), metadaten_entfernen=False),
-                      self.maske_zeigen, self.tiefe_zeigen, ohne_flicken)
+                      self.maske_zeigen, self.tiefe_zeigen, self.staub_zeigen, ohne_flicken)
         if self._vollbild is None or self._vollbild[0] != schluessel:
             self._vollbild = None                 # das alte Vollbild zuerst freigeben
             bild = self._rendern(werte, True, self._speicher, zeigen=True,
@@ -1084,6 +1248,9 @@ class Sitzung:
         self._ki_tiefe = None
         self._ki_farbe = None
         self._erweiterung = None
+        self._staub = None
+        self._staub_dunkel = None
+        self._staub_fund = None
         self._speicher.clear()
         cp.get_default_memory_pool().free_all_blocks()
 
