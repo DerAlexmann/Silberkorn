@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QListView,
     QListWidget,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QSpinBox,
     QStyle,
@@ -51,7 +52,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import einstellungen, farben, vorschau_cache, vorschaubilder
+from . import einstellungen, farben, voreinstellungen, vorschau_cache, vorschaubilder
+from .stapel import Auftrag, Stapel, StapelAbbruch
+from .stapel_dialog import StapelDialog, bericht_text
 from .uebersetzung import _
 
 KACHEL = 160                  # Kantenlaenge einer Kachel auf dem Bildschirm
@@ -632,6 +635,14 @@ class OrdnerSeite(QWidget):
         self.neu_knopf.clicked.connect(lambda: self.ordner_zeigen(self.ordner))
         self.ort = QLabel(objectName="nebentext")
         self.ort.setTextFormat(Qt.TextFormat.PlainText)
+        self.stapel_knopf = QPushButton()
+        fenster.beschriften(self.stapel_knopf.setText, _("Stapel …"))
+        fenster.beschriften(self.stapel_knopf.setToolTip, _(
+            "Die gewählten Bilder auf einmal bearbeiten: eine Voreinstellung darauflegen, "
+            "Staub entfernen, als Begleitdatei sichern oder ausgeben. Mehrere Bilder wählen "
+            "mit Strg oder Umschalt."))
+        self.stapel_knopf.clicked.connect(self.stapel_starten)
+        self.stapel_knopf.setEnabled(False)
         self.cache_knopf = QPushButton()
         fenster.beschriften(self.cache_knopf.setText, _("Vorschau-Cache …"))
         fenster.beschriften(self.cache_knopf.setToolTip, _(
@@ -641,6 +652,7 @@ class OrdnerSeite(QWidget):
         leiste.addWidget(self.hoch_knopf)
         leiste.addWidget(self.neu_knopf)
         leiste.addWidget(self.ort, 1)
+        leiste.addWidget(self.stapel_knopf)
         leiste.addWidget(self.cache_knopf)
         aufbau.addLayout(leiste)
 
@@ -654,6 +666,8 @@ class OrdnerSeite(QWidget):
         self.liste.setItemDelegate(KachelZeichner(self.liste))
         self.liste.setModel(self.modell)
         self.liste.doubleClicked.connect(self._doppelklick)
+        self.liste.selectionModel().selectionChanged.connect(
+            lambda *_a: self.stapel_knopf.setEnabled(bool(self.gewaehlte_bilder())))
         aufbau.addWidget(self.liste, 1)
         self.leer = QLabel(objectName="nebentext")
         self.leer.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -712,6 +726,98 @@ class OrdnerSeite(QWidget):
         elif pfad:
             self.fenster.reiter.setCurrentWidget(self.fenster.bearbeiten)
             self.fenster.bearbeiten.oeffnen(pfad)
+
+    def gewaehlte_bilder(self) -> list[str]:
+        """Die gewaehlten Bilder in der Reihenfolge der Liste - ohne Ordner."""
+        zeilen = sorted(i.row() for i in self.liste.selectionModel().selectedIndexes())
+        pfade = [self.modell.pfade[z] for z in zeilen if z < len(self.modell.pfade)]
+        return [p for p in pfade if p not in self.modell.unterordner]
+
+    def stapel_starten(self):
+        from .bearbeiten_seite import speicherformate
+        pfade = self.gewaehlte_bilder()
+        if not pfade:
+            return
+        bearbeiten = self.fenster.bearbeiten
+        faktor = bearbeiten.ki_faktor.currentData()
+        dialog = StapelDialog(self, len(pfade), self.ordner, speicherformate(),
+                              bearbeiten._zwischenablage, einstellungen.begleitdateien() is True,
+                              f"{faktor}×" if faktor else "")
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            auftrag = dialog.auftrag()
+        except voreinstellungen.VoreinstellungFehler as fehler:
+            QMessageBox.warning(self, _("Stapel"), _("Die Voreinstellung lässt sich nicht "
+                                                     "lesen.") + "\n" + str(fehler))
+            return
+        # Das offene Bild zuerst sichern und schliessen - zwei Bilder auf einmal haetten im
+        # Grafikspeicher oft keinen Platz, und der Stapel koennte es selbst bearbeiten
+        if not bearbeiten.aenderungen_verwerfen_ok():
+            return
+        offen = bearbeiten.sitzung.daten.pfad if bearbeiten.sitzung is not None else None
+        if offen is not None:
+            bearbeiten.schliessen()
+            bearbeiten._knoepfe_freischalten()
+            bearbeiten._alles_anzeigen()
+            bearbeiten.zeichnen_anfordern()
+        ergebnisse, abgebrochen = self._stapel_rechnen(bearbeiten, auftrag, pfade)
+        for ergebnis in ergebnisse:
+            self.bild_geaendert(ergebnis.pfad)
+        self.ordner_zeigen(self.ordner, melden=False)      # neue Dateien zeigen
+        self._bericht(ergebnisse, len(pfade), abgebrochen)
+        if offen is not None and os.path.isfile(offen):
+            bearbeiten.oeffnen(offen)
+            self.fenster.reiter.setCurrentWidget(self)
+
+    def _stapel_rechnen(self, bearbeiten, auftrag: Auftrag, pfade: list[str]):
+        anzeige = QProgressDialog("", _("Abbrechen"), 0, 1000, self)
+        anzeige.setWindowTitle(_("Stapel"))
+        anzeige.setWindowModality(Qt.WindowModality.WindowModal)
+        anzeige.setMinimumDuration(0)
+        anzeige.setMinimumWidth(420)
+
+        def fortschritt(name: str, anteil: float) -> bool:
+            anzeige.setLabelText(_("Bearbeite {name} …").format(name=name))
+            anzeige.setValue(min(999, round(anteil * 1000)))
+            QApplication.processEvents()
+            return not anzeige.wasCanceled()
+
+        stapel = Stapel(bearbeiten, auftrag, fortschritt)
+        ergebnisse, abgebrochen = [], False
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            for nummer, pfad in enumerate(pfade):
+                ergebnisse.append(stapel.bearbeiten(pfad, nummer, len(pfade)))
+        except StapelAbbruch:
+            abgebrochen = True
+        finally:
+            stapel.freigeben()
+            QApplication.restoreOverrideCursor()
+            anzeige.close()
+        return ergebnisse, abgebrochen
+
+    def _bericht(self, ergebnisse, anzahl: int, abgebrochen: bool):
+        fertig = sum(1 for e in ergebnisse if e.ok)
+        text = _("{fertig} von {anzahl} Bildern fertig.").format(fertig=fertig, anzahl=anzahl)
+        if abgebrochen:
+            text += " " + _("Abgebrochen.")
+        zeilen = []
+        for ergebnis in ergebnisse:
+            teile = [bericht_text(h) for h in ergebnis.hinweise]
+            if ergebnis.ausgabe:
+                teile.append("→ " + os.path.basename(ergebnis.ausgabe))
+            if teile or not ergebnis.ok:
+                zeichen = "" if ergebnis.ok else "✗ "
+                zeilen.append(f"{zeichen}{os.path.basename(ergebnis.pfad)}: {'; '.join(teile)}")
+        box = QMessageBox(QMessageBox.Icon.Information if fertig == anzahl
+                          else QMessageBox.Icon.Warning, _("Stapel"), text,
+                          QMessageBox.StandardButton.Ok, self)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        if zeilen:
+            box.setDetailedText("\n".join(zeilen))
+        box.exec()
+        self.fenster.melden(text, fehler=fertig != anzahl)
 
     def bild_geaendert(self, pfad: str):
         """Die Begleitdatei eines Bildes ist neu oder weg: Kachel neu, Cache vergessen."""

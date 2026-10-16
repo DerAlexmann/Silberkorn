@@ -198,6 +198,13 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   suggested, 0 = off) that is reserved right away. Every preview and path in it is
   encrypted for your own Windows sign-in with the Data Protection API; deleted entries
   are overwritten, and folders can be excluded entirely.
+- **Batch**: select several images in the folder view (`Ctrl`/`Shift`) and process them
+  in one go with "Batch …" – apply a preset or copied settings, remove dust via the
+  infrared channel, save the edit as a sidecar file and/or export the images: into a
+  folder, as JPEG, PNG, TIFF or WebP, with a name suffix, optionally with AI denoise,
+  sharpen, colourise and AI upscaling. Existing files are never overwritten. One image
+  at a time, cancellable; an error only affects its own image, and a report follows at
+  the end.
 - **Presets**: save settings under a name and apply them to other images – choosing
   what to include: basic adjustments, curves, colour ranges, LUT, noise reduction and
   film are preselected; geometry, anonymisation and metadata usually belong to one image

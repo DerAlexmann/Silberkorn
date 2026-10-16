@@ -1091,5 +1091,40 @@ TRANSLATIONS = {
         "Ordner ausnehmen": "Exclude folder",
         "Dort ist nicht genug Platz frei. Möglich sind höchstens {mb} MB.":
             "There is not enough free space there. At most {mb} MB are possible.",
+        # Stapel
+        "Stapel": "Batch",
+        "Stapel …": "Batch …",
+        "Die gewählten Bilder auf einmal bearbeiten: eine Voreinstellung darauflegen, "
+        "Staub entfernen, als Begleitdatei sichern oder ausgeben. Mehrere Bilder wählen "
+        "mit Strg oder Umschalt.":
+            "Process the selected images in one go: apply a preset, remove dust, save as a "
+            "sidecar file or export. Select several images with Ctrl or Shift.",
+        "Stapel: {anzahl} Bilder": "Batch: {anzahl} images",
+        "Keine – nur die vorhandene Bearbeitung": "None – only the existing edit",
+        "Kopierte Einstellungen": "Copied settings",
+        "Staub über den Infrarotkanal entfernen, wo es einen gibt":
+            "Remove dust via the infrared channel where there is one",
+        "Bearbeitung als Begleitdatei neben jedem Bild sichern":
+            "Save the edit as a sidecar file next to each image",
+        "Bilder ausgeben": "Export images",
+        "bearbeitet": "edited",
+        "Namenszusatz": "Name suffix",
+        "KI-Entrauschen, -Schärfen und -Kolorieren rechnen, wo eingestellt":
+            "Compute AI denoise, sharpen and colourise where set",
+        "Mit KI-Hochskalieren ({faktor}, wie in der Karte eingestellt)":
+            "With AI upscaling ({faktor}, as set in the card)",
+        "Vorhandene Dateien werden nie überschrieben – dann heißt die neue Datei etwa "
+        "„Name-bearbeitet-2“.":
+            "Existing files are never overwritten – the new file is then called e.g. "
+            "“Name-edited-2”.",
+        "Starten": "Start",
+        "Ordner für die Ausgabe": "Folder for the export",
+        "Begleitdatei passte nicht mehr – nur die Reglerwerte übernommen":
+            "Sidecar file no longer matched – only the slider values were applied",
+        "ungültige Werte übergangen": "invalid values skipped",
+        "KI-Schritt ausgelassen – Modell nicht geladen": "AI step skipped – model not downloaded",
+        "Bearbeite {name} …": "Processing {name} …",
+        "{fertig} von {anzahl} Bildern fertig.": "{fertig} of {anzahl} images done.",
+        "Abgebrochen.": "Cancelled.",
     },
 }
