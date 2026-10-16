@@ -17,6 +17,12 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Namen sichern, anwenden, löschen, importieren und exportieren – mit Auswahl
   der Gruppen, die mitgehen, beim Film wahlweise mit gemessener Filmmaske.
   Einstellungen kopieren und einfügen mit `Strg`+`Umschalt`+`C` / `V`.
+- **Ordneransicht**: ein neuer Reiter „Ordner“ mit den Bildern eines Ordners als
+  Kacheln; Doppelklick öffnet, Bilder mit Begleitdatei zeigen ihre Bearbeitung.
+  Vorschaubilder entstehen im Hintergrund, nur für sichtbare Kacheln.
+- **Vorschau-Cache** für teure Vorschaubilder: eine Datei mit fester, selbst
+  gewählter Größe, gleich vorbelegt, mit DPAPI verschlüsselt, mit Ausnahmen für
+  Ordner und überschriebenen Löschungen.
 
 ### Geändert
 

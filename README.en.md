@@ -190,6 +190,14 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   whether it may create sidecar files; "Sidecar files" at the top changes that. If a
   sidecar file no longer matches the image because the image was changed, Silberkorn
   applies only the slider values after asking. Once everything is reset, it disappears.
+- **Folder view** ("Folder" tab): the images of a folder as tiles; a double-click opens
+  one for editing. A dot marks images with a sidecar file; their tile shows the edited
+  image. Previews are made in the background and only for what is visible – from the
+  embedded preview of a RAW, from a JPEG decoded at an eighth of its size or, for large
+  TIFFs and PNGs, from the **preview cache**: a file of fixed size you choose (200 MB
+  suggested, 0 = off) that is reserved right away. Every preview and path in it is
+  encrypted for your own Windows sign-in with the Data Protection API; deleted entries
+  are overwritten, and folders can be excluded entirely.
 - **Presets**: save settings under a name and apply them to other images – choosing
   what to include: basic adjustments, curves, colour ranges, LUT, noise reduction and
   film are preselected; geometry, anonymisation and metadata usually belong to one image
@@ -325,6 +333,15 @@ Besides the slider values, a sidecar file contains a small preview of the edit a
 metadata entered, such as title or creator – passing on an image together with its
 sidecar file passes on both. Sidecar files and presets from others are read with strict
 checks: only known values within their limits, no file paths, nothing executable.
+
+The folder view's preview cache lives in `%LOCALAPPDATA%\Silberkorn\vorschau.db` (the
+location can be changed). Previews and paths in it are encrypted with the Windows Data
+Protection API (DPAPI); lookups use a secret hash of the path. A copied file, a backup
+or a removed drive therefore reveals neither images nor folder names. Images that no
+longer exist drop out; after anonymising, no preview of the original remains. This does
+not protect against malware running under your own account – but such malware could
+read the photos themselves anyway. For the whole drive, BitLocker remains the right
+layer.
 
 ## AI models
 

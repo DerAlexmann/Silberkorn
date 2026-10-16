@@ -130,6 +130,7 @@ class Hauptfenster(QMainWindow):
         aufbau.addWidget(innen, 1)
 
         self._reiter_bearbeiten()
+        self._reiter_ordner()
         self._reiter_info()
         self._statuszeile()
         self.setCentralWidget(seite)
@@ -297,6 +298,11 @@ class Hauptfenster(QMainWindow):
         self.bearbeiten = BearbeitenSeite(self)
         self.reiter.addTab(self.bearbeiten, "")
 
+    def _reiter_ordner(self):
+        from .ordner_seite import OrdnerSeite
+        self.ordner = OrdnerSeite(self)
+        self.reiter.addTab(self.ordner, "")
+
     def _reiter_info(self):
         seite, aufbau = self._reiterseite()
 
@@ -359,7 +365,7 @@ class Hauptfenster(QMainWindow):
         aufbau.addStretch(1)
 
         self.reiter.addTab(seite, "")
-        self._reitertitel = [_("Bearbeiten"), _("Info & Copyright")]
+        self._reitertitel = [_("Bearbeiten"), _("Ordner"), _("Info & Copyright")]
         for nummer, text in enumerate(self._reitertitel):
             self.reiter.setTabText(nummer, reitertext(text))
 
@@ -432,4 +438,5 @@ class Hauptfenster(QMainWindow):
             return
         self._einstellungen_sichern(mit_fenster=True)
         self.bearbeiten.schliessen()
+        self.ordner.beenden()
         super().closeEvent(ereignis)

@@ -19,13 +19,17 @@ def fenster():
         pytest.skip("keine Grafikkarte")
     from PySide6.QtWidgets import QApplication
 
-    from silberkorn import gpu_pruefung
+    from silberkorn import einstellungen, gpu_pruefung
     from silberkorn.hauptfenster import Hauptfenster
     QApplication.instance() or QApplication([])
     befund = gpu_pruefung.ermitteln()
     if not befund.ok:
         pytest.skip("keine RTX-Karte")
-    fenster = Hauptfenster(befund)
+    # Nichts aus der echten Einstellungsdatei: kein echter Vorschau-Cache, kein zuletzt
+    # gezeigter Ordner mit eigenen Bildern
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(einstellungen, "load_config", lambda: {})
+        fenster = Hauptfenster(befund)
     fenster.show()
     QApplication.processEvents()
     yield fenster
@@ -33,10 +37,13 @@ def fenster():
 
 
 @pytest.fixture(autouse=True)
-def ohne_begleitdateien(monkeypatch):
-    """Keine Begleitdateien und keine Frage danach - es sei denn, ein Test will sie."""
-    from silberkorn import einstellungen
+def ohne_begleitdateien(monkeypatch, tmp_path):
+    """Keine Begleitdateien und keine Frage danach - es sei denn, ein Test will sie. Und
+    der Vorschau-Cache liegt nie am echten Ort: Ein Test, der ihn umzieht, loeschte sonst
+    den Cache des Anwenders."""
+    from silberkorn import einstellungen, vorschau_cache
     monkeypatch.setattr(einstellungen, "begleitdateien", lambda: False)
+    monkeypatch.setattr(vorschau_cache, "standard_ordner", lambda: str(tmp_path / "standard"))
 
 
 def test_alle_sichtbaren_knoepfe_beschriftet(fenster):
@@ -406,3 +413,108 @@ def test_voreinstellung_und_kopieren(fenster, tmp_path, monkeypatch):
     finally:
         seite.schliessen()
         seite._knoepfe_freischalten()
+
+
+def _warten(bedingung, sekunden=10.0):
+    import time
+
+    from PySide6.QtWidgets import QApplication
+    ende = time.monotonic() + sekunden
+    while not bedingung() and time.monotonic() < ende:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    return bedingung()
+
+
+def test_ordneransicht(fenster, tmp_path, monkeypatch):
+    """Kacheln entstehen im Hintergrund, eine Begleitdatei ist markiert, Doppelklick
+    oeffnet das Bild zum Bearbeiten."""
+    from PIL import Image
+
+    from silberkorn import begleitdatei, einstellungen, vorschaubilder
+    from silberkorn.filter import Einstellungen
+    from silberkorn.ordner_seite import BEARBEITET_ROLLE, ZUSTAND_ROLLE
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    for name, farbe in (("b10.jpg", (200, 0, 0)), ("b2.png", (0, 200, 0)),
+                        ("c.jpg", (0, 0, 200))):
+        Image.new("RGB", (64, 48), farbe).save(tmp_path / name)
+    (tmp_path / "notiz.txt").write_text("kein Bild")
+    (tmp_path / "kaputt.jpg").write_bytes(b"kein jpeg")
+    (tmp_path / "unter").mkdir()
+    (tmp_path / ".versteckt").mkdir()
+    bearbeitet = str(tmp_path / "c.jpg")
+    begleitdatei.schreiben(bearbeitet, begleitdatei.Inhalt(
+        Einstellungen(kontrast=20.0),
+        vorschau=vorschaubilder.kodieren(Image.new("RGB", (32, 24), (255, 255, 0)))),
+        begleitdatei.fingerabdruck(bearbeitet))
+    seite = fenster.ordner
+    fenster.reiter.setCurrentWidget(seite)
+    seite.ordner_zeigen(str(tmp_path))
+    modell = seite.modell
+    try:
+        assert [os.path.basename(p) for p in modell.pfade] == \
+            ["unter", "b2.png", "b10.jpg", "c.jpg", "kaputt.jpg"]   # Ordner zuerst, sortiert
+        for zeile in range(5):
+            modell.data(modell.index(zeile), BEARBEITET_ROLLE)   # wie beim Zeichnen
+        bilder = modell.pfade[1:4]
+        assert _warten(lambda: all(p in modell._bilder for p in bilder)
+                       and modell.data(modell.index(4), ZUSTAND_ROLLE) == "fehlt")
+        assert modell.data(modell.index(0), ZUSTAND_ROLLE) == "ordner"
+        assert modell.data(modell.index(3), BEARBEITET_ROLLE) is True
+        assert modell.data(modell.index(1), BEARBEITET_ROLLE) is False
+
+        seite._doppelklick(modell.index(0))               # in den Unterordner
+        assert seite.ordner == str(tmp_path / "unter") and modell.pfade == []
+        seite.ordner_hoch()
+        assert seite.ordner == str(tmp_path)
+        seite._doppelklick(modell.index(3))
+        assert fenster.reiter.currentWidget() is fenster.bearbeiten
+        assert fenster.bearbeiten.sitzung.werte.kontrast == 20.0
+    finally:
+        fenster.bearbeiten.schliessen()
+        fenster.bearbeiten._knoepfe_freischalten()
+        seite.ordner_zeigen("")
+        fenster.reiter.setCurrentWidget(fenster.bearbeiten)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="DPAPI nur unter Windows")
+def test_vorschau_cache_einrichten(fenster, tmp_path, monkeypatch):
+    """Der Dialog legt den Cache an, teure Vorschaubilder landen darin; 0 MB entfernt ihn."""
+    from PIL import Image
+
+    from silberkorn import einstellungen, ordner_seite, vorschau_cache, vorschaubilder
+    konfiguration = {}
+    monkeypatch.setattr(einstellungen, "load_config", lambda: dict(konfiguration))
+    monkeypatch.setattr(einstellungen, "save_config",
+                        lambda daten: konfiguration.update(daten) or True)
+    monkeypatch.setattr(vorschaubilder, "TEUER_MS", -1)   # alles gilt als teuer
+    ablage = tmp_path / "cache"
+    bilder = tmp_path / "bilder"
+    bilder.mkdir()
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(bilder / "a.png")
+    wahl = {"mb": 16}
+
+    def annehmen(dialog):
+        dialog.groesse.setValue(wahl["mb"])
+        dialog._ort = str(ablage)
+        return ordner_seite.CacheDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(ordner_seite.CacheDialog, "exec", annehmen)
+    seite = fenster.ordner
+    datei = ablage / vorschau_cache.DATEINAME
+    try:
+        seite.cache_einstellen(True)
+        assert konfiguration["vorschau_cache_mb"] == 16
+        assert _warten(lambda: datei.exists() and seite._cache_stand is not None)
+        assert 15 * 2**20 < os.path.getsize(datei) <= 16 * 2**20
+        seite.ordner_zeigen(str(bilder))
+        seite.modell.data(seite.modell.index(0), ordner_seite.BEARBEITET_ROLLE)
+        assert _warten(lambda: seite.modell.pfade[0] in seite.modell._bilder)
+        seite.dienst.befehl("stand")
+        assert _warten(lambda: seite._cache_stand is not None and seite._cache_stand[2] == 1)
+
+        wahl["mb"] = 0
+        seite.cache_einstellen(False)
+        assert _warten(lambda: not datei.exists())
+    finally:
+        seite.ordner_zeigen("")

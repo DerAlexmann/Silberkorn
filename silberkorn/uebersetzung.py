@@ -1059,5 +1059,37 @@ TRANSLATIONS = {
             "The saved edit uses {schritte}. These results are not stored in the sidecar "
             "file; they are recomputed for the image. Compute now?",
         "{name} geöffnet – mit der gesicherten Bearbeitung": "{name} opened – with the saved edit",
+        # Ordneransicht und Vorschau-Cache
+        "Ordner wählen …": "Choose folder …",
+        "Ordner neu einlesen": "Reload folder",
+        "Übergeordneter Ordner": "Parent folder",
+        "Vorschau-Cache …": "Preview cache …",
+        "Größe, Ort und Ausnahmen des verschlüsselten Caches für Vorschaubilder":
+            "Size, location and exceptions of the encrypted preview cache",
+        "Einen Ordner wählen, um seine Bilder zu sehen.": "Choose a folder to see its images.",
+        "{anzahl} Bilder in {ordner}": "{anzahl} images in {ordner}",
+        "1 Bild in {ordner}": "1 image in {ordner}",
+        "Der Vorschau-Cache lässt sich nicht anlegen: {grund}":
+            "The preview cache cannot be created: {grund}",
+        "Vorschau-Cache": "Preview cache",
+        "Vorschau-Cache einrichten": "Set up the preview cache",
+        "Vorschaubilder großer Dateien – etwa Scans – kosten Zeit. Silberkorn kann sie "
+        "in einer Datei mit fester Größe sichern, verschlüsselt für die eigene "
+        "Windows-Anmeldung. Der Platz wird gleich belegt, damit es später keine "
+        "Überraschung gibt. 0 MB: kein Cache.":
+            "Previews of large files – such as scans – take time. Silberkorn can keep them "
+            "in a file of fixed size, encrypted for your own Windows sign-in. The space is "
+            "reserved right away so there are no surprises later. 0 MB: no cache.",
+        "Belegt: {belegt} von {groesse} MB, {anzahl} Vorschaubilder":
+            "In use: {belegt} of {groesse} MB, {anzahl} previews",
+        "Ort": "Location",
+        "Nie in den Cache (Ordner und alles darunter):":
+            "Never cache (folders and everything below):",
+        "Ordner hinzufügen …": "Add folder …",
+        "Cache jetzt leeren": "Clear the cache now",
+        "Ort des Vorschau-Caches": "Location of the preview cache",
+        "Ordner ausnehmen": "Exclude folder",
+        "Dort ist nicht genug Platz frei. Möglich sind höchstens {mb} MB.":
+            "There is not enough free space there. At most {mb} MB are possible.",
     },
 }

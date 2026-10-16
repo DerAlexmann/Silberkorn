@@ -119,6 +119,7 @@ FONT_ZAHL = ("Consolas", 12, "bold")
 
 SYMBOLE = {   # Name: (Breite, Hoehe, Pfad)
     "pfeil": (10, 6, "M1 1l4 4 4-4"),
+    "pfeil_hoch": (10, 6, "M1 5l4-4 4 4"),
     "haken": (10, 8, "M1 4l3 3 5-6"),
 }
 
@@ -167,12 +168,42 @@ def stylesheet() -> str:
     QMenu::item:selected {{ background: {t["ACCENT"]}; color: {t["ON_ACCENT"]}; }}
     QMenu::item:disabled {{ color: {t["BTN_DISABLED"]}; }}
     QMenu::separator {{ height: 1px; background: {t["BORDER"]}; margin: 4px 8px; }}
-    QTextEdit, QPlainTextEdit, QLineEdit, QSpinBox {{
+    QTextEdit, QPlainTextEdit, QLineEdit, QSpinBox, QDoubleSpinBox {{
         background: {t["FIELD_BG"]}; color: {t["TEXT"]};
         border: 1px solid {t["BORDER"]}; border-radius: 4px;
         selection-background-color: {t["ACCENT"]}; selection-color: {t["ON_ACCENT"]};
     }}
     QLineEdit[ungueltig="true"] {{ border: 1px solid {t["DANGER"]}; }}
+    /* Pfeile der Zahlenfelder selbst festlegen: Der Windows-11-Stil zeichnet sie sonst
+       nebeneinander, wertet Klicks mit dem Stylesheet aber nach oberer und unterer Haelfte
+       aus - ein Klick auf "hoch" zaehlte dann herunter. */
+    QSpinBox, QDoubleSpinBox {{ padding-right: 20px; }}
+    QSpinBox::up-button, QDoubleSpinBox::up-button {{
+        subcontrol-origin: border; subcontrol-position: top right;
+        width: 20px; border: none; border-top-right-radius: 4px; background: transparent;
+    }}
+    QSpinBox::down-button, QDoubleSpinBox::down-button {{
+        subcontrol-origin: border; subcontrol-position: bottom right;
+        width: 20px; border: none; border-bottom-right-radius: 4px; background: transparent;
+    }}
+    QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+    QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+        background: {t["BTN_HOVER"]};
+    }}
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+        image: url("{symbol("pfeil_hoch", t["TEXT"])}"); width: 8px; height: 5px;
+    }}
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+        image: url("{symbol("pfeil", t["TEXT"])}"); width: 8px; height: 5px;
+    }}
+    QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled,
+    QSpinBox::up-arrow:off, QDoubleSpinBox::up-arrow:off {{
+        image: url("{symbol("pfeil_hoch", t["BTN_DISABLED"])}");
+    }}
+    QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled,
+    QSpinBox::down-arrow:off, QDoubleSpinBox::down-arrow:off {{
+        image: url("{symbol("pfeil", t["BTN_DISABLED"])}");
+    }}
     QScrollArea, QScrollArea > QWidget > QWidget {{ background: {t["BG"]}; border: none; }}
 
     QComboBox {{
@@ -241,6 +272,11 @@ def stylesheet() -> str:
     QLabel#wert {{ font-family: "Consolas"; }}
     QLabel#warnung {{ color: {t["WARN"]}; }}
     QLabel#leer {{ color: {t["MUTED"]}; font-size: 12pt; }}
+    QListView#kacheln, QListWidget {{
+        background: {t["CARD_ALT"]}; color: {t["TEXT"]};
+        border: 1px solid {t["BORDER"]}; border-radius: 8px; outline: 0;
+        selection-background-color: {t["ACCENT"]}; selection-color: {t["ON_ACCENT"]};
+    }}
     QFrame#leinwand {{
         background: {t["CARD_ALT"]}; border: 1px dashed {t["BORDER"]}; border-radius: 8px;
     }}
