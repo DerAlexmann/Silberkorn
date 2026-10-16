@@ -216,6 +216,16 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   anlegen darf; oben über „Begleitdateien“ lässt sich das ändern. Passt eine
   Begleitdatei nicht mehr zum Bild, weil es verändert wurde, übernimmt Silberkorn
   auf Nachfrage nur die Reglerwerte. Ist alles zurückgesetzt, verschwindet sie.
+- **Ordneransicht** (Reiter „Ordner“): die Bilder eines Ordners als Kacheln,
+  ein Doppelklick öffnet zum Bearbeiten. Ein Punkt markiert Bilder mit
+  Begleitdatei; ihre Kachel zeigt das bearbeitete Bild. Vorschaubilder entstehen
+  im Hintergrund und nur für das, was zu sehen ist – aus dem eingebetteten
+  Vorschaubild einer RAW, aus einem auf ein Achtel verkleinert gelesenen JPEG oder,
+  bei großen TIFFs und PNGs, aus dem **Vorschau-Cache**: einer Datei mit fester,
+  selbst gewählter Größe (Vorschlag 200 MB, 0 = aus), die gleich vorbelegt wird.
+  Jedes Vorschaubild und jeder Pfad darin ist mit der Windows-Datenschutz-API für
+  die eigene Anmeldung verschlüsselt; Gelöschtes wird überschrieben, Ordner lassen
+  sich ganz ausnehmen.
 - **Voreinstellungen**: Einstellungen unter einem Namen sichern und auf andere
   Bilder legen – mit Auswahl, was mitgeht: Grundregler, Kurven, Farbbereiche,
   LUT, Rauschminderung und Film sind vorgewählt, Geometrie, Anonymisieren und
@@ -364,6 +374,16 @@ Bearbeitung und eingegebene Metadaten wie Titel oder Urheber – wer ein Bild sa
 Begleitdatei weitergibt, gibt beides mit. Begleitdateien und Voreinstellungen
 von anderen liest Silberkorn streng geprüft: nur bekannte Werte in ihren
 Grenzen, keine Dateipfade, nichts Ausführbares.
+
+Der Vorschau-Cache der Ordneransicht liegt unter
+`%LOCALAPPDATA%\Silberkorn\vorschau.db` (der Ort ist wählbar). Vorschaubilder und
+Pfade darin sind mit der Windows-Datenschutz-API (DPAPI) verschlüsselt; gesucht
+wird über einen geheimen Hash des Pfads. Eine kopierte Datei, ein Backup oder eine
+ausgebaute Platte verraten so weder Bilder noch Ordnernamen. Bilder, die es nicht
+mehr gibt, fallen heraus; nach dem Anonymisieren gibt es keine Vorschau des
+Originals mehr. Gegen Schadsoftware unter dem eigenen Konto hilft das nicht –
+die könnte aber ohnehin die Fotos selbst lesen. Für die ganze Platte bleibt
+BitLocker die richtige Ebene.
 
 ## KI-Modelle
 

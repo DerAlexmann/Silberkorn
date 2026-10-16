@@ -59,6 +59,7 @@ from . import (
     lut,
     metadaten,
     objektivprofile,
+    ordner_seite,
     staub,
     trennen,
     verlauf,
@@ -3574,7 +3575,8 @@ class BearbeitenSeite(QWidget):
             return False
         pfad = sitzung.daten.pfad
         if not sitzung.bearbeitet:
-            begleitdatei.entfernen(pfad)
+            if begleitdatei.entfernen(pfad):
+                ordner_seite.begleitdatei_geaendert(self.fenster, pfad)
             sitzung.begleit_gesichert()
             return True
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -3593,6 +3595,7 @@ class BearbeitenSeite(QWidget):
         finally:
             QApplication.restoreOverrideCursor()
         sitzung.begleit_gesichert()
+        ordner_seite.begleitdatei_geaendert(self.fenster, pfad)
         return True
 
     def _begleitdatei_laden(self) -> bool:
