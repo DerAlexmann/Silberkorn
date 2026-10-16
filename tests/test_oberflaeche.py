@@ -164,3 +164,154 @@ def test_rueckgaengig_und_wiederholen(fenster, tmp_path, monkeypatch):
     finally:
         seite.schliessen()
         seite._knoepfe_freischalten()
+
+
+def test_kartenwahl_springt_und_laeuft_mit(fenster):
+    """Die Auswahl ueber den Karten nennt jede Karte, springt zu ihr und zeigt beim Rollen
+    die oberste. Leinwand und erste Karte beginnen auf derselben Hoehe."""
+    from PySide6.QtWidgets import QApplication, QFrame
+
+    seite = fenster.bearbeiten
+    fenster.resize(1100, 700)
+    QApplication.processEvents()
+    wahl, leiste = seite.kartenwahl, seite.reglerleiste
+    karten = leiste.widget().findChildren(QFrame, "karte")
+    assert len(seite.karten) == len(karten) == wahl.count() >= 20
+    assert [wahl.itemText(i) for i in range(wahl.count())] == [
+        seite._karten_titel[k] for k in seite.karten]
+    assert seite.leinwand.y() == leiste.y()
+    balken = leiste.verticalScrollBar()
+    try:
+        for nummer in (5, wahl.count() - 1, 0):
+            seite.zu_karte(nummer, weich=False)
+            assert balken.value() == min(seite.karten[nummer].y(), balken.maximum())
+            assert wahl.currentIndex() == nummer
+        mitte = seite.karten[8]
+        assert mitte.y() < balken.maximum()
+        balken.setValue(mitte.y() + 3)            # von Hand gerollt
+        assert wahl.currentIndex() == 8
+        assert wahl.view().sizeHintForRow(0) < 30   # kompakt: alle Karten passen in die Liste
+    finally:
+        balken.setValue(0)
+
+
+def test_scan_und_film(fenster, tmp_path, monkeypatch):
+    """Die Karte wandelt ein Negativ um, die Pipette misst den Filmrand, Rueckgaengig nimmt
+    beides zurueck. Ein RGBI-Scan meldet seinen Infrarotkanal."""
+    import numpy as np
+    import tifffile
+    from PySide6.QtWidgets import QApplication
+    from test_film import MASKE, graukeil, mit_filmrand, negativ_von
+
+    from silberkorn import bilddatei, einstellungen, filter
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "negativ.tif")
+    bilddatei.speichern(pfad, filter.nach_16bit(mit_filmrand(negativ_von(graukeil()))))
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert seite.karten.index(seite.film_art.parentWidget()) == \
+            [seite._karten_titel[k] for k in seite.karten].index("Motiv & Hintergrund") - 1
+        assert not seite.film_pipette_knopf.isEnabled()
+        assert not seite.staub_teil.isVisibleTo(seite)
+        seite.film_art.setCurrentIndex(seite.film_art.findData("farbnegativ"))
+        seite._festhalten(sofort=True)
+        werte = seite.sitzung.werte
+        assert werte.film == "farbnegativ" and len(werte.film_umfang) == 6
+        assert seite.film_pipette_knopf.isEnabled()
+        automatisch = werte.film_maske
+
+        seite.film_pipette_knopf.setChecked(True)
+        assert seite._klick_ziel == "film"
+        seite._bild_geklickt(15.0, 40.0, True)
+        seite._festhalten(sofort=True)
+        assert seite._klick_ziel is None and not seite.film_pipette_knopf.isChecked()
+        assert np.allclose(seite.sitzung.werte.film_maske, MASKE, rtol=0.01)
+        assert "Scan & Film" in seite.rueckgaengig_knopf.toolTip()
+
+        seite.rueckgaengig()
+        assert seite.sitzung.werte.film_maske == automatisch
+        seite.rueckgaengig()
+        assert seite.sitzung.werte.film == "" and seite.film_art.currentData() == ""
+        assert not seite.film_pipette_knopf.isEnabled()
+
+        rgbi = str(tmp_path / "rgbi.tif")
+        pixel = np.zeros((20, 30, 4), dtype=np.uint8)
+        tifffile.imwrite(rgbi, pixel, photometric="rgb", extrasamples=[0])
+        seite.oeffnen(rgbi)
+        QApplication.processEvents()
+        assert seite.staub_teil.isVisibleTo(seite)
+        assert seite.sitzung.daten.alpha is None
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_staub_entfernen(fenster, tmp_path, monkeypatch):
+    """Ein RGBI-Filmscan: Fundstellen zeigen, Staub entfernen, Rueckgaengig. Ein Luftbild
+    bietet die Suche nicht an."""
+    import numpy as np
+    import tifffile
+    from test_staub import mit_staub
+
+    from silberkorn import einstellungen, filter
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    bild, ir, _punkte = mit_staub()
+    pfad = str(tmp_path / "scan.tif")
+    tifffile.imwrite(pfad, np.dstack([filter.nach_16bit(bild), (ir * 65535).astype(np.uint16)]),
+                     photometric="rgb", extrasamples=[0])
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert seite.staub_knopf.isEnabled() and not seite.staub_weg_knopf.isEnabled()
+        seite.staub_zeigen_box.setChecked(True)
+        assert seite.sitzung.staub_fund[1] == 41 and "41" in seite.staub_hinweis.text()
+        seite.staub_entfernen()
+        seite._festhalten(sofort=True)
+        assert seite.sitzung.staub_entfernt and seite.staub_weg_knopf.isEnabled()
+        assert not seite.staub_zeigen_box.isChecked()
+        assert "Staub entfernt" in seite.rueckgaengig_knopf.toolTip()
+        seite.rueckgaengig()
+        assert not seite.sitzung.staub_entfernt and not seite.staub_weg_knopf.isEnabled()
+
+        zufall = np.random.default_rng(2)
+        landschaft = np.kron(zufall.random((15, 23)), np.ones((20, 20)))[:300, :450]
+        luft = str(tmp_path / "luftbild.tif")
+        tifffile.imwrite(luft, np.dstack([filter.nach_8bit(bild),
+                                          (landschaft * 255).astype(np.uint8)]),
+                         photometric="rgb", extrasamples=[0])
+        seite.oeffnen(luft)
+        assert seite.staub_teil.isVisibleTo(seite) and not seite.staub_knopf.isEnabled()
+        assert "Motiv selbst" in seite.staub_hinweis.text()
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_fotos_trennen(fenster, tmp_path, monkeypatch):
+    """Fotos trennen speichert die gewaehlten Fotos und oeffnet das gewaehlte."""
+    from test_trennen import scan
+
+    from silberkorn import bilddatei, einstellungen, filter
+    from silberkorn.trennen_dialog import TrennenDialog
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "platte.png")
+    bilddatei.speichern(pfad, filter.nach_8bit(scan()))
+
+    def annehmen(dialog):
+        dialog.kacheln[0].setChecked(False)
+        dialog.oeffnen_wahl.setCurrentIndex(dialog.oeffnen_wahl.findData(2))
+        return TrennenDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(TrennenDialog, "exec", annehmen)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert seite.trennen_knopf.isEnabled()
+        seite.fotos_trennen()
+        namen = sorted(p.name for p in tmp_path.iterdir())
+        assert namen == ["platte-01.png", "platte-02.png", "platte.png"]
+        assert seite.sitzung.daten.name == "platte-02.png"   # Foto 3 ist die zweite Datei
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()

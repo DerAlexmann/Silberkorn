@@ -16,7 +16,7 @@ from concurrent.futures import wait
 from html import escape
 
 import numpy as np
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -35,7 +35,9 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
+    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
@@ -45,12 +47,15 @@ from . import (
     bilddatei,
     drucken,
     einstellungen,
+    film,
     filter,
     geometrie,
     ki,
     lut,
     metadaten,
     objektivprofile,
+    staub,
+    trennen,
     verlauf,
     veroeffentlichen,
 )
@@ -61,10 +66,17 @@ from .geometrie import VOLLER_ZUSCHNITT
 from .kurveneditor import KurvenEditor
 from .leinwand import Leinwand, rahmen_mit_verhaeltnis
 from .metadaten_dialog import MetadatenDialog
+from .trennen_dialog import TrennenDialog
 from .uebersetzung import _
 from .veroeffentlichen_dialog import VeroeffentlichenDialog
 
 REGLERLEISTE_BREITE = 340
+KARTE_SPRUNG_MS = 200        # so lange rollt die Liste zur gewaehlten Karte
+KARTE_MARKIERT_MS = 900      # so lange ist die angesprungene Karte hervorgehoben
+KARTENWAHL_LUFT_PX = 6       # Luft je Eintrag der Kartenauswahl ueber der Schrifthoehe
+KARTE_OBEN_PX = 8            # so weit unter dem oberen Rand gilt eine Karte noch als oben
+VERBOTEN = '<>:"/\\|?*'       # Zeichen, die Windows in Dateinamen nicht erlaubt
+STAUB_PAUSE_MS = 200         # so lange ruht der Regler, dann wird nach Staub gesucht
 VERLAUF_PAUSE_MS = 400        # so lange ohne Aenderung, dann wird der Stand festgehalten
 VERLAUF_ANTEIL = 0.2          # so viel Grafikspeicher darf der Verlauf zusaetzlich belegen
 VERLAUF_MINDESTENS = 256 * 2**20
@@ -206,7 +218,10 @@ def ziel_bestimmen(pfad: str, gewaehlt: str) -> tuple[str, int]:
 def art_anzeige(daten: bilddatei.Bilddaten) -> str:
     if daten.raw:
         return "RAW"
-    return _("16 Bit") if daten.bits == 16 else _("8 Bit")
+    art = _("16 Bit") if daten.bits == 16 else _("8 Bit")
+    if daten.infrarot is not None:
+        art = _("{art} mit Infrarotkanal").format(art=art)
+    return art
 
 
 KI_ENTRAUSCHEN = filter.Regler("ki_entrauschen", "ki", 0, 100, vorgabe=50)
@@ -270,6 +285,16 @@ class Doppelklick(QObject):
             self._zuruecksetzen()
             return True
         return False
+
+
+class KompakteEintraege(QStyledItemDelegate):
+    """Eintraege einer Auswahlliste, nur so hoch wie die Schrift und etwas Luft - damit alle
+    Karten auch auf 768 Pixel hohen Bildschirmen auf einmal in die Liste passen."""
+
+    def sizeHint(self, option, index):            # noqa: N802 - Qt-Name
+        groesse = super().sizeHint(option, index)
+        groesse.setHeight(option.fontMetrics.height() + KARTENWAHL_LUFT_PX)
+        return groesse
 
 
 class ReglerZeile:
@@ -342,13 +367,15 @@ class BearbeitenSeite(QWidget):
         self._verlauf_uhr = QTimer(self, singleShot=True, interval=VERLAUF_PAUSE_MS)
         self._verlauf_uhr.timeout.connect(self._festhalten)
 
-        aufbau = QHBoxLayout(self)
+        # Raster: oben Werkzeugleiste und Kartenauswahl, darunter Leinwand und Karten -
+        # so beginnen Leinwand und erste Karte auf derselben Hoehe
+        aufbau = QGridLayout(self)
         aufbau.setContentsMargins(0, 12, 0, 0)
-        aufbau.setSpacing(12)
-
-        links = QVBoxLayout()
-        links.setSpacing(8)
-        links.addLayout(self._werkzeugleiste())
+        aufbau.setHorizontalSpacing(12)
+        aufbau.setVerticalSpacing(8)
+        aufbau.setColumnStretch(0, 1)
+        aufbau.setRowStretch(1, 1)
+        aufbau.addLayout(self._werkzeugleiste(), 0, 0)
         self.leinwand = Leinwand()
         fenster.beschriften(self.leinwand.leer.setText, _("Noch kein Bild geöffnet."))
         fenster.beschriften(self.leinwand.hinweis.setText,
@@ -357,9 +384,10 @@ class BearbeitenSeite(QWidget):
         self.leinwand.ansicht_geaendert.connect(self._ansicht_geaendert)
         self.leinwand.bild_geklickt.connect(self._bild_geklickt)
         self.leinwand.pinsel_gezogen.connect(self._pinsel_gezogen)
-        links.addWidget(self.leinwand, 1)
-        aufbau.addLayout(links, 1)
-        aufbau.addWidget(self._reglerleiste())
+        aufbau.addWidget(self.leinwand, 1, 0)
+        aufbau.addWidget(self._reglerleiste(), 1, 1)
+        self.kartenwahl = self._kartenwahl()
+        aufbau.addWidget(self.kartenwahl, 0, 1)
 
         QShortcut(QKeySequence.StandardKey.Open, self, self.oeffnen_dialog)
         QShortcut(QKeySequence.StandardKey.Save, self, self.speichern_dialog)
@@ -468,6 +496,7 @@ class BearbeitenSeite(QWidget):
         spalte.setSpacing(12)
 
         self.zeilen: dict[str, ReglerZeile] = {}
+        self._karten_titel: dict[QFrame, str] = {}
         self._ki_bild_teile: dict[str, tuple[QLabel, QPushButton]] = {}
         gruppen: dict[str, QGridLayout] = {}
         karten: dict[str, QFrame] = {}
@@ -511,13 +540,81 @@ class BearbeitenSeite(QWidget):
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 1, self._entfern_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 2, self._anonym_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 3, self._metadaten_karte())
+        spalte.insertWidget(spalte.indexOf(karten["maske"]), self._film_karte())
         spalte.addWidget(self._ki_karte())
         spalte.addStretch(1)
         flaeche.setWidget(inhalt)
+        self.reglerleiste = flaeche
+        # Die Karten in der Reihenfolge der Leiste - fuer die Auswahl darueber
+        self.karten = [karte for karte in (spalte.itemAt(i).widget()
+                                           for i in range(spalte.count()))
+                       if karte in self._karten_titel]
         return flaeche
+
+    def _kartenwahl(self) -> QComboBox:
+        """Auswahl ueber den Karten: springt zur gewaehlten Karte und zeigt beim Rollen,
+        welche oben steht."""
+        wahl = QComboBox(objectName="kartenwahl")
+        wahl.setItemDelegate(KompakteEintraege(wahl))
+        for nummer, karte in enumerate(self.karten):
+            self._eintrag(wahl, self._karten_titel[karte], nummer)
+        wahl.setMaxVisibleItems(len(self.karten))    # alle auf einmal, ohne Rollen
+        wahl.setFixedWidth(REGLERLEISTE_BREITE)
+        wahl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        self.fenster.beschriften(wahl.setToolTip, _("Zu einer Karte springen"))
+        wahl.activated.connect(self.zu_karte)
+        self._sprung = QPropertyAnimation(self.reglerleiste.verticalScrollBar(), b"value", self)
+        self._sprung.setDuration(KARTE_SPRUNG_MS)
+        self._sprung.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._sprung.finished.connect(self._sprung_fertig)
+        self._sprung_ziel: int | None = None
+        self.reglerleiste.verticalScrollBar().valueChanged.connect(self._karte_oben_zeigen)
+        return wahl
+
+    def zu_karte(self, nummer: int, weich: bool = True):
+        """Die Liste so rollen, dass die Karte oben steht, und sie kurz hervorheben."""
+        balken = self.reglerleiste.verticalScrollBar()
+        ziel = min(self.karten[nummer].y(), balken.maximum())
+        self._sprung.stop()
+        self._sprung_ziel = nummer
+        if weich and ziel != balken.value():
+            self._sprung.setStartValue(balken.value())
+            self._sprung.setEndValue(ziel)
+            self._sprung.start()
+        else:
+            balken.setValue(ziel)
+            self._sprung_fertig()
+
+    def _sprung_fertig(self):
+        nummer, self._sprung_ziel = self._sprung_ziel, None
+        if nummer is None:
+            return
+        # Am Ende der Liste steht die Karte nicht ganz oben - gewaehlt bleibt sie trotzdem
+        self.kartenwahl.setCurrentIndex(nummer)
+        karte = self.karten[nummer]
+        self._markieren(karte, True)
+        QTimer.singleShot(KARTE_MARKIERT_MS, lambda: self._markieren(karte, False))
+
+    @staticmethod
+    def _markieren(karte: QFrame, an: bool):
+        karte.setProperty("markiert", an)
+        karte.style().unpolish(karte)
+        karte.style().polish(karte)
+
+    def _karte_oben_zeigen(self, wert: int):
+        """Beim Rollen: die oberste sichtbare Karte im Auswahlfeld zeigen."""
+        if self._sprung_ziel is not None:
+            return                                # waehrend eines Sprungs gilt das Ziel
+        nummer = 0
+        for i, karte in enumerate(self.karten):
+            if karte.isVisible() and karte.y() <= wert + KARTE_OBEN_PX:
+                nummer = i
+        if nummer != self.kartenwahl.currentIndex():
+            self.kartenwahl.setCurrentIndex(nummer)
 
     def _karte(self, titeltext) -> tuple[QFrame, QVBoxLayout]:
         karte = QFrame(objectName="karte")
+        self._karten_titel[karte] = titeltext     # fuer die Auswahl ueber den Karten
         innen = QVBoxLayout(karte)
         innen.setContentsMargins(16, 12, 16, 14)
         titel = QLabel(objectName="kartentitel")
@@ -1440,6 +1537,10 @@ class BearbeitenSeite(QWidget):
             s=f"{ms / 1000:.1f}", weg=weg))
         self.zeichnen_anfordern()
 
+    def _sam_klickt(self) -> bool:
+        """Waehlt SAM gerade per Klick aus? Fokus und Pipette brauchen kein Netz."""
+        return self._klick_ziel in ("maske", "entfernen")
+
     def _klick_knoepfe(self) -> dict:
         return {"maske": self.auswahl_knopf, "entfernen": self.entfern_klick_knopf}
 
@@ -1507,6 +1608,7 @@ class BearbeitenSeite(QWidget):
         self._masken_anzeigen()
         self._entfernen_anzeigen()
         self._tiefe_anzeigen()
+        self._film_anzeigen()
         self._erweitern_anzeigen()
         self.zeichnen_anfordern()
 
@@ -1516,6 +1618,10 @@ class BearbeitenSeite(QWidget):
             return
         quelle = self.sitzung.quelle_von(x, y)
         if quelle is None:
+            return
+        if ziel == "film":
+            self._film_setzen(self.sitzung.werte.film, *self.sitzung.film_maske_messen(*quelle))
+            self.auswahl_beenden()               # ein Klick genuegt
             return
         if ziel == "fokus":
             wert = round(self.sitzung.tiefe_an(*quelle))
@@ -1537,13 +1643,324 @@ class BearbeitenSeite(QWidget):
 
     def klick_zuruecknehmen(self):
         ziel = self._klick_ziel
-        if ziel in (None, "fokus") or self.sitzung is None:
+        if not self._sam_klickt() or self.sitzung is None:
             return
         if self.sitzung.ki_klick_zurueck(self._auswaehler, ziel):
             del self._klick_marken[ziel][-1:]
             self._masken_anzeigen()
             self._entfernen_anzeigen()
             self.zeichnen_anfordern()
+
+    # ------------------------------------------------------------------
+    # Scan & Film: Negative umwandeln
+    # ------------------------------------------------------------------
+
+    def _film_karte(self) -> QFrame:
+        karte, innen = self._karte(_("Scan & Film"))
+        self.film_hinweis = QLabel(objectName="nebentext")
+        self.film_hinweis.setWordWrap(True)
+        innen.addWidget(self.film_hinweis)
+        gitter = QGridLayout()
+        gitter.setColumnStretch(1, 1)
+        beschriftung = QLabel()
+        self.fenster.beschriften(beschriftung.setText, _("Film"))
+        self.film_art = QComboBox()
+        self._eintrag(self.film_art, _("Kein Film"), "")
+        self._eintrag(self.film_art, _("Farbnegativ"), "farbnegativ")
+        self._eintrag(self.film_art, _("Schwarzweiß-Negativ"), "sw_negativ")
+        self._eintrag(self.film_art, _("Dia"), "dia")
+        self.fenster.beschriften(self.film_art.setToolTip, _(
+            "Ein Negativ wird ins Positiv gewandelt – über die Dichte des Films, wie im "
+            "Labor. Filmmaske sowie Schwarz- und Weißpunkt schätzt Silberkorn dabei selbst."))
+        self.film_art.currentIndexChanged.connect(self._film_art_gewaehlt)
+        gitter.addWidget(beschriftung, 0, 0)
+        gitter.addWidget(self.film_art, 0, 1)
+        innen.addLayout(gitter)
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.film_pipette_knopf = QPushButton()
+        self.film_pipette_knopf.setCheckable(True)
+        self.fenster.beschriften(self.film_pipette_knopf.setText, _("Filmmaske anklicken"))
+        self.fenster.beschriften(self.film_pipette_knopf.setToolTip, _(
+            "Ein Klick auf unbelichteten Film – den Rand oder den Steg zwischen zwei Bildern "
+            "– misst die Farbe der Filmmaske genau."))
+        self.film_pipette_knopf.toggled.connect(self._film_pipette_gedrueckt)
+        self.film_auto_knopf = self._knopf(_("Automatisch"), self.film_automatisch)
+        self.fenster.beschriften(self.film_auto_knopf.setToolTip, _(
+            "Schätzt Filmmaske, Schwarz- und Weißpunkt neu aus dem Bild – etwa nach einem "
+            "Klick mit der Pipette."))
+        leiste.addWidget(self.film_pipette_knopf, 1)
+        leiste.addWidget(self.film_auto_knopf, 1)
+        innen.addLayout(leiste)
+        innen.addWidget(self._staub_bedienung())
+        self.trennen_knopf = self._knopf(_("Fotos trennen …"), self.fotos_trennen)
+        self.fenster.beschriften(self.trennen_knopf.setToolTip, _(
+            "Sucht auf einem Flachbett-Scan die einzelnen Abzüge, richtet sie gerade aus, "
+            "beschneidet sie auf ihren Rand und speichert jeden als eigene Datei."))
+        innen.addWidget(self.trennen_knopf)
+        return karte
+
+    def _staub_bedienung(self) -> QWidget:
+        """Staub und Kratzer ueber den Infrarotkanal - nur sichtbar, wenn der Scan einen hat."""
+        self.staub_teil = QWidget()
+        innen = QVBoxLayout(self.staub_teil)
+        innen.setContentsMargins(0, 8, 0, 0)
+        self.staub_hinweis = QLabel(objectName="nebentext")
+        self.staub_hinweis.setWordWrap(True)
+        innen.addWidget(self.staub_hinweis)
+        gitter = QGridLayout()
+        gitter.setColumnStretch(1, 1)
+        beschriftung = QLabel()
+        self.fenster.beschriften(beschriftung.setText, _("Empfindlichkeit"))
+        self.staub_regler = QSlider(Qt.Orientation.Horizontal)
+        self.staub_regler.setRange(0, 100)
+        self.staub_regler.setValue(staub.EMPFINDLICHKEIT)
+        self.fenster.beschriften(self.staub_regler.setToolTip, _(
+            "Wie schwach eine Stelle im Infrarot sein darf, um als Staub zu gelten. Mehr "
+            "findet auch feine Fusseln, kann aber Bildteile erfassen."))
+        self.staub_regler.valueChanged.connect(lambda _w: self._staub_uhr.start())
+        gitter.addWidget(beschriftung, 0, 0)
+        gitter.addWidget(self.staub_regler, 0, 1)
+        innen.addLayout(gitter)
+        self.staub_zeigen_box = QCheckBox()
+        self.fenster.beschriften(self.staub_zeigen_box.setText, _("Fundstellen zeigen"))
+        self.fenster.beschriften(self.staub_zeigen_box.setToolTip, _(
+            "Färbt in der Vorschau blau, was als Staub oder Kratzer gefunden ist."))
+        self.staub_zeigen_box.toggled.connect(lambda _an: self._staub_suchen())
+        innen.addWidget(self.staub_zeigen_box)
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.staub_knopf = self._knopf(_("Staub entfernen"), self.staub_entfernen)
+        self.fenster.beschriften(self.staub_knopf.setToolTip, _(
+            "Füllt alle Fundstellen: kleine Punkte und dünne Kratzer die Grafikkarte, breite "
+            "Stellen LaMa, wenn das Modell von „Objekte entfernen“ geladen ist."))
+        self.staub_weg_knopf = self._knopf(_("Zurückholen"), self.staub_zurueckholen)
+        self.fenster.beschriften(self.staub_weg_knopf.setToolTip,
+                                 _("Nimmt das Füllen von Staub und Kratzern zurück."))
+        leiste.addWidget(self.staub_knopf, 1)
+        leiste.addWidget(self.staub_weg_knopf, 1)
+        innen.addLayout(leiste)
+        # Am Regler wird erst gesucht, wenn er kurz ruht
+        self._staub_uhr = QTimer(self, singleShot=True, interval=STAUB_PAUSE_MS)
+        self._staub_uhr.timeout.connect(self._staub_suchen)
+        return self.staub_teil
+
+    def _staub_anzeigen(self):
+        if not hasattr(self, "staub_teil"):
+            return
+        offen = self.sitzung is not None
+        da = offen and self.sitzung.infrarot_da
+        self.staub_teil.setVisible(da)
+        if not da:
+            return
+        if not self.sitzung.infrarot_film:
+            text = _("Der Infrarotkanal zeigt das Motiv selbst, nicht den Film – etwa bei "
+                     "Luftbildern. Staub lässt sich daraus nicht erkennen.")
+        elif self.sitzung.staub_entfernt:
+            text = _("{n} Stellen gefüllt. Ändert sich die Empfindlichkeit, füllt „Staub "
+                     "entfernen“ neu.").format(n=self.sitzung.staub_gefuellt)
+        elif self.sitzung.staub_fund is not None and self.staub_zeigen_box.isChecked():
+            text = _("{n} Stellen gefunden.").format(n=self.sitzung.staub_fund[1])
+        elif self.sitzung.werte.film == "sw_negativ":
+            text = _("Bei Schwarzweißfilm hält das Silber selbst Infrarot auf – dann findet "
+                     "die Suche oft das Bild statt Staub. Mit „Fundstellen zeigen“ prüfen.")
+        else:
+            text = _("Der Scan hat einen Infrarotkanal: Staub und Kratzer sind darin dunkel "
+                     "und lassen sich finden und füllen.")
+        self.fenster.beschriften(self.staub_hinweis.setText, text)
+        nutzbar = self.sitzung.infrarot_film
+        for widget in (self.staub_regler, self.staub_zeigen_box, self.staub_knopf):
+            widget.setEnabled(nutzbar)
+        self.staub_weg_knopf.setEnabled(self.sitzung.staub_entfernt)
+
+    def _staub_suchen(self):
+        """Fundstellen fuer die Empfindlichkeit des Reglers - nur, wenn sie gezeigt werden."""
+        if self.sitzung is None or not self.sitzung.infrarot_film:
+            return
+        zeigen = self.staub_zeigen_box.isChecked()
+        fund = self.sitzung.staub_fund
+        if zeigen and (fund is None or fund[0] != self.staub_regler.value()):
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                self.sitzung.staub_finden(self.staub_regler.value())
+            except cp.cuda.memory.OutOfMemoryError:
+                self._fehler(_("Für dieses Bild reicht der Grafikspeicher nicht."), "")
+                return
+            finally:
+                QApplication.restoreOverrideCursor()
+        self.sitzung.staub_zeigen = zeigen
+        self.sitzung.vollbild_vergessen()
+        self._staub_anzeigen()
+        self.zeichnen_anfordern()
+
+    def staub_entfernen(self):
+        """Staub und Kratzer fuellen - breite Stellen mit LaMa, wenn es geladen ist."""
+        if self.sitzung is None or not self.sitzung.infrarot_film:
+            return
+        lama = self._entfern_modell()
+        mit_ki = ki.vorhanden(lama) and ki.angeboten(lama, self._ki_stufe())
+        anzeige = None
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            entferner = None
+            if mit_ki:
+                if self._entferner is None:
+                    self._entferner = ki.Entferner(lama, ki.kachelgroesse(lama,
+                                                                         self._ki_stufe()))
+                entferner = self._entferner
+                anzeige = QProgressDialog(_("Staub wird entfernt …"), _("Abbrechen"), 0, 100,
+                                          self)
+                anzeige.setWindowTitle(self.fenster.windowTitle())
+                anzeige.setWindowModality(Qt.WindowModality.WindowModal)
+                anzeige.setMinimumDuration(500)
+
+            def fortschritt(nummer, anzahl):
+                if anzeige is None:
+                    return True
+                anzeige.setValue(round(100 * nummer / anzahl))
+                QApplication.processEvents()
+                return not anzeige.wasCanceled()
+
+            ms = self.sitzung.staub_entfernen(self.staub_regler.value(), entferner, fortschritt)
+        except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as fehler:
+            text = str(fehler) if isinstance(fehler, ki.KiFehler) else _(
+                "Für dieses Bild reicht der Grafikspeicher nicht.")
+            self._fehler(_("Das Entfernen ist fehlgeschlagen."), text)
+            return
+        finally:
+            if anzeige is not None:
+                anzeige.close()
+            QApplication.restoreOverrideCursor()
+            cp.get_default_memory_pool().free_all_blocks()
+        self.staub_zeigen_box.setChecked(False)       # zeigt sonst, was schon gefuellt ist
+        self._staub_anzeigen()
+        self.fenster.melden(_("Staub entfernt ({s} s)").format(s=f"{ms / 1000:.1f}"))
+        self.zeichnen_anfordern()
+
+    def fotos_trennen(self):
+        """Die Fotos auf einem Flachbett-Scan finden, als eigene Dateien speichern und eines
+        davon zum Bearbeiten oeffnen."""
+        if self.sitzung is None:
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            fotos = self.sitzung.fotos_finden()
+            vorschauen = [self.sitzung.foto_vorschau(foto) for foto in fotos]
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not fotos:
+            self.fenster.melden(_("Auf diesem Scan sind keine einzelnen Fotos zu erkennen."),
+                                fehler=True)
+            return
+        dialog = TrennenDialog(self, vorschauen, self.sitzung.daten.pfad)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        ordner = dialog.ordner()
+        # Nur ein Dateiname, kein Pfad - und ohne Zeichen, die Windows verbietet
+        name = "".join(z for z in os.path.basename(dialog.name()) if z not in VERBOTEN)
+        name = name.strip(" .") or os.path.splitext(self.sitzung.daten.name)[0]
+        if not os.path.isdir(ordner):
+            self._fehler(_("Die Fotos ließen sich nicht speichern."),
+                         _("Den Ordner gibt es nicht: {ordner}").format(ordner=ordner))
+            return
+        gewaehlt = dialog.gewaehlt()
+        endung = dialog.endung()
+        bits = 16 if self.sitzung.daten.bits == 16 and bilddatei.SCHREIBBAR[endung][2] else 8
+        pfade = trennen.dateinamen(ordner, name, endung, len(gewaehlt))
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.sitzung.fotos_speichern([fotos[i] for i in gewaehlt], pfade, bits)
+        except (bilddatei.BildFehler, OSError, cp.cuda.memory.OutOfMemoryError) as fehler:
+            self._fehler(_("Die Fotos ließen sich nicht speichern."), str(fehler))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.fenster.melden(_("{n} Fotos gespeichert in {ordner}").format(
+            n=len(pfade), ordner=ordner))
+        oeffnen = dialog.danach_oeffnen()
+        if oeffnen is not None:
+            self.oeffnen(pfade[gewaehlt.index(oeffnen)])
+
+    def staub_zurueckholen(self):
+        if self.sitzung is None or not self.sitzung.staub_verwerfen():
+            return
+        self._staub_anzeigen()
+        self.zeichnen_anfordern()
+
+    def _film_anzeigen(self):
+        if not hasattr(self, "film_hinweis"):
+            return
+        offen = self.sitzung is not None
+        werte = self.sitzung.werte if offen else filter.Einstellungen()
+        messen = self._klick_ziel == "film"
+        if messen:
+            text = _("Auf unbelichteten Film klicken – den Rand oder den Steg zwischen zwei "
+                     "Bildern. Esc bricht ab.")
+        elif film.ist_negativ(werte.film):
+            text = _("Umgewandelt. Weißabgleich, Licht und Kurven wirken danach wie gewohnt. "
+                     "Ist der Filmrand mitgescannt, misst die Pipette die Maske genauer.")
+        elif werte.film == "dia":
+            text = _("Dias sind schon positiv und werden nicht umgewandelt.")
+        else:
+            text = _("Wandelt gescannte oder abfotografierte Negative ins Positiv – am besten "
+                     "als ersten Schritt, vor den KI-Karten.")
+        self.fenster.beschriften(self.film_hinweis.setText, text)
+        self._staub_anzeigen()
+        nummer = self.film_art.findData(werte.film)
+        if nummer >= 0 and nummer != self.film_art.currentIndex():
+            self.film_art.blockSignals(True)
+            self.film_art.setCurrentIndex(nummer)
+            self.film_art.blockSignals(False)
+        negativ = offen and film.ist_negativ(werte.film)
+        self.film_art.setEnabled(offen)
+        self.trennen_knopf.setEnabled(offen)
+        self.film_pipette_knopf.setEnabled(negativ)
+        self.film_auto_knopf.setEnabled(negativ)
+        if self.film_pipette_knopf.isChecked() != messen:
+            self.film_pipette_knopf.blockSignals(True)
+            self.film_pipette_knopf.setChecked(messen)
+            self.film_pipette_knopf.blockSignals(False)
+
+    def _film_setzen(self, art: str, maske: tuple, umfang: tuple):
+        werte = self.sitzung.werte
+        werte.film, werte.film_maske, werte.film_umfang = art, maske, umfang
+        self._film_anzeigen()
+        self.zeichnen_anfordern()
+
+    def _film_art_gewaehlt(self, *_args):
+        if self.sitzung is None:
+            return
+        art = self.film_art.currentData()
+        werte = self.sitzung.werte
+        if not film.ist_negativ(art):
+            if self._klick_ziel == "film":
+                self.auswahl_beenden()
+            self._film_setzen(art, (), ())
+        elif film.aktiv(werte.film, werte.film_maske, werte.film_umfang):
+            self._film_setzen(art, werte.film_maske, werte.film_umfang)  # nur die Filmart
+        else:
+            self._film_setzen(art, *self.sitzung.film_schaetzen(art))
+
+    def film_automatisch(self):
+        """Filmmaske und Umfang neu aus dem Bild schaetzen."""
+        if self.sitzung is None or not film.ist_negativ(self.sitzung.werte.film):
+            return
+        art = self.sitzung.werte.film
+        self._film_setzen(art, *self.sitzung.film_schaetzen(art))
+
+    def _film_pipette_gedrueckt(self, an: bool):
+        if not an:
+            if self._klick_ziel == "film":
+                self.auswahl_beenden()
+            return
+        if self.sitzung is None or not film.ist_negativ(self.sitzung.werte.film):
+            return
+        self.zuschneiden(False)
+        self.pinsel_beenden()
+        self.auswahl_beenden()
+        self._klick_ziel = "film"
+        self.leinwand.klickmodus_setzen(True)
+        self._film_anzeigen()
 
     # ------------------------------------------------------------------
     # Objekte entfernen: markieren per Klick oder Pinsel, fuellen mit LaMa
@@ -2275,7 +2692,7 @@ class BearbeitenSeite(QWidget):
                 self._entferner = ki.Entferner(lama, ki.kachelgroesse(lama, self._ki_stufe()))
             ms = self.sitzung.ki_entfernen(self._entferner)
             self._klick_marken["entfernen"] = []
-            if self._klick_ziel is not None:     # SAM soll das neue Bild sehen
+            if self._sam_klickt():               # SAM soll das neue Bild sehen
                 self.sitzung.ki_auswahl_beginnen(self._auswaehler, self._klick_ziel)
         except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as fehler:
             text = str(fehler) if isinstance(fehler, ki.KiFehler) else _(
@@ -2293,7 +2710,7 @@ class BearbeitenSeite(QWidget):
     def entfernung_zuruecknehmen(self):
         if self.sitzung is None or not self.sitzung.entfernen_zurueck():
             return
-        if self._klick_ziel is not None:
+        if self._sam_klickt():
             self.sitzung.ki_auswahl_beginnen(self._auswaehler, self._klick_ziel)
         self._entfernen_anzeigen()
         self.zeichnen_anfordern()
@@ -2521,12 +2938,7 @@ class BearbeitenSeite(QWidget):
         self.zeichnen_anfordern()
 
     def _kurvenkarte(self) -> QFrame:
-        karte = QFrame(objectName="karte")
-        innen = QVBoxLayout(karte)
-        innen.setContentsMargins(16, 12, 16, 14)
-        titel = QLabel(objectName="kartentitel")
-        self.fenster.beschriften(titel.setText, _("Gradationskurve"))
-        innen.addWidget(titel)
+        karte, innen = self._karte(_("Gradationskurve"))
         self.kurven = KurvenEditor(
             self.fenster.beschriften,
             {"kurve_hell": _("Hell"), "kurve_rot": _("R"), "kurve_gruen": _("G"),
@@ -2557,6 +2969,7 @@ class BearbeitenSeite(QWidget):
             widget.setEnabled(offen)
         self._lut_anzeigen()
         self._ki_bild_anzeigen()            # beschriftet auch Motiv, Entfernen, Tiefe, Erweitern
+        self._film_anzeigen()
         self._anonym_anzeigen()
         self._objektiv_anzeigen()
         self._metadaten_anzeigen()
@@ -2608,6 +3021,7 @@ class BearbeitenSeite(QWidget):
                       and self._klick_geo.get(ziel) == geometrie.aus(self.sitzung.werte))
             self.leinwand.klickpunkte = list(self._klick_marken.get(ziel, [])) if gleich else []
         self.sitzung.tiefe_zeigen = self.tiefe_zeigen_box.isChecked() and not self._vorher
+        self.sitzung.staub_zeigen = self.staub_zeigen_box.isChecked() and not self._vorher
         if self.leinwand.zoom is None:
             bild, ms, histogramm = self.sitzung.vorschau(werte=werte,
                                                          ohne_erweiterung=ohne_raender,
@@ -2642,7 +3056,7 @@ class BearbeitenSeite(QWidget):
             self.sitzung.werte = self.sitzung.grundwerte()
             # Auch entfernte Objekte gehoeren zu „alles“
             self._klick_marken["entfernen"] = []
-            if self.sitzung.entfernungen_verwerfen() and self._klick_ziel is not None:
+            if self.sitzung.entfernungen_verwerfen() and self._sam_klickt():
                 self.sitzung.ki_auswahl_beginnen(self._auswaehler, self._klick_ziel)
         self._alles_anzeigen()
         self._entfernen_anzeigen()
@@ -2657,6 +3071,7 @@ class BearbeitenSeite(QWidget):
         self._hsl_anzeigen()
         self._lut_anzeigen()
         self._ki_bild_anzeigen()
+        self._film_anzeigen()
         self._anonym_anzeigen()
         self._objektiv_anzeigen()
         self._metadaten_anzeigen()
@@ -2803,6 +3218,9 @@ class BearbeitenSeite(QWidget):
                                  "tiefe", "lut"):
                 titel = f"{gruppen_titel(regler.gruppe)}: {titel}"
             return titel, regler.gruppe
+        if feld == "staub":
+            return (_("Staub entfernt") if teile_nachher[feld] is not None else
+                    _("Staub zurückgeholt")), "staub"
         if feld == "flicken":
             mehr = len(teile_nachher[feld]) - len(teile_vorher[feld])
             if mehr > 0:
@@ -2814,11 +3232,13 @@ class BearbeitenSeite(QWidget):
                   "bokeh_motiv": "tiefe", "erweiterung": "geometrie",
                   **dict.fromkeys(filter.KURVEN, "kurven"),
                   **dict.fromkeys(filter.HSL, "hsl"),
-                  **dict.fromkeys(filter.ANONYM_FELDER, "anonym")}.get(feld, feld)
+                  **dict.fromkeys(filter.ANONYM_FELDER, "anonym"),
+                  **dict.fromkeys(filter.FILM_FELDER, "film")}.get(feld, feld)
         if gruppe in ("ki_rauschen", "ki_schaerfe", "ki_farbe", "maske", "tiefe"):
             return gruppen_titel(gruppe), gruppe
         texte = {"kurven": _("Gradationskurve"), "hsl": _("Farbbereiche"), "lut": _("LUT"),
                  "anonym": _("Anonymisieren"), "angaben": _("Metadaten"),
+                 "film": _("Scan & Film"),
                  "drehung90": _("Drehen"), "spiegeln": _("Spiegeln"),
                  "zuschnitt": _("Zuschnitt"), "objektivprofil": _("Objektivprofil"),
                  "geometrie": _("KI-Erweitern")}
@@ -2877,6 +3297,9 @@ class BearbeitenSeite(QWidget):
         self._klick_marken = {"maske": [], "entfernen": []}
         self._entferner = None
         self.tiefe_zeigen_box.setChecked(False)
+        self.staub_zeigen_box.blockSignals(True)
+        self.staub_zeigen_box.setChecked(False)
+        self.staub_zeigen_box.blockSignals(False)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             daten = bilddatei.laden(pfad, raw_qualitaet=einstellungen.raw_qualitaet())
@@ -2887,6 +3310,7 @@ class BearbeitenSeite(QWidget):
                 self._verlauf_anzeigen()
             self.sitzung = Sitzung(daten, self._vorschau_kante())
             self.sitzung.angaben_vorgeben(*self._vorgabe_werte())
+            _film = self.sitzung.infrarot_film     # pruefen, solange die Sanduhr laeuft
         except bilddatei.BildFehler as fehler:
             self._fehler(_("Die Datei lässt sich nicht öffnen."), str(fehler))
             return

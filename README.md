@@ -16,6 +16,8 @@ NVIDIA Corporation.*
 > **Version 0.x.** Grundregler, RAW-Entwicklung und die KI-Funktionen sind nutzbar;
 > Bedienung und Einstellungsdateien können sich bis Version 1.0 noch ändern.
 
+![Silberkorn mit einem bearbeiteten Bild: links die Leinwand, rechts die Karten mit den Reglern](docs/bilder/de/hauptfenster.png)
+
 ## Systemvoraussetzungen
 
 Silberkorn rechnet ausschließlich auf der Grafikkarte. **Ohne NVIDIA-RTX-Grafikkarte
@@ -197,6 +199,8 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 - **Nicht-destruktiv**: Jede Änderung wird aus dem unveränderten Original neu
   gerechnet. Doppelklick setzt einen Regler zurück, „Vorher“ zeigt das Original,
   solange der Knopf gedrückt ist.
+- **Kartenauswahl**: Ein Auswahlfeld über den Karten springt direkt zu jeder
+  Karte und zeigt beim Rollen, welche gerade oben steht.
 - **Rückgängig und Wiederholen** mit ↶ ↷ oder `Strg`+`Z` / `Strg`+`Y`: für
   Regler, Kurven, Zuschnitt, Metadaten und auch für KI-Schritte wie Entrauschen,
   ein entferntes Objekt oder eine Erweiterung – und für „Zurücksetzen“. Ein Zug
@@ -225,10 +229,35 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Farbsäume will, wählt oben „RAW: Beste Qualität“ – dann entwickelt LibRaw auf
   dem Prozessor, mit dem Verfahren DHT bzw. bei X-Trans mit Markesteijn (etwa
   1,5 bis 3 s). Andere Sensoren (Foveon …) entwickelt immer LibRaw.
+- **Scan & Film**: Gescannte oder mit der Kamera abfotografierte Negative –
+  Farbe oder Schwarzweiß – werden ins Positiv gewandelt, über die Dichte des
+  Films wie im Labor. Silberkorn schätzt die orange Filmmaske sowie Schwarz- und
+  Weißpunkt je Farbkanal selbst und nimmt so den Farbstich heraus; den
+  unbelichteten Filmrand kann man auch mit der Pipette anklicken. Danach wirken
+  alle Regler und KI-Karten auf das Positiv. TIFF-Scans mit Infrarotkanal
+  (RGBI, etwa aus VueScan oder SilverFast) werden als solche erkannt statt als
+  halb durchsichtiges Bild. Über diesen Kanal findet die Karte Staub, Fusseln
+  und Kratzer – Film lässt Infrarot durch, Staub nicht – und füllt sie: kleine
+  Punkte auf der GPU, breite Stellen mit LaMa. Bei 24 Megapixeln dauert das
+  unter einer Sekunde; „Vorher“ und Rückgängig wirken wie gewohnt. Ein
+  Infrarotkanal, der das Motiv selbst zeigt (Luftbilder, Schwarzweißfilm mit
+  Silber, Kodachrome), wird erkannt und nicht für Staub gehalten.
+  „Fotos trennen …“ findet auf einem Flachbett-Scan mehrere aufgelegte Abzüge,
+  auch schräg liegende, richtet jeden gerade aus, beschneidet ihn auf seinen
+  Rand und speichert ihn als eigene Datei (Name-01, Name-02 …, ohne etwas zu
+  überschreiben); eines davon öffnet Silberkorn danach zum Bearbeiten.
 - **Formate**: Öffnen von JPEG, PNG, TIFF, WebP, BMP und RAW (HEIC mit dem
   optionalen Paket `pillow-heif`), Speichern als JPEG und WebP mit 8 Bit, PNG
   und TIFF wahlweise mit 8 oder 16 Bit. Bilder mit mehr als 8 Bit schlägt der
   Speichern-Dialog als 16-Bit-TIFF vor.
+
+| Kartenauswahl | Scan & Film |
+|---|---|
+| ![Die aufgeklappte Kartenauswahl über den Karten](docs/bilder/de/kartenwahl.png) | ![Ein umgewandeltes Farbnegativ, die über Infrarot gefundenen Staubstellen sind blau markiert](docs/bilder/de/scan-und-film.png) |
+| **Fotos trennen** | |
+| ![Dialog „Fotos trennen“ mit drei gefundenen Abzügen einer Scannerplatte](docs/bilder/de/fotos-trennen.png) | |
+
+*Die Motive sind gerechnet, keine Fotos – erzeugt mit `werkzeuge/bildschirmfotos.py`.*
 
 | Taste | Wirkung |
 |---|---|

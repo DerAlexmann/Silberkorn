@@ -14,6 +14,8 @@ Supports hardware acceleration via NVIDIA CUDA / RTX series GPUs.
 > **Version 0.x.** Basic adjustments, RAW development and the AI features are usable;
 > the user interface and settings files may still change before version 1.0.
 
+![Silberkorn with an edited image: the canvas on the left, the cards with the sliders on the right](docs/bilder/en/hauptfenster.png)
+
 ## System requirements
 
 Silberkorn computes on the graphics card only. **Without an NVIDIA RTX graphics card
@@ -173,6 +175,8 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   the image.
 - **Non-destructive**: every change is recomputed from the untouched original.
   Double-click resets a slider, "Before" shows the original while the button is held.
+- **Card picker**: a drop-down above the cards jumps straight to any card and shows,
+  while scrolling, which one is at the top.
 - **Undo and redo** with ↶ ↷ or `Ctrl`+`Z` / `Ctrl`+`Y`: for sliders, curves, crop,
   metadata and also AI steps such as denoising, a removed object or an extension – and
   for "Reset". One drag of a slider is one step; the tooltip says what will be undone.
@@ -196,9 +200,32 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   colour fringes in fine patterns, choose "RAW: Best quality" at the top – then LibRaw
   develops on the processor, with DHT or, for X-Trans, Markesteijn (about 1.5 to 3 s).
   Other sensors (Foveon …) are always developed by LibRaw.
+- **Scan & film**: scanned negatives or negatives photographed with a camera – colour or
+  black-and-white – are converted into positives via the density of the film, as in the
+  lab. Silberkorn estimates the orange film base as well as black and white point per
+  colour channel by itself and so removes the colour cast; the unexposed film border can
+  also be picked with the eyedropper. After that, all sliders and AI cards work on the
+  positive. TIFF scans with an infrared channel (RGBI, for example from VueScan or
+  SilverFast) are recognised as such instead of showing up half transparent. Through
+  this channel the card finds dust, fibres and scratches – film lets infrared through,
+  dust does not – and fills them: small specks on the GPU, wide spots with LaMa. At
+  24 megapixels this takes less than a second; "Before" and undo work as usual. An
+  infrared channel that shows the scene itself (aerial images, black-and-white film with
+  silver, Kodachrome) is recognised and not taken for dust.
+  "Split photos …" finds several prints on a flatbed scan, crooked ones included,
+  straightens each one, crops it to its edge and saves it as a file of its own (Name-01,
+  Name-02 …, without overwriting anything); Silberkorn then opens one of them for editing.
 - **Formats**: opens JPEG, PNG, TIFF, WebP, BMP and RAW (HEIC with the optional
   `pillow-heif` package); saves JPEG and WebP with 8 bits, PNG and TIFF with 8 or 16 bits.
   For images with more than 8 bits the save dialog suggests a 16-bit TIFF.
+
+| Card picker | Scan & film |
+|---|---|
+| ![The card picker opened above the cards](docs/bilder/en/kartenwahl.png) | ![A converted colour negative, the dust found via infrared marked in blue](docs/bilder/en/scan-und-film.png) |
+| **Split photos** | |
+| ![The "Split photos" dialog with three prints found on a flatbed scan](docs/bilder/en/fotos-trennen.png) | |
+
+*The motifs are computed, not photographs – made with `werkzeuge/bildschirmfotos.py`.*
 
 | Key | Action |
 |---|---|
