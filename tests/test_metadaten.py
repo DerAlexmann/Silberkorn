@@ -261,7 +261,7 @@ def jpeg_mit_iim(pfad, felder: dict):
 
 
 @pytest.mark.parametrize("endung, bits", [(".jpg", 8), (".png", 8), (".png", 16), (".tif", 8),
-                                          (".tif", 16), (".webp", 8)])
+                                          (".tif", 16), (".webp", 8), (".avif", 8)])
 def test_speichern_in_allen_formaten(tmp_path, endung, bits):
     quelle = tmp_path / "quelle.jpg"
     Image.new("RGB", (40, 30), (120, 90, 60)).save(quelle, exif=kamera_exif(), xmp=XMP_QUELLE)

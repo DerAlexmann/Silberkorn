@@ -450,7 +450,7 @@ def xmp_suchen(pfad: str) -> bytes:
 
 
 def xmp_aus_bild(bild: Image.Image) -> bytes:
-    """Das XMP eines mit Pillow geoeffneten Bildes (JPEG, PNG, TIFF, WebP, HEIF)."""
+    """Das XMP eines mit Pillow geoeffneten Bildes (JPEG, PNG, TIFF, WebP, AVIF, HEIF)."""
     wert = bild.info.get("xmp") or bild.info.get("XML:com.adobe.xmp") or b""
     if isinstance(wert, tuple) and len(wert) == 1:
         wert = wert[0]
