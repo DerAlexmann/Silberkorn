@@ -2,10 +2,13 @@
 Bildschirmfotos fuer die READMEs erzeugen - nur das Programmfenster
 
 Die Motive rechnet das Skript selbst: eine Landschaft, daraus ein Farbnegativ
-mit Infrarotkanal und Staub, und eine Scannerplatte mit drei Abzuegen. So
-zeigen die Bilder keine fremden oder privaten Fotos. Die Einstellungsdatei
-wird weder gelesen noch geschrieben - Namen aus den Vorgaben fuer Urheber und
-Copyright koennen also nicht ins Bild geraten.
+mit Infrarotkanal und Staub, eine Scannerplatte mit drei Abzuegen und fuer die
+Ordneransicht weitere Landschaften. So zeigen die Bilder keine fremden oder
+privaten Fotos. Statt des temporaeren Ordners steht ein Beispielordner im Bild,
+der Vorschau-Cache bleibt aus. Die Einstellungsdatei
+wird weder gelesen noch geschrieben und die eigenen Voreinstellungen werden
+nicht gezeigt - Namen aus den Vorgaben fuer Urheber und Copyright oder von
+Voreinstellungen koennen also nicht ins Bild geraten.
 
 Aufruf (aus dem Projektordner, mit Grafikkarte):
 
@@ -24,6 +27,7 @@ import math
 import os
 import sys
 import tempfile
+import time
 
 import numpy as np
 from PIL import Image
@@ -180,6 +184,30 @@ def scannerplatte():
     return (np.clip(platte, 0, 1) * 255 + 0.5).astype(np.uint8)
 
 
+# Fuer die Ordneransicht: (Name, Zufallszahl, Stand der Sonne)
+SERIE = [("Bergsee-01.jpg", 3, (0.2, 0.25)), ("Bergsee-02.jpg", 4, (0.35, 0.2)),
+         ("Bergsee-03.jpg", 5, (0.55, 0.3)), ("Bergsee-04.jpg", 6, (0.8, 0.18)),
+         ("Bergsee-05.jpg", 7, (0.65, 0.4)), ("Bergsee-06.jpg", 8, (0.45, 0.15))]
+UNTERORDNER = ("Abzüge", "Negative")
+
+
+def serie_schreiben(ordner: str) -> str:
+    """Ein Ordner mit Unterordnern und einer kleinen Serie - die Mitte der Ordneransicht."""
+    import shutil
+    serie = os.path.join(ordner, "Scans")
+    for name in UNTERORDNER:
+        os.makedirs(os.path.join(serie, name), exist_ok=True)
+    for name, seed, sonne in SERIE:
+        bild = landschaft(600, 900, seed=seed, sonne=sonne)
+        Image.fromarray((bild * 255 + 0.5).astype(np.uint8)).save(os.path.join(serie, name),
+                                                                  quality=90)
+    shutil.copyfile(os.path.join(ordner, "negativ-rgbi.tif"),
+                    os.path.join(serie, "Negativ-01.tif"))
+    shutil.copyfile(os.path.join(ordner, "scannerplatte.jpg"),
+                    os.path.join(serie, "Scannerplatte.jpg"))
+    return serie
+
+
 def motive_schreiben(ordner: str) -> dict[str, str]:
     import tifffile
     pfade = {"landschaft": os.path.join(ordner, "landschaft.jpg"),
@@ -190,6 +218,7 @@ def motive_schreiben(ordner: str) -> dict[str, str]:
     tifffile.imwrite(pfade["negativ"], negativ_mit_staub(bild), photometric="rgb",
                      extrasamples=[0], compression="zlib")
     Image.fromarray(scannerplatte()).save(pfade["platte"], quality=95)
+    pfade["serie"] = serie_schreiben(ordner)
     return pfade
 
 
@@ -214,7 +243,7 @@ def aufnehmen(sprache: str, motive: dict[str, str]):
     from PySide6.QtGui import QColor, QPainter
     from PySide6.QtWidgets import QApplication, QDialog
 
-    from silberkorn import farben, gpu_pruefung, trennen_dialog
+    from silberkorn import VERSION, begleitdatei, farben, gpu_pruefung, trennen_dialog
     from silberkorn.hauptfenster import Hauptfenster
     from silberkorn.uebersetzung import _
 
@@ -295,20 +324,66 @@ def aufnehmen(sprache: str, motive: dict[str, str]):
 
     trennen_dialog.TrennenDialog.exec = zeigen
     seite.fotos_trennen()
+
+    # 5. Ordneransicht: ein Bild der Serie mit Begleitdatei (schwarzweiss, mit Punkt),
+    # zwei Bilder gewaehlt fuer den Stapel
+    bearbeitet = os.path.join(motive["serie"], SERIE[2][0])
+    if not os.path.exists(begleitdatei.pfad_fuer(bearbeitet)):
+        seite.oeffnen(bearbeitet)
+        for name, wert in (("saettigung", -100.0), ("kontrast", 30.0), ("vignette", -35.0)):
+            seite.zeilen[name].setzen(wert)
+            seite.wert_geaendert(name, wert)
+        sitzung = seite.sitzung
+        begleitdatei.schreiben(bearbeitet, sitzung.begleit_inhalt(sitzung.begleit_vorschau()),
+                               begleitdatei.fingerabdruck(bearbeitet), VERSION)
     seite.schliessen()
+    ansicht = fenster.ordner
+    fenster.reiter.setCurrentWidget(ansicht)
+    # Die Meldung nennt nur den letzten Teil des Pfads - "Scans" wie im Beispielordner
+    ansicht.ordner_zeigen(motive["serie"])
+    ansicht.ort.setText(BEISPIEL_ORDNER)
+    fenster.begleit_box.blockSignals(True)     # nur anzeigen, nichts sichern
+    fenster.begleit_box.setChecked(True)
+    fenster.begleit_box.blockSignals(False)
+    modell = ansicht.modell
+    from silberkorn.ordner_seite import PFAD_ROLLE, ZUSTAND_ROLLE
+    for _i in range(600):                      # bis alle Vorschaubilder da sind, hoechstens 30 s
+        app.processEvents()
+        ansicht.liste.viewport().update()
+        zustaende = [modell.index(i).data(ZUSTAND_ROLLE) for i in range(modell.rowCount())]
+        if "laedt" not in zustaende:
+            break
+        time.sleep(0.05)
+    auswahl = ansicht.liste.selectionModel()
+    for name in (SERIE[0][0], SERIE[1][0]):
+        nummer = next(i for i in range(modell.rowCount())
+                      if os.path.basename(modell.index(i).data(PFAD_ROLLE) or "") == name)
+        auswahl.select(modell.index(nummer), auswahl.SelectionFlag.Select)
+    for _i in range(5):
+        app.processEvents()
+    _speichern(fenster.grab(), os.path.join(ordner, "ordneransicht.png"))
+    fenster.begleit_box.blockSignals(True)
+    fenster.begleit_box.setChecked(False)
+    fenster.begleit_box.blockSignals(False)
+    fenster.reiter.setCurrentWidget(seite)
     fenster.close()
 
 
 def main():
     from PySide6.QtWidgets import QApplication
 
-    from silberkorn import einstellungen, farben
+    from silberkorn import einstellungen, farben, voreinstellungen, vorschau_cache
     # Ohne die Einstellungsdatei des Anwenders: nichts lesen, nichts schreiben
     einstellungen.load_config = lambda: {}
     einstellungen.save_config = lambda _daten: True
     app = QApplication.instance() or QApplication([])
     app.setStyleSheet(farben.stylesheet())
     with tempfile.TemporaryDirectory() as ordner:
+        # Ohne gewaehlte Groesse oeffnet die Ordneransicht keinen Cache - zur Sicherheit
+        # zeigt auch der Standardort in den temporaeren Ordner, nie in den des Anwenders
+        vorschau_cache.standard_ordner = lambda: os.path.join(ordner, "cache")
+        # Auch die eigenen Voreinstellungen des Anwenders bleiben aussen vor
+        voreinstellungen.ordner = lambda: os.path.join(ordner, "voreinstellungen")
         motive = motive_schreiben(ordner)
         for sprache in ("de", "en"):
             aufnehmen(sprache, motive)
