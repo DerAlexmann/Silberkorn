@@ -201,7 +201,7 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 - **Batch**: select several images in the folder view (`Ctrl`/`Shift`) and process them
   in one go with "Batch …" – apply a preset or copied settings, remove dust via the
   infrared channel, save the edit as a sidecar file and/or export the images: into a
-  folder, as JPEG, PNG, TIFF or WebP, with a name suffix, optionally with AI denoise,
+  folder, as JPEG, PNG, TIFF, WebP or AVIF, with a name suffix, optionally with AI denoise,
   sharpen, colourise and AI upscaling. Existing files are never overwritten. One image
   at a time, cancellable; an error only affects its own image, and a report follows at
   the end.
@@ -245,8 +245,10 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   "Split photos …" finds several prints on a flatbed scan, crooked ones included,
   straightens each one, crops it to its edge and saves it as a file of its own (Name-01,
   Name-02 …, without overwriting anything); Silberkorn then opens one of them for editing.
-- **Formats**: opens JPEG, PNG, TIFF, WebP, BMP and RAW (HEIC with the optional
-  `pillow-heif` package); saves JPEG and WebP with 8 bits, PNG and TIFF with 8 or 16 bits.
+- **Formats**: opens JPEG, PNG, TIFF, WebP, AVIF, BMP and RAW (HEIC with the optional
+  `pillow-heif` package); saves JPEG, WebP and AVIF with 8 bits, PNG and TIFF with 8 or
+  16 bits. At the same quality AVIF is about half the size of JPEG; images with more than
+  8 bits are read as 8 bits.
   For images with more than 8 bits the save dialog suggests a 16-bit TIFF.
 
 | Card picker | Scan & film |

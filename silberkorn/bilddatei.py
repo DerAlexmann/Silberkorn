@@ -55,7 +55,7 @@ except ImportError:
 RAW = [".3fr", ".arw", ".cr2", ".cr3", ".dng", ".erf", ".iiq", ".kdc", ".mef", ".mos",
        ".mrw", ".nef", ".nrw", ".orf", ".pef", ".raf", ".rw2", ".rwl", ".sr2", ".srf",
        ".srw", ".x3f"]
-BILDER = [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".bmp"]
+BILDER = [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".avif", ".bmp"]
 if HEIF:
     BILDER += [".heic", ".heif"]
 LESBAR = BILDER + RAW
@@ -68,9 +68,13 @@ SCHREIBBAR = {
     ".tif": ("TIFF", True, True),
     ".tiff": ("TIFF", True, True),
     ".webp": ("WEBP", True, False),
+    ".avif": ("AVIF", True, False),        # Pillow kann AVIF nur mit 8 Bit
 }
 
 JPEG_QUALITAET = 95
+# AVIF erreicht die Guete eines JPEG schon mit einer um so viel kleineren Zahl -
+# bei gut der Haelfte der Dateigroesse
+AVIF_ABSTAND = 5
 EXIF_AUSRICHTUNG = 0x0112
 TIFF_ICC = 34675
 # ExtraSamples im TIFF: nicht naeher bezeichnet, Alpha vormultipliziert, Alpha frei
@@ -548,12 +552,14 @@ def speichern(pfad: str, rgb: np.ndarray, alpha: np.ndarray | None = None,
             text = PngImagePlugin.PngInfo()
             text.add_itxt("XML:com.adobe.xmp", xmp.decode("utf-8"))
             optionen["pnginfo"] = text
-        elif xmp and format_name in ("JPEG", "WEBP"):
+        elif xmp and format_name in ("JPEG", "WEBP", "AVIF"):
             optionen["xmp"] = xmp
         if format_name == "JPEG":
             optionen.update(quality=qualitaet, subsampling=0)
         elif format_name == "WEBP":
             optionen.update(quality=qualitaet)
+        elif format_name == "AVIF":
+            optionen.update(quality=qualitaet - AVIF_ABSTAND, subsampling="4:4:4")
         bild.save(pfad, format_name, **optionen)
     except (OSError, ValueError, RuntimeError, KeyError) as fehler:
         raise BildFehler(str(fehler)) from fehler

@@ -24,7 +24,7 @@ def muster(breite=40, hoehe=24, bits=8):
 # 8 Bit
 # ----------------------------------------------------------------------
 
-@pytest.mark.parametrize("endung", [".png", ".tif", ".webp", ".jpg"])
+@pytest.mark.parametrize("endung", [".png", ".tif", ".webp", ".avif", ".jpg"])
 def test_speichern_und_laden_8bit(tmp_path, endung):
     rgb = muster()
     pfad = str(tmp_path / f"bild{endung}")
@@ -70,6 +70,26 @@ def test_alphakanal_bleibt_erhalten(tmp_path):
     ziel = str(tmp_path / "ziel.png")
     b.speichern(ziel, geladen.pixel, geladen.alpha)
     assert Image.open(ziel).mode == "RGBA"
+
+
+def test_avif_mit_alpha_und_ausrichtung(tmp_path):
+    exif = Image.Exif()
+    exif[b.EXIF_AUSRICHTUNG] = 6
+    quelle = str(tmp_path / "gedreht.avif")
+    rgba = np.dstack([muster(40, 24), np.full((24, 40), 200, dtype=np.uint8)])
+    Image.fromarray(rgba, "RGBA").save(quelle, exif=exif.tobytes())
+    geladen = b.laden(quelle)
+    assert (geladen.breite, geladen.hoehe) == (24, 40)
+    assert geladen.alpha is not None and np.abs(geladen.alpha.astype(int) - 200).max() <= 2
+    ziel = str(tmp_path / "ziel.avif")
+    b.speichern(ziel, geladen.pixel, geladen.alpha)
+    with Image.open(ziel) as bild:
+        assert bild.format == "AVIF" and bild.mode == "RGBA" and bild.size == (24, 40)
+
+
+def test_avif_lehnt_16_bit_ab(tmp_path):
+    with pytest.raises(b.BildFehler):
+        b.speichern(str(tmp_path / "tief.avif"), muster(bits=16))
 
 
 def test_jpeg_verwirft_alpha_ohne_fehler(tmp_path):

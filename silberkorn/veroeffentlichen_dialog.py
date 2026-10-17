@@ -299,7 +299,7 @@ class VeroeffentlichenDialog(QDialog):
         start = os.path.dirname(self.logo.text()) if self.logo.text() else ""
         pfad, _filter = QFileDialog.getOpenFileName(
             self, _("Logo wählen"), start,
-            _("Bilder") + " (*.png *.webp *.jpg *.jpeg *.tif *.tiff *.bmp)")
+            _("Bilder") + " (*.png *.webp *.avif *.jpg *.jpeg *.tif *.tiff *.bmp)")
         if pfad:
             self.logo.setText(pfad)
 

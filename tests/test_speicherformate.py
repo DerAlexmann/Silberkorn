@@ -29,3 +29,9 @@ def test_getippte_endung_gewinnt():
     assert ziel_bestimmen("C:/bild.jpg", filter_mit(".png", 16)) == ("C:/bild.jpg", 8)
     # TIFF 16 Bit gewaehlt, .png getippt: PNG kann 16 Bit
     assert ziel_bestimmen("C:/bild.png", filter_mit(".tif", 16)) == ("C:/bild.png", 16)
+
+
+def test_avif_nur_8_bit():
+    assert ziel_bestimmen("C:/bild", filter_mit(".avif", 8)) == ("C:/bild.avif", 8)
+    # TIFF 16 Bit gewaehlt, .avif getippt: AVIF kann nur 8 Bit
+    assert ziel_bestimmen("C:/bild.avif", filter_mit(".tif", 16)) == ("C:/bild.avif", 8)

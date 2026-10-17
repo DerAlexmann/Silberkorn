@@ -3,6 +3,16 @@
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Neu
+
+- **AVIF**: Öffnen und Speichern – auch bei „Für Veröffentlichung speichern“, in
+  der Stapel-Ausgabe, als Wasserzeichen-Bild und in der Ordneransicht. Mit EXIF,
+  XMP, Farbprofil und Alphakanal, bei gleicher Güte etwa halb so groß wie JPEG.
+  AVIF mit mehr als 8 Bit liest Silberkorn als 8 Bit. Die EXE hatte den Codec
+  über Pillow schon dabei; die Lizenzen von libaom und libyuv liegen jetzt bei.
+
 ## [0.8.0] – 2026-10-17
 
 ### Neu
@@ -487,6 +497,7 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Rechengenauigkeit (FP16, FP8 ab Ada, FP4 ab Blackwell).
 - Programmsymbol, Marken- und Lizenzhinweise (NOTICE).
 
+[Unveröffentlicht]: https://github.com/DerAlexmann/Silberkorn/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.8.0
 [0.7.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.7.0
 [0.6.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.6.0

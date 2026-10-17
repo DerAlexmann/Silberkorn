@@ -230,7 +230,7 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   mit „Stapel …“ auf einmal bearbeiten – eine Voreinstellung oder kopierte
   Einstellungen darauflegen, Staub über den Infrarotkanal entfernen, die
   Bearbeitung als Begleitdatei sichern und/oder die Bilder ausgeben: in einen
-  Ordner, als JPEG, PNG, TIFF oder WebP, mit Namenszusatz, auf Wunsch mit
+  Ordner, als JPEG, PNG, TIFF, WebP oder AVIF, mit Namenszusatz, auf Wunsch mit
   KI-Entrauschen, -Schärfen, -Kolorieren und KI-Hochskalieren. Vorhandene Dateien
   werden nie überschrieben. Ein Bild nach dem anderen, abbrechbar; ein Fehler
   betrifft nur sein Bild, am Ende steht ein Bericht.
@@ -282,9 +282,10 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   auch schräg liegende, richtet jeden gerade aus, beschneidet ihn auf seinen
   Rand und speichert ihn als eigene Datei (Name-01, Name-02 …, ohne etwas zu
   überschreiben); eines davon öffnet Silberkorn danach zum Bearbeiten.
-- **Formate**: Öffnen von JPEG, PNG, TIFF, WebP, BMP und RAW (HEIC mit dem
-  optionalen Paket `pillow-heif`), Speichern als JPEG und WebP mit 8 Bit, PNG
-  und TIFF wahlweise mit 8 oder 16 Bit. Bilder mit mehr als 8 Bit schlägt der
+- **Formate**: Öffnen von JPEG, PNG, TIFF, WebP, AVIF, BMP und RAW (HEIC mit dem
+  optionalen Paket `pillow-heif`), Speichern als JPEG, WebP und AVIF mit 8 Bit,
+  PNG und TIFF wahlweise mit 8 oder 16 Bit. AVIF wird bei gleicher Güte etwa halb
+  so groß wie JPEG; Bilder mit mehr als 8 Bit liest Silberkorn als 8 Bit. Bilder mit mehr als 8 Bit schlägt der
   Speichern-Dialog als 16-Bit-TIFF vor.
 
 | Kartenauswahl | Scan & Film |

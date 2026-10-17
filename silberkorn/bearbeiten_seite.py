@@ -207,12 +207,14 @@ def speicherformate() -> list[tuple[str, str, int]]:
         (f"TIFF {_('8 Bit')} (*.tif *.tiff)", ".tif", 8),
         (f"TIFF {_('16 Bit')} (*.tif *.tiff)", ".tif", 16),
         ("WebP (*.webp)", ".webp", 8),
+        ("AVIF (*.avif)", ".avif", 8),
     ]
 
 
 def veroeffentlichen_formate() -> list[tuple[str, str]]:
     """Dateifilter fuer „Für Veröffentlichung“: (Beschriftung, Endung) - nur 8 Bit."""
-    return [("JPEG (*.jpg *.jpeg)", ".jpg"), ("PNG (*.png)", ".png"), ("WebP (*.webp)", ".webp")]
+    return [("JPEG (*.jpg *.jpeg)", ".jpg"), ("PNG (*.png)", ".png"), ("WebP (*.webp)", ".webp"),
+            ("AVIF (*.avif)", ".avif")]
 
 
 def ziel_bestimmen(pfad: str, gewaehlt: str) -> tuple[str, int]:
@@ -3862,7 +3864,7 @@ class BearbeitenSeite(QWidget):
         if not pfad:
             return
         endung = os.path.splitext(pfad)[1].lower()
-        if endung not in (".jpg", ".jpeg", ".png", ".webp"):
+        if endung not in (".jpg", ".jpeg", ".png", ".webp", ".avif"):
             pfad += dict(formate).get(gewaehlt, ".jpg")
             endung = os.path.splitext(pfad)[1].lower()
         vorlage = dialog.mit_format(".jpg" if endung == ".jpeg" else endung)

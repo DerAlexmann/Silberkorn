@@ -20,6 +20,15 @@ def test_jpeg_mit_ausrichtung(tmp_path):
     assert not vorschau.bearbeitet
 
 
+def test_avif_mit_ausrichtung(tmp_path):
+    pfad = tmp_path / "hoch.avif"
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    Image.new("RGB", (600, 400), (30, 200, 30)).save(pfad, exif=exif)
+    assert vb.ist_bild(pfad.name)
+    assert vb.erzeugen(str(pfad)).bild.size == (171, 256)
+
+
 def test_tiff_16_bit_rgbi(tmp_path):
     pfad = tmp_path / "scan.tif"
     pixel = np.zeros((300, 500, 4), np.uint16)

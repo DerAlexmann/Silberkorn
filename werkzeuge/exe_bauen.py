@@ -42,6 +42,9 @@ VERBOTEN = re.compile(r"^_?(lib)?heif", re.I)
 IMAGECODECS_LIZENZEN = ["LICENSE-zlib", "LICENSE-libdeflate", "LICENSE-libpng",
                         "LICENSE-libjpeg-turbo", "LICENSE-zstd", "LICENSE-liblzma",
                         "LICENSE-libwebp"]
+# Pillows AVIF-Modul bringt libaom (Encoder) und libyuv mit, deren Lizenzen in
+# Pillows Sammeltext fehlen - imagecodecs hat dieselben Texte dabei
+PILLOW_AVIF_LIZENZEN = ["LICENSE-aom", "LICENSE-libyuv"]
 # Pakete ohne Lizenzdatei im dist-info-Ordner: wo die Lizenz sonst steht -
 # im Kopf eines Moduls, als Datei im Paket oder (flatbuffers nennt nur
 # "Apache-2.0") als Standardtext aus LICENSES/
@@ -214,6 +217,9 @@ def lizenzen_beilegen() -> list[tuple[str, str, str]]:
                os.path.join(ziel, "onnxruntime-gpu", "ThirdPartyNotices.txt"))]
     zusatz += [(os.path.join(os.path.dirname(imagecodecs.__file__), "licenses", n),
                 os.path.join(ziel, "imagecodecs", "codecs", n)) for n in IMAGECODECS_LIZENZEN]
+    zusatz += [(os.path.join(os.path.dirname(imagecodecs.__file__), "licenses", n),
+                os.path.join(ziel, md.distribution("Pillow").metadata["Name"], "avif", n))
+               for n in PILLOW_AVIF_LIZENZEN]
     zusatz += [(os.path.join(sys.base_prefix, "LICENSE.txt"),
                 os.path.join(ziel, "Python", "LICENSE.txt"))]
     for quelle, unter in zusatz:
