@@ -254,8 +254,8 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 | Card picker | Scan & film |
 |---|---|
 | ![The card picker opened above the cards](docs/bilder/en/kartenwahl.png) | ![A converted colour negative, the dust found via infrared marked in blue](docs/bilder/en/scan-und-film.png) |
-| **Split photos** | |
-| ![The "Split photos" dialog with three prints found on a flatbed scan](docs/bilder/en/fotos-trennen.png) | |
+| **Split photos** | **Folder view** |
+| ![The "Split photos" dialog with three prints found on a flatbed scan](docs/bilder/en/fotos-trennen.png) | ![The "Folder" tab with subfolders and images as tiles; an image with a sidecar file shows its edit and a blue dot, two images are selected for a batch](docs/bilder/en/ordneransicht.png) |
 
 *The motifs are computed, not photographs – made with `werkzeuge/bildschirmfotos.py`.*
 

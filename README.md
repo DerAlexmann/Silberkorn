@@ -291,8 +291,8 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 | Kartenauswahl | Scan & Film |
 |---|---|
 | ![Die aufgeklappte Kartenauswahl über den Karten](docs/bilder/de/kartenwahl.png) | ![Ein umgewandeltes Farbnegativ, die über Infrarot gefundenen Staubstellen sind blau markiert](docs/bilder/de/scan-und-film.png) |
-| **Fotos trennen** | |
-| ![Dialog „Fotos trennen“ mit drei gefundenen Abzügen einer Scannerplatte](docs/bilder/de/fotos-trennen.png) | |
+| **Fotos trennen** | **Ordneransicht** |
+| ![Dialog „Fotos trennen“ mit drei gefundenen Abzügen einer Scannerplatte](docs/bilder/de/fotos-trennen.png) | ![Reiter „Ordner“ mit Unterordnern und Bildern als Kacheln; ein Bild mit Begleitdatei zeigt seine Bearbeitung und einen blauen Punkt, zwei Bilder sind für den Stapel gewählt](docs/bilder/de/ordneransicht.png) |
 
 *Die Motive sind gerechnet, keine Fotos – erzeugt mit `werkzeuge/bildschirmfotos.py`.*
 
