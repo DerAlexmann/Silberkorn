@@ -112,15 +112,8 @@ def ordner() -> str | None:
 
 def ziel_ordner() -> str:
     for kandidat in ordner_kandidaten():
-        try:
-            os.makedirs(os.path.dirname(kandidat), exist_ok=True)
-            probe = kandidat + ".schreibprobe"
-            with open(probe, "w", encoding="ascii") as datei:
-                datei.write("x")
-            os.remove(probe)
+        if einstellungen.beschreibbar(os.path.dirname(kandidat)):
             return kandidat
-        except OSError:
-            continue
     return ordner_kandidaten()[-1]
 
 
@@ -214,6 +207,7 @@ def herunterladen(fortschritt=None) -> str:
     for rest in (neu, alt):
         shutil.rmtree(rest, ignore_errors=True)
     try:
+        os.makedirs(os.path.dirname(neu), exist_ok=True)
         os.makedirs(neu)
         if _auspacken(archiv, neu) == 0:
             raise DatenbankFehler("Das Archiv enthält keine Datenbank.")

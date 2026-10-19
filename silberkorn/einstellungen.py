@@ -37,6 +37,35 @@ def programm_ordner() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def beschreibbar(ordner: str) -> bool:
+    """Liesse sich in ordner schreiben? Ordner, die erst fuer die Probe entstehen,
+    werden danach wieder entfernt - angelegt wird erst beim Herunterladen, also
+    nach der Zustimmung des Anwenders."""
+    neu = []
+    pfad = os.path.abspath(ordner)
+    while not os.path.isdir(pfad):
+        neu.append(pfad)
+        eltern = os.path.dirname(pfad)
+        if eltern == pfad:
+            break
+        pfad = eltern
+    try:
+        os.makedirs(ordner, exist_ok=True)
+        probe = os.path.join(ordner, ".schreibprobe")
+        with open(probe, "w", encoding="ascii") as datei:
+            datei.write("x")
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
+    finally:
+        for pfad in neu:
+            try:
+                os.rmdir(pfad)
+            except OSError:
+                pass
+
+
 def config_path() -> str:
     return os.path.join(programm_ordner(), CONFIG_NAME)
 
