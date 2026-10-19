@@ -33,6 +33,8 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMenu,
     QMessageBox,
     QPlainTextEdit,
@@ -57,6 +59,7 @@ from . import (
     filter,
     geometrie,
     ki,
+    lokal,
     lut,
     metadaten,
     objektivprofile,
@@ -162,6 +165,32 @@ SW_REGLER = tuple(filter.Regler(f"sw_{i}", "schwarzweiss", -100, 100)
                   for i in range(len(filter.FARBBEREICHE)))
 
 
+def lokal_art_titel(art: str) -> str:
+    return {"verlauf": _("Verlauf"), "radial": _("Radial")}[art]
+
+
+def lokal_modus_titel(modus: str) -> str:
+    return {"dazu": _("Hinzufügen"), "weg": _("Abziehen"), "schnitt": _("Schneiden")}[modus]
+
+
+def lokal_teil_text(teil: lokal.Teil) -> str:
+    """Ein Teil in der Liste, etwa „Radial – abgezogen, umgekehrt“."""
+    zusatz = [{"dazu": "", "weg": _("abgezogen"), "schnitt": _("geschnitten")}[teil.modus]]
+    if teil.umkehren:
+        zusatz.append(_("umgekehrt"))
+    zusatz = [z for z in zusatz if z]
+    titel = lokal_art_titel(teil.art)
+    return f"{titel} – {', '.join(zusatz)}" if zusatz else titel
+
+
+# Regler der gewaehlten Maske - sie zeigen deren Werte
+LOKAL_REGLER = tuple(filter.Regler(f"lokal_{r.name}", "lokal", r.minimum, r.maximum,
+                                   schritt=r.schritt, nachkomma=r.nachkomma)
+                     for r in lokal.REGLER)
+LOKAL_WEICH = filter.Regler("lokal_weich", "lokal", 0, 100, vorgabe=lokal.RADIAL_WEICH)
+LOKAL_LISTE_ZEILEN = 4          # so viele Masken zeigt die Liste ohne Rollen
+
+
 def sw_filter_titel(name: str) -> str:
     return {"rot": _("Rotfilter"), "orange": _("Orangefilter"), "gelb": _("Gelbfilter"),
             "gruen": _("Grünfilter"), "blau": _("Blaufilter")}[name]
@@ -226,8 +255,10 @@ def regler_titel(name: str) -> str:
         "korn": _("Stärke"),
         "korn_groesse": _("Größe"),
         "korn_rauheit": _("Rauheit"),
-    }[name] if not name.startswith(("hsl_", "sw_")) else farbbereich_titel(
-        int(name.split("_")[1]))
+    }[name] if not name.startswith(("hsl_", "sw_", "lokal_")) else (
+        farbbereich_titel(int(name.split("_")[1])) if not name.startswith("lokal_") else
+        _("Weicher Rand") if name == "lokal_weich" else
+        _("Schärfe") if name == "lokal_schaerfe" else regler_titel(name[6:]))
 
 
 def speicherformate() -> list[tuple[str, str, int]]:
@@ -312,7 +343,7 @@ def wert_anzeige(regler: filter.Regler, wert: float) -> str:
     if regler.minimum < 0 and wert > 0:
         text = "+" + text
     text = text.replace("-", "−")
-    if regler.name in ("belichtung", "hg_belichtung"):
+    if regler.name in ("belichtung", "hg_belichtung", "lokal_belichtung"):
         text += " EV"
     elif regler.name == "schaerfe_radius":
         text += " px"
@@ -321,7 +352,7 @@ def wert_anzeige(regler: filter.Regler, wert: float) -> str:
         text += " %"
     elif regler.name in ("begradigen", "ton_lichter_farbton", "ton_schatten_farbton"):
         text += "°"
-    elif regler.name in ("ton_lichter_saettigung", "ton_schatten_saettigung"):
+    elif regler.name in ("ton_lichter_saettigung", "ton_schatten_saettigung", "lokal_weich"):
         text += " %"
     return text
 
@@ -455,6 +486,8 @@ class BearbeitenSeite(QWidget):
         self.leinwand.ansicht_geaendert.connect(self._ansicht_geaendert)
         self.leinwand.bild_geklickt.connect(self._bild_geklickt)
         self.leinwand.pinsel_gezogen.connect(self._pinsel_gezogen)
+        self.leinwand.lokal_gezogen.connect(self._lokal_gezogen)
+        self.leinwand.lokal_loeschen.connect(self.lokal_teil_loeschen)
         aufbau.addWidget(self.leinwand, 1, 0)
         aufbau.addWidget(self._reglerleiste(), 1, 1)
         self.kartenwahl = self._kartenwahl()
@@ -470,6 +503,7 @@ class BearbeitenSeite(QWidget):
         QShortcut(QKeySequence.StandardKey.Undo, self, self._strg_z)
         QShortcut(QKeySequence("Ctrl+Y"), self, self.wiederholen)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, self.wiederholen)
+        QShortcut(QKeySequence(Qt.Key.Key_O), self, self._lokal_zeigen_taste)
         QShortcut(QKeySequence("Ctrl+Shift+C"), self, self.einstellungen_kopieren)
         QShortcut(QKeySequence("Ctrl+Shift+V"), self, self.einstellungen_einfuegen)
         self._knoepfe_freischalten()
@@ -615,6 +649,7 @@ class BearbeitenSeite(QWidget):
         spalte.insertWidget(spalte.indexOf(karten["licht"]) + 1, self._kurvenkarte())
         spalte.insertWidget(spalte.indexOf(karten["farbe"]) + 1, self._hsl_karte())
         spalte.insertWidget(spalte.indexOf(karten["farbe"]) + 2, self._sw_karte())
+        spalte.insertWidget(spalte.indexOf(karten["farbe"]) + 3, self._lokal_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 1, self._entfern_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 2, self._anonym_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 3, self._metadaten_karte())
@@ -2715,13 +2750,16 @@ class BearbeitenSeite(QWidget):
         self.zuschneiden(False)
         self.auswahl_beenden()
         self.flaechen_beenden()
+        self.lokal_beenden()
         self.leinwand.pinsel_radius = self.pinsel_groesse.value()
         self.leinwand.pinselmodus_setzen(True)
         self._entfernen_anzeigen()
 
     def pinsel_beenden(self):
-        # Wer einen anderen Modus beginnt, beendet hiermit auch das Flaechenbearbeiten
+        # Wer einen anderen Modus beginnt, beendet hiermit auch das Bearbeiten von Flaechen
+        # und Masken
         self.flaechen_beenden()
+        self.lokal_beenden()
         if not self.leinwand.pinselmodus:
             return
         self.leinwand.pinselmodus_setzen(False)
@@ -3015,6 +3053,412 @@ class BearbeitenSeite(QWidget):
             self.zeilen[name] = art(self, filter.REGLER_NACH_NAME[name], gitter, 2 * nummer)
         return karte
 
+    # ------------------------------------------------------------------
+    # Lokale Anpassungen (lokal.py): Masken aus Verlauf und Radial
+    # ------------------------------------------------------------------
+
+    def _lokal_karte(self) -> QFrame:
+        karte, innen = self._karte(_("Lokale Anpassungen"))
+        self._lokal_maske: int | None = None      # gewaehlte Maske
+        self._lokal_teil: int | None = None       # gewaehlter Teil der Maske
+        self._lokal_start = None                  # Masken beim Beginn eines Zugs
+        self._lokal_sitzung = None                # fuer welche Sitzung die Wahl gilt
+        self._lokal_baut = False                  # Listen werden gerade neu gefuellt
+        hinweis = QLabel(objectName="nebentext")
+        hinweis.setWordWrap(True)
+        self.fenster.beschriften(hinweis.setText, _(
+            "Regler nur für einen Bereich: eine neue Maske wählen und im Bild aufziehen."))
+        innen.addWidget(hinweis)
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        beschriftung = QLabel()
+        self.fenster.beschriften(beschriftung.setText, _("Neue Maske:"))
+        leiste.addWidget(beschriftung)
+        self.lokal_neu_knoepfe = {}
+        for art in lokal.ARTEN:
+            knopf = self._knopf(lokal_art_titel(art),
+                                lambda _an=False, a=art: self.lokal_neue_maske(a), "kanal")
+            leiste.addWidget(knopf)
+            self.lokal_neu_knoepfe[art] = knopf
+        self.fenster.beschriften(self.lokal_neu_knoepfe["verlauf"].setToolTip, _(
+            "Verlauf von voller zu keiner Wirkung – im Bild vom Anfang zum Ende ziehen."))
+        self.fenster.beschriften(self.lokal_neu_knoepfe["radial"].setToolTip, _(
+            "Ellipse, innen volle Wirkung – im Bild von der Mitte nach außen ziehen."))
+        leiste.addStretch(1)
+        innen.addLayout(leiste)
+
+        self.lokal_liste = QListWidget()
+        zeile = self.lokal_liste.fontMetrics().height() + 8
+        self.lokal_liste.setFixedHeight(zeile * LOKAL_LISTE_ZEILEN + 6)
+        self.fenster.beschriften(self.lokal_liste.setToolTip, _(
+            "Häkchen schaltet eine Maske ein und aus, Doppelklick benennt sie um."))
+        self.lokal_liste.currentRowChanged.connect(self._lokal_gewaehlt)
+        self.lokal_liste.itemChanged.connect(self._lokal_an_geaendert)
+        self.lokal_liste.itemDoubleClicked.connect(lambda _eintrag: self.lokal_umbenennen())
+        innen.addWidget(self.lokal_liste)
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.lokal_umbenennen_knopf = self._knopf(_("Umbenennen …"), self.lokal_umbenennen,
+                                                  "kanal")
+        self.lokal_duplizieren_knopf = self._knopf(_("Duplizieren"), self.lokal_duplizieren,
+                                                   "kanal")
+        self.lokal_loeschen_knopf = self._knopf(_("Löschen"), self.lokal_loeschen, "kanal")
+        for knopf in (self.lokal_umbenennen_knopf, self.lokal_duplizieren_knopf,
+                      self.lokal_loeschen_knopf):
+            leiste.addWidget(knopf)
+        leiste.addStretch(1)
+        innen.addLayout(leiste)
+
+        # Was nur fuer die gewaehlte Maske gilt
+        self.lokal_bereich = QWidget()
+        bereich = QVBoxLayout(self.lokal_bereich)
+        bereich.setContentsMargins(0, 4, 0, 0)
+        titel = QLabel(objectName="kartentitel")
+        self.fenster.beschriften(titel.setText, _("Bereich"))
+        bereich.addWidget(titel)
+        self.lokal_teile = QListWidget()
+        self.lokal_teile.setFixedHeight(zeile * 3 + 6)
+        self.lokal_teile.currentRowChanged.connect(self._lokal_teil_gewaehlt)
+        bereich.addWidget(self.lokal_teile)
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        beschriftung = QLabel()
+        self.fenster.beschriften(beschriftung.setText, _("Teil dazu:"))
+        leiste.addWidget(beschriftung)
+        self.lokal_teil_knoepfe = {}
+        for art in lokal.ARTEN:
+            knopf = self._knopf(lokal_art_titel(art),
+                                lambda _an=False, a=art: self.lokal_teil_neu(a), "kanal")
+            self.fenster.beschriften(knopf.setToolTip, _(
+                "Der Maske einen weiteren Teil hinzufügen – im Bild aufziehen."))
+            leiste.addWidget(knopf)
+            self.lokal_teil_knoepfe[art] = knopf
+        leiste.addStretch(1)
+        bereich.addLayout(leiste)
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.lokal_modus_wahl = QComboBox()
+        for modus in lokal.MODI:
+            self._eintrag(self.lokal_modus_wahl, lokal_modus_titel(modus), modus)
+        self.fenster.beschriften(self.lokal_modus_wahl.setToolTip, _(
+            "Wie der gewählte Teil mit den Teilen davor zusammenwirkt."))
+        self.lokal_modus_wahl.activated.connect(self._lokal_modus_gewaehlt)
+        self.lokal_umkehren_box = QCheckBox()
+        self.fenster.beschriften(self.lokal_umkehren_box.setText, _("Umkehren"))
+        self.lokal_umkehren_box.toggled.connect(self._lokal_umkehren)
+        self.lokal_teil_weg_knopf = self._knopf("✕", self.lokal_teil_loeschen, "kanal")
+        self.fenster.beschriften(self.lokal_teil_weg_knopf.setToolTip,
+                                 _("Den gewählten Teil löschen (Entf)"))
+        leiste.addWidget(self.lokal_modus_wahl, 1)
+        leiste.addWidget(self.lokal_umkehren_box)
+        leiste.addWidget(self.lokal_teil_weg_knopf)
+        bereich.addLayout(leiste)
+        gitter = QGridLayout()
+        gitter.setVerticalSpacing(2)
+        gitter.setColumnStretch(0, 1)
+        bereich.addLayout(gitter)
+        self.lokal_weich_zeile = ReglerZeile(self, LOKAL_WEICH, gitter, 0)
+        self.lokal_zeigen_box = QCheckBox()
+        self.fenster.beschriften(self.lokal_zeigen_box.setText, _("Maske zeigen (O)"))
+        self.fenster.beschriften(self.lokal_zeigen_box.setToolTip, _(
+            "Färbt den Bereich der gewählten Maske ein – je kräftiger, desto stärker wirkt sie."))
+        self.lokal_zeigen_box.toggled.connect(lambda _an: self.zeichnen_anfordern())
+        bereich.addWidget(self.lokal_zeigen_box)
+        gitter = QGridLayout()
+        gitter.setVerticalSpacing(2)
+        gitter.setColumnStretch(0, 1)
+        bereich.addLayout(gitter)
+        self.lokal_zeilen = {regler.name[6:]: ReglerZeile(self, regler, gitter, 2 * nummer)
+                             for nummer, regler in enumerate(LOKAL_REGLER)}
+        self.lokal_fertig_knopf = self._knopf(_("Fertig"), self.lokal_beenden, "kanal")
+        self.fenster.beschriften(self.lokal_fertig_knopf.setToolTip, _(
+            "Das Bearbeiten der Maske beenden (Esc) – sie wirkt weiter."))
+        leiste = QHBoxLayout()
+        leiste.addStretch(1)
+        leiste.addWidget(self.lokal_fertig_knopf)
+        bereich.addLayout(leiste)
+        innen.addWidget(self.lokal_bereich)
+        return karte
+
+    def _lokal_anzeigen(self):
+        """Listen, Knoepfe und Regler der Karte auf die Masken der Sitzung setzen."""
+        offen = self.sitzung is not None
+        if self._lokal_sitzung is not self.sitzung:
+            # Ein anderes Bild: keine Maske mehr gewaehlt
+            self._lokal_sitzung = self.sitzung
+            self._lokal_maske = self._lokal_teil = None
+            self._lokal_start = None
+            if self.leinwand.lokalmodus:
+                self.leinwand.lokalmodus_setzen(False)
+        masken = self.sitzung.werte.masken if offen else ()
+        if self._lokal_maske is not None and self._lokal_maske >= len(masken):
+            self._lokal_maske = self._lokal_teil = None
+        if self._lokal_maske is None and self.leinwand.lokalmodus:
+            self.leinwand.lokalmodus_setzen(False)
+        gewaehlt = self._lokal_maske is not None
+        self._lokal_baut = True
+        self.lokal_liste.clear()
+        for maske in masken:
+            eintrag = QListWidgetItem(maske.name or "–")
+            eintrag.setFlags(eintrag.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            eintrag.setCheckState(Qt.CheckState.Checked if maske.an else Qt.CheckState.Unchecked)
+            self.lokal_liste.addItem(eintrag)
+        self.lokal_liste.setCurrentRow(self._lokal_maske if gewaehlt else -1)
+        self.lokal_liste.setEnabled(offen)
+        platz = len(masken) < lokal.MAX_MASKEN
+        for knopf in self.lokal_neu_knoepfe.values():
+            knopf.setEnabled(offen and platz)
+        self.lokal_umbenennen_knopf.setEnabled(gewaehlt)
+        self.lokal_duplizieren_knopf.setEnabled(gewaehlt and platz)
+        self.lokal_loeschen_knopf.setEnabled(gewaehlt)
+        self.lokal_bereich.setVisible(gewaehlt)
+        self.lokal_teile.clear()
+        if gewaehlt:
+            maske = masken[self._lokal_maske]
+            if self._lokal_teil is not None and self._lokal_teil >= len(maske.teile):
+                self._lokal_teil = len(maske.teile) - 1 if maske.teile else None
+            for teil in maske.teile:
+                self.lokal_teile.addItem(lokal_teil_text(teil))
+            self.lokal_teile.setCurrentRow(-1 if self._lokal_teil is None else self._lokal_teil)
+            teil = None if self._lokal_teil is None else maske.teile[self._lokal_teil]
+            self.lokal_modus_wahl.setCurrentIndex(
+                self.lokal_modus_wahl.findData(teil.modus if teil else "dazu"))
+            # Der erste Teil hat keinen davor - fuer ihn gibt es nur „Hinzufuegen“
+            self.lokal_modus_wahl.setEnabled(teil is not None and self._lokal_teil > 0)
+            self.lokal_umkehren_box.blockSignals(True)
+            self.lokal_umkehren_box.setChecked(bool(teil and teil.umkehren))
+            self.lokal_umkehren_box.blockSignals(False)
+            self.lokal_umkehren_box.setEnabled(teil is not None)
+            self.lokal_teil_weg_knopf.setEnabled(teil is not None)
+            radial = teil is not None and teil.art == "radial"
+            for widget in (self.lokal_weich_zeile.titel, self.lokal_weich_zeile.anzeige,
+                           self.lokal_weich_zeile.schieber):
+                widget.setVisible(radial)
+            if radial:
+                self.lokal_weich_zeile.setzen(teil.daten[5])
+            for knopf in self.lokal_teil_knoepfe.values():
+                knopf.setEnabled(len(maske.teile) < lokal.MAX_TEILE)
+            for name, zeile in self.lokal_zeilen.items():
+                zeile.setzen(lokal.wert(maske, name))
+        self._lokal_baut = False
+        self._lokal_formen_setzen()
+
+    def _lokal_formen_setzen(self):
+        """Linien und Griffe der Teile der gewaehlten Maske fuer die Leinwand - im fertigen
+        Bild, also nach Drehen, Begradigen und Zuschnitt."""
+        if self.sitzung is None or not self.leinwand.lokalmodus or self._lokal_maske is None:
+            return
+        maske = self.sitzung.werte.masken[self._lokal_maske]
+        hoehe, breite = self.sitzung.original.shape[:2]
+        formen = []
+        for teil in maske.teile:
+            zuege = lokal.linien(teil, breite, hoehe)
+            griffe = lokal.griffe(teil, breite, hoehe)
+            punkte = np.concatenate([*zuege, np.array(list(griffe.values()))])
+            im_bild = self.sitzung.ziel_von(punkte)
+            stuecke = np.split(im_bild, np.cumsum([len(z) for z in zuege]))
+            formen.append({"linien": stuecke[:-1],
+                           "griffe": dict(zip(griffe, map(tuple, stuecke[-1]), strict=True))})
+        self.leinwand.lokal_formen = formen
+        self.leinwand.lokal_gewaehlt = self._lokal_teil
+        self.leinwand.update()
+
+    def _lokal_modus_beginnen(self):
+        """Maskenmodus der Leinwand: die anderen Modi enden."""
+        if not self.leinwand.lokalmodus:
+            self.zuschneiden(False)
+            self.auswahl_beenden()
+            self.pinsel_beenden()
+            self.leinwand.lokalmodus_setzen(True)
+
+    def lokal_beenden(self):
+        """Die Masken nicht mehr bearbeiten - sie wirken weiter."""
+        if not self.leinwand.lokalmodus:
+            return
+        self.leinwand.lokalmodus_setzen(False)
+        self._lokal_maske = self._lokal_teil = None
+        self._lokal_anzeigen()
+        self.zeichnen_anfordern()
+
+    def _lokal_setzen(self, masken, maske: int | None, teil: int | None, voll: bool = True):
+        """Neue Masken in die Werte; voll=False waehrend eines Zugs - dann ohne die Listen
+        neu zu fuellen."""
+        self.sitzung.werte.masken = tuple(masken)
+        self._lokal_maske, self._lokal_teil = maske, teil
+        if voll:
+            self._lokal_anzeigen()
+        else:
+            self._lokal_formen_setzen()
+        self.zeichnen_anfordern()
+
+    def lokal_neue_maske(self, art: str):
+        if self.sitzung is None or len(self.sitzung.werte.masken) >= lokal.MAX_MASKEN:
+            return
+        masken = list(self.sitzung.werte.masken)
+        namen = {m.name for m in masken}
+        nummer = len(masken) + 1
+        while str(_("Maske {n}").format(n=nummer)) in namen:
+            nummer += 1
+        masken.append(lokal.Maske(str(_("Maske {n}").format(n=nummer))))
+        self._lokal_modus_beginnen()
+        self._lokal_setzen(masken, len(masken) - 1, None)
+        self.lokal_teil_neu(art)
+
+    def lokal_teil_neu(self, art: str):
+        if self.sitzung is None or self._lokal_maske is None:
+            return
+        self._lokal_modus_beginnen()
+        self.leinwand.lokal_werkzeug_setzen(art)
+        self.fenster.melden(_("Verlauf im Bild vom Anfang zum Ende ziehen.") if art == "verlauf"
+                            else _("Radial im Bild von der Mitte nach außen ziehen."))
+
+    def _lokal_gewaehlt(self, zeile: int):
+        if self._lokal_baut or self.sitzung is None:
+            return
+        if zeile < 0:
+            self.lokal_beenden()
+            return
+        maske = self.sitzung.werte.masken[zeile]
+        self._lokal_modus_beginnen()
+        self.leinwand.lokal_werkzeug_setzen(None)
+        self._lokal_maske, self._lokal_teil = zeile, (0 if maske.teile else None)
+        self._lokal_anzeigen()
+        self.zeichnen_anfordern()
+
+    def _lokal_teil_gewaehlt(self, zeile: int):
+        if self._lokal_baut or self.sitzung is None or self._lokal_maske is None:
+            return
+        self._lokal_teil = zeile if zeile >= 0 else None
+        self._lokal_anzeigen()
+
+    def _lokal_an_geaendert(self, eintrag: QListWidgetItem):
+        if self._lokal_baut or self.sitzung is None:
+            return
+        nummer = self.lokal_liste.row(eintrag)
+        masken = list(self.sitzung.werte.masken)
+        an = eintrag.checkState() == Qt.CheckState.Checked
+        if 0 <= nummer < len(masken) and masken[nummer].an != an:
+            masken[nummer] = dataclasses.replace(masken[nummer], an=an)
+            self._lokal_setzen(masken, self._lokal_maske, self._lokal_teil)
+
+    def lokal_umbenennen(self):
+        if self.sitzung is None or self._lokal_maske is None:
+            return
+        masken = list(self.sitzung.werte.masken)
+        maske = masken[self._lokal_maske]
+        name, ok = QInputDialog.getText(self, _("Maske umbenennen"), _("Name:"),
+                                        text=maske.name)
+        name = " ".join(name.split())[:lokal.MAX_NAME]
+        if ok and name and name != maske.name:
+            masken[self._lokal_maske] = dataclasses.replace(maske, name=name)
+            self._lokal_setzen(masken, self._lokal_maske, self._lokal_teil)
+
+    def lokal_duplizieren(self):
+        if self.sitzung is None or self._lokal_maske is None \
+                or len(self.sitzung.werte.masken) >= lokal.MAX_MASKEN:
+            return
+        masken = list(self.sitzung.werte.masken)
+        maske = masken[self._lokal_maske]
+        name = str(_("{name} – Kopie").format(name=maske.name))[:lokal.MAX_NAME]
+        masken.insert(self._lokal_maske + 1, dataclasses.replace(maske, name=name))
+        self._lokal_setzen(masken, self._lokal_maske + 1, self._lokal_teil)
+
+    def lokal_loeschen(self):
+        if self.sitzung is None or self._lokal_maske is None:
+            return
+        masken = list(self.sitzung.werte.masken)
+        del masken[self._lokal_maske]
+        self._lokal_setzen(masken, None, None)
+        self.lokal_beenden()
+
+    def lokal_teil_loeschen(self, nummer: int | None = None):
+        if self.sitzung is None or self._lokal_maske is None:
+            return
+        if not isinstance(nummer, int) or isinstance(nummer, bool):
+            nummer = self._lokal_teil
+        masken = list(self.sitzung.werte.masken)
+        maske = masken[self._lokal_maske]
+        if nummer is None or not 0 <= nummer < len(maske.teile):
+            return
+        teile = list(maske.teile)
+        del teile[nummer]
+        if teile and teile[0].modus != "dazu":
+            teile[0] = dataclasses.replace(teile[0], modus="dazu")
+        masken[self._lokal_maske] = dataclasses.replace(maske, teile=tuple(teile))
+        self._lokal_setzen(masken, self._lokal_maske, min(nummer, len(teile) - 1)
+                           if teile else None)
+
+    def _lokal_teil_aendern(self, **aenderung):
+        if self.sitzung is None or self._lokal_maske is None or self._lokal_teil is None:
+            return
+        masken = list(self.sitzung.werte.masken)
+        maske = masken[self._lokal_maske]
+        teile = list(maske.teile)
+        teile[self._lokal_teil] = dataclasses.replace(teile[self._lokal_teil], **aenderung)
+        masken[self._lokal_maske] = dataclasses.replace(maske, teile=tuple(teile))
+        self._lokal_setzen(masken, self._lokal_maske, self._lokal_teil)
+
+    def _lokal_modus_gewaehlt(self, nummer: int):
+        self._lokal_teil_aendern(modus=self.lokal_modus_wahl.itemData(nummer))
+
+    def _lokal_umkehren(self, an: bool):
+        self._lokal_teil_aendern(umkehren=an)
+
+    def _lokal_wert(self, name: str, wert: float):
+        """Ein Regler der Karte: Wert der gewaehlten Maske oder weicher Rand des Teils."""
+        if self._lokal_maske is None:
+            return
+        masken = list(self.sitzung.werte.masken)
+        maske = masken[self._lokal_maske]
+        if name == "lokal_weich":
+            if self._lokal_teil is None or maske.teile[self._lokal_teil].art != "radial":
+                return
+            teile = list(maske.teile)
+            daten = list(teile[self._lokal_teil].daten)
+            daten[5] = wert
+            teile[self._lokal_teil] = dataclasses.replace(teile[self._lokal_teil],
+                                                          daten=tuple(daten))
+            masken[self._lokal_maske] = dataclasses.replace(maske, teile=tuple(teile))
+        else:
+            masken[self._lokal_maske] = lokal.mit_wert(maske, name[6:], wert)
+        self._lokal_setzen(masken, self._lokal_maske, self._lokal_teil, voll=False)
+
+    def _lokal_gezogen(self, art: str, nummer: int, griff: str, sx: float, sy: float,
+                       x: float, y: float, fertig: bool):
+        if self.sitzung is None or self._vorher or self._lokal_maske is None:
+            return
+        if self._lokal_start is None:
+            self._lokal_start = self.sitzung.werte.masken
+        vorher = self._lokal_start
+        if fertig:
+            self._lokal_start = None
+        hoehe, breite = self.sitzung.original.shape[:2]
+        a = self.sitzung.quelle_von(sx, sy, begrenzt=False)
+        b = self.sitzung.quelle_von(x, y, begrenzt=False)
+        masken = list(vorher)
+        maske = masken[self._lokal_maske]
+        if art == "neu":
+            teil = lokal.neuer_teil(griff, a, b, breite, hoehe)
+            if teil is None:
+                # Nur geklickt: nichts anlegen, das Werkzeug bleibt gewaehlt
+                self._lokal_setzen(masken, self._lokal_maske, self._lokal_teil, voll=fertig)
+                return
+            teile = (*maske.teile, teil)
+            if fertig:
+                self.leinwand.lokal_werkzeug_setzen(None)
+        else:
+            if not 0 <= nummer < len(maske.teile):
+                return
+            teile = list(maske.teile)
+            teile[nummer] = lokal.gezogen(teile[nummer], griff, a, b, breite, hoehe)
+        masken[self._lokal_maske] = dataclasses.replace(maske, teile=tuple(teile))
+        neu = len(teile) - 1 if art == "neu" else nummer
+        self._lokal_setzen(masken, self._lokal_maske, neu, voll=fertig or neu != self._lokal_teil)
+
+    def _lokal_zeigen_taste(self):
+        if self.leinwand.lokalmodus and self.lokal_zeigen_box.isEnabled():
+            self.lokal_zeigen_box.toggle()
+
     def _sw_anzeigen(self):
         """Schalter, Mischer und Vorlagen auf die Werte der Sitzung setzen."""
         offen = self.sitzung is not None
@@ -3149,6 +3593,7 @@ class BearbeitenSeite(QWidget):
         for knopf in self._hsl_knoepfe.values():
             knopf.setEnabled(offen)
         self._sw_anzeigen()
+        self._lokal_anzeigen()
         self.kurven.setEnabled(offen)
         self.lut_knopf.setEnabled(offen)
         self._ki_anzeigen()
@@ -3176,6 +3621,9 @@ class BearbeitenSeite(QWidget):
             werte = list(getattr(self.sitzung.werte, self.hsl_modus))
             werte[int(name[4:])] = wert
             name, wert = self.hsl_modus, tuple(werte)
+        elif name.startswith("lokal_"):
+            self._lokal_wert(name, wert)
+            return
         elif name.startswith("sw_") and name[3:].isdigit():
             werte = list(self.sitzung.werte.sw_mischer)
             werte[int(name[3:])] = wert
@@ -3210,6 +3658,10 @@ class BearbeitenSeite(QWidget):
         self.leinwand.voll_form = self.sitzung.ausgabe_form(werte, ohne_erweiterung=ohne_raender)
         if not self._vorher:
             self._umrisse_setzen()                 # Geometrie kann sich geaendert haben
+            self._lokal_formen_setzen()
+        self.sitzung.lokal_zeigen = (self._lokal_maske if self.leinwand.lokalmodus
+                                     and self.lokal_zeigen_box.isChecked()
+                                     and not self._vorher else None)
         if self._klick_ziel is not None:
             ziel = self._klick_ziel
             gleich = (not self._vorher
@@ -3265,6 +3717,7 @@ class BearbeitenSeite(QWidget):
         self.kurven.alle_setzen({name: getattr(werte, name) for name in filter.KURVEN})
         self._hsl_anzeigen()
         self._sw_anzeigen()
+        self._lokal_anzeigen()
         self._lut_anzeigen()
         self._ki_bild_anzeigen()
         self._film_anzeigen()
@@ -3439,12 +3892,13 @@ class BearbeitenSeite(QWidget):
                   **dict.fromkeys(filter.KURVEN, "kurven"),
                   **dict.fromkeys(filter.HSL, "hsl"),
                   **dict.fromkeys(filter.SW_FELDER, "sw"),
+                  **dict.fromkeys(filter.LOKAL_FELDER, "lokal"),
                   **dict.fromkeys(filter.ANONYM_FELDER, "anonym"),
                   **dict.fromkeys(filter.FILM_FELDER, "film")}.get(feld, feld)
         if gruppe in ("ki_rauschen", "ki_schaerfe", "ki_farbe", "maske", "tiefe"):
             return gruppen_titel(gruppe), gruppe
         texte = {"kurven": _("Gradationskurve"), "hsl": _("Farbbereiche"), "lut": _("LUT"),
-                 "sw": _("Schwarzweiß"),
+                 "sw": _("Schwarzweiß"), "lokal": _("Lokale Anpassungen"),
                  "anonym": _("Anonymisieren"), "angaben": _("Metadaten"),
                  "film": _("Scan & Film"),
                  "drehung90": _("Drehen"), "spiegeln": _("Spiegeln"),

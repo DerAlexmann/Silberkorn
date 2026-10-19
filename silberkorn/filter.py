@@ -134,6 +134,8 @@ ANONYM_FELDER = {"anonym_flaechen": (), "anonym_art": "mosaik", "anonym_bloecke"
 METADATEN_FELDER = {"angaben": ()}
 # Scan & Film (film.py): Filmart, Durchlaessigkeit der Filmmaske, Schwarz- und Weisspunkt
 FILM_FELDER = {"film": "", "film_maske": (), "film_umfang": ()}
+# Lokale Anpassungen (lokal.py): die Masken mit ihren Teilen und Werten
+LOKAL_FELDER = {"masken": ()}
 HINTERGRUND = ("hg_belichtung", "hg_kontrast", "hg_saettigung", "hg_temperatur",
                "hg_unschaerfe")
 
@@ -248,6 +250,8 @@ class Einstellungen:
     metadaten_entfernen: bool = False
     # Metadaten: ((Feld, Wert), ...) - nur, was vom Inhalt der Datei abweicht
     angaben: tuple[tuple[str, object], ...] = ()
+    # Lokale Anpassungen: lokal.Maske, ...
+    masken: tuple = ()
 
     def ist_neutral(self) -> bool:
         for feld in fields(self):
@@ -278,6 +282,9 @@ class Einstellungen:
                     return False
             elif feld.name in SW_FELDER:
                 if wert != SW_FELDER[feld.name]:
+                    return False
+            elif feld.name in LOKAL_FELDER:
+                if wert != LOKAL_FELDER[feld.name]:
                     return False
             elif feld.name not in ("schaerfe_radius", "lut_staerke", "fokus", "schaerfentiefe",
                                    "ton_lichter_farbton", "ton_schatten_farbton") \
@@ -1012,12 +1019,14 @@ def entrauschen(rgb, werte: Einstellungen):
 # Die ganze Kette
 # --------------------------------------------------------------------------
 
-def anwenden(rgb_linear, werte: Einstellungen, massstab: float = 1.0):
+def anwenden(rgb_linear, werte: Einstellungen, massstab: float = 1.0, lokal=None):
     """Wendet alle Regler in fester Reihenfolge an und gibt ein neues Bild zurueck.
 
     massstab ist das Verhaeltnis der bearbeiteten Groesse zur Originalgroesse.
     Die Vorschau ist verkleinert; ohne diesen Faktor waere ein Schaerferadius
     von 1 Pixel in der Vorschau viel groeber als im exportierten Bild.
+    lokal: die Masken als [(Gewicht, Werte)] in der Geometrie des fertigen Bildes
+    (lokal.py) - sie wirken nach der Geometrie, vor den Tonwerten.
     """
     bild = weissabgleich(rgb_linear, werte.temperatur, werte.toenung)
     bild = belichtung(bild, werte.belichtung)
@@ -1025,6 +1034,9 @@ def anwenden(rgb_linear, werte: Einstellungen, massstab: float = 1.0):
     bild = dunst(bild, werte.dunst)
     from . import geometrie
     bild = geometrie.anwenden(bild, geometrie.aus(werte))
+    if lokal:
+        from . import lokal as lokal_
+        bild = lokal_.anwenden(bild, lokal, massstab)
     bild = tonwerte(bild, werte.kontrast, werte.lichter, werte.tiefen)
     bild = klarheit(bild, werte.klarheit)
     bild = gradation(bild, werte)
@@ -1037,7 +1049,7 @@ def anwenden(rgb_linear, werte: Einstellungen, massstab: float = 1.0):
 
 
 def anwenden_ausgabe(rgb_linear, werte: Einstellungen, massstab: float = 1.0,
-                     speicher: dict | None = None, bits: int = 8):
+                     speicher: dict | None = None, bits: int = 8, lokal=None):
     """Ganze Kette bis zum sRGB-Ergebnis mit 8 oder 16 Bit - fuer Anzeige und Export.
 
     Liegt das Bild auf der Grafikkarte, rechnen die zusammengefassten Kernel
@@ -1047,6 +1059,6 @@ def anwenden_ausgabe(rgb_linear, werte: Einstellungen, massstab: float = 1.0,
     """
     if xp_von(rgb_linear) is not np:
         from . import filter_gpu
-        return filter_gpu.anwenden_ausgabe(rgb_linear, werte, massstab, speicher, bits)
-    ergebnis = anwenden(rgb_linear, werte, massstab)
+        return filter_gpu.anwenden_ausgabe(rgb_linear, werte, massstab, speicher, bits, lokal)
+    ergebnis = anwenden(rgb_linear, werte, massstab, lokal)
     return nach_16bit(ergebnis) if bits == 16 else nach_8bit(ergebnis)

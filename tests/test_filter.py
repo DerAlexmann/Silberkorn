@@ -45,7 +45,8 @@ def test_regler_und_einstellungen_passen_zusammen():
     namen = {feld.name for feld in dataclasses.fields(f.Einstellungen)}
     assert namen == (set(f.REGLER_NACH_NAME) | set(f.KURVEN) | set(f.HSL) | {"lut"}
                      | set(f.GEOMETRIE_FELDER) | set(f.MASKEN_SCHALTER) | set(f.ANONYM_FELDER)
-                     | set(f.METADATEN_FELDER) | set(f.FILM_FELDER) | set(f.SW_FELDER))
+                     | set(f.METADATEN_FELDER) | set(f.FILM_FELDER) | set(f.SW_FELDER)
+                     | set(f.LOKAL_FELDER))
     for feld in dataclasses.fields(f.Einstellungen):
         if feld.name in f.KURVEN:
             assert feld.default == kurven.IDENTITAET
@@ -65,6 +66,8 @@ def test_regler_und_einstellungen_passen_zusammen():
             assert feld.default == f.FILM_FELDER[feld.name]
         elif feld.name in f.SW_FELDER:
             assert feld.default == f.SW_FELDER[feld.name]
+        elif feld.name in f.LOKAL_FELDER:
+            assert feld.default == f.LOKAL_FELDER[feld.name]
         else:
             assert feld.default == f.REGLER_NACH_NAME[feld.name].vorgabe
 

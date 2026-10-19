@@ -221,6 +221,75 @@ def test_schwarzweiss_und_toenung(fenster, tmp_path, monkeypatch):
         seite._knoepfe_freischalten()
 
 
+def test_lokale_anpassungen(fenster, tmp_path, monkeypatch):
+    """Maske anlegen, Radial aufziehen, Regler, Griff ziehen, Teil dazu, Rueckgaengig."""
+    import numpy as np
+    from PIL import Image
+    from PySide6.QtCore import Qt
+
+    from silberkorn import einstellungen, lokal
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "bild.png")
+    Image.new("RGB", (160, 120), (70, 70, 70)).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert not seite.lokal_bereich.isVisibleTo(seite)
+        seite.lokal_neue_maske("radial")
+        assert seite.leinwand.lokalmodus and seite.leinwand.lokal_neu == "radial"
+        assert len(seite.sitzung.werte.masken) == 1
+        # Von der Mitte nach aussen ziehen (Bildpunkte = Original, keine Geometrie)
+        seite._lokal_gezogen("neu", -1, "radial", 80, 60, 110, 75, False)
+        seite._lokal_gezogen("neu", -1, "radial", 80, 60, 120, 80, True)
+        maske = seite.sitzung.werte.masken[0]
+        assert len(maske.teile) == 1 and seite.leinwand.lokal_neu is None
+        assert maske.teile[0].daten[:4] == pytest.approx((0.5, 0.5, 0.25, 0.125))
+        assert len(seite.leinwand.lokal_formen) == 1
+        seite.lokal_zeilen["belichtung"].schieber.setValue(
+            seite.lokal_zeilen["belichtung"].schieber.value() + 20)          # +1 EV
+        assert lokal.wert(seite.sitzung.werte.masken[0], "belichtung") == 1.0
+        bild, _ms, _h = seite.sitzung.vorschau()
+        bild = np.asarray(bild).astype(int)
+        mitte, ecke = bild[bild.shape[0] // 2, bild.shape[1] // 2], bild[2, 2]
+        assert mitte[0] > ecke[0] + 20
+
+        # Griff „x+“ ziehen macht die Ellipse breiter
+        g = seite.leinwand.lokal_formen[0]["griffe"]["x+"]
+        seite._lokal_gezogen("griff", 0, "x+", *g, g[0] + 20, g[1], True)
+        assert seite.sitzung.werte.masken[0].teile[0].daten[2] == pytest.approx(0.375, abs=0.01)
+        # Zweiter Teil: Verlauf, abgezogen
+        seite.lokal_teil_neu("verlauf")
+        seite._lokal_gezogen("neu", -1, "verlauf", 80, 0, 80, 60, True)
+        seite._festhalten(sofort=True)
+        seite.lokal_modus_wahl.activated.emit(seite.lokal_modus_wahl.findData("weg"))
+        teile = seite.sitzung.werte.masken[0].teile
+        assert [t.art for t in teile] == ["radial", "verlauf"] and teile[1].modus == "weg"
+        assert seite.lokal_teile.count() == 2
+
+        seite.lokal_zeigen_box.setChecked(True)
+        seite._zeichnen()
+        assert seite.sitzung.lokal_zeigen == 0
+        seite._festhalten(sofort=True)
+        assert "Lokale Anpassungen" in seite.rueckgaengig_knopf.toolTip()
+        seite.rueckgaengig()
+        assert seite.sitzung.werte.masken[0].teile[1].modus == "dazu"
+
+        seite.lokal_duplizieren()
+        assert len(seite.sitzung.werte.masken) == 2 and seite._lokal_maske == 1
+        seite.lokal_liste.item(0).setCheckState(Qt.CheckState.Unchecked)
+        assert not seite.sitzung.werte.masken[0].an
+        seite.lokal_teil_loeschen()
+        assert len(seite.sitzung.werte.masken[1].teile) == 1
+        seite._abbrechen()                                        # Esc
+        assert not seite.leinwand.lokalmodus
+        seite._zeichnen()
+        assert seite.sitzung.lokal_zeigen is None
+        assert not seite.lokal_bereich.isVisibleTo(seite)
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
 def test_kartenwahl_springt_und_laeuft_mit(fenster):
     """Die Auswahl ueber den Karten nennt jede Karte, springt zu ihr und zeigt beim Rollen
     die oberste. Leinwand und erste Karte beginnen auf derselben Hoehe."""

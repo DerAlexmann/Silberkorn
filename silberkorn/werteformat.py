@@ -29,7 +29,7 @@ import math
 import unicodedata
 from dataclasses import dataclass, field
 
-from . import anonym, film, filter, kurven, lut, metadaten
+from . import anonym, film, filter, kurven, lokal, lut, metadaten
 from .filter import Einstellungen
 
 MAX_TEXT = 2000                 # Zeichen je Angabe (Titel, Beschreibung ...)
@@ -43,7 +43,7 @@ _SCHALTER = ("spiegeln", "maske_umkehren", "freistellen", "bokeh_motiv", "metada
              "sw")
 _BESONDERE = ("film", "film_maske", "film_umfang", *filter.KURVEN, *filter.HSL, "sw_mischer",
               "lut", "drehung90", "zuschnitt", "objektivprofil", "anonym_flaechen", "anonym_art",
-              "anonym_bloecke", "angaben")
+              "anonym_bloecke", "angaben", "masken")
 
 
 @dataclass
@@ -77,11 +77,20 @@ def als_dict(werte: Einstellungen, felder=None) -> dict:
             daten[name] = [[f[0], *(float(z) for z in f[1:])] for f in wert]
         elif name == "angaben":
             daten[name] = [[n, list(w) if isinstance(w, tuple) else w] for n, w in wert]
+        elif name == "masken":
+            daten[name] = [_maske_als_dict(maske) for maske in wert]
         elif isinstance(wert, tuple):
             daten[name] = [float(z) for z in wert]
         else:
             daten[name] = wert
     return daten
+
+
+def _maske_als_dict(maske: lokal.Maske) -> dict:
+    return {"name": maske.name, "an": maske.an,
+            "werte": [float(w) for w in maske.werte],
+            "teile": [{"art": t.art, "modus": t.modus, "umkehren": t.umkehren,
+                       "daten": [float(z) for z in t.daten]} for t in maske.teile]}
 
 
 def lut_als_dict(werte: Einstellungen) -> dict | None:
@@ -188,6 +197,52 @@ def _angaben(wert) -> tuple | None:
     return tuple(sorted(angaben.items()))
 
 
+def _teil(wert) -> lokal.Teil | None:
+    if not isinstance(wert, dict) or set(wert) - {"art", "modus", "umkehren", "daten"}:
+        return None
+    art, modus = wert.get("art"), wert.get("modus", "dazu")
+    umkehren = wert.get("umkehren", False)
+    if (not isinstance(art, str) or art not in lokal.ARTEN or not isinstance(modus, str)
+            or modus not in lokal.MODI or not isinstance(umkehren, bool)):
+        return None
+    grenzen = lokal.DATEN[art]
+    daten = wert.get("daten")
+    if not isinstance(daten, list) or len(daten) != len(grenzen):
+        return None
+    zahlen = [_begrenzt(z, unten, oben) for z, (_n, unten, oben) in zip(daten, grenzen,
+                                                                         strict=True)]
+    if None in zahlen:
+        return None
+    return lokal.Teil(art, tuple(zahlen), modus, umkehren)
+
+
+def _maske(wert) -> lokal.Maske | None:
+    if not isinstance(wert, dict) or set(wert) - {"name", "an", "werte", "teile"}:
+        return None
+    name = text_saeubern(wert.get("name", ""), lokal.MAX_NAME)
+    an = wert.get("an", True)
+    teile = wert.get("teile", [])
+    zahlen = wert.get("werte")
+    if (name is None or not isinstance(an, bool) or not isinstance(teile, list)
+            or len(teile) > lokal.MAX_TEILE or not isinstance(zahlen, list)
+            or len(zahlen) != len(lokal.REGLER)):
+        return None
+    name = " ".join(name.split())             # ein Name ist eine Zeile
+    werte = [_begrenzt(z, r.minimum, r.maximum) for z, r in zip(zahlen, lokal.REGLER,
+                                                                 strict=True)]
+    gelesen = [_teil(t) for t in teile]
+    if None in werte or None in gelesen:
+        return None
+    return lokal.Maske(name, tuple(gelesen), tuple(werte), an)
+
+
+def _masken(wert) -> tuple | None:
+    if not isinstance(wert, list) or len(wert) > lokal.MAX_MASKEN:
+        return None
+    masken = [_maske(m) for m in wert]
+    return None if None in masken else tuple(masken)
+
+
 def _feld_lesen(name: str, wert):
     """Der gepruefte Wert eines Feldes - oder None, wenn er nicht taugt."""
     regler = filter.REGLER_NACH_NAME.get(name)
@@ -221,6 +276,8 @@ def _feld_lesen(name: str, wert):
         return _begrenzt(wert, anonym.BLOECKE_MIN, anonym.BLOECKE_MAX)
     if name == "angaben":
         return _angaben(wert)
+    if name == "masken":
+        return _masken(wert)
     return None
 
 

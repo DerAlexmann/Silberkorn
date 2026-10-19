@@ -66,6 +66,7 @@ GRUPPEN: dict[str, tuple[str, ...]] = {
                   "perspektive_h"),
     "anonym": tuple(filter.ANONYM_FELDER),
     "metadaten": tuple(filter.METADATEN_FELDER),
+    "lokal": tuple(filter.LOKAL_FELDER),
 }
 VORGABE = ("grundregler", "kurven", "hsl", "schwarzweiss", "lut", "rauschen", "korn", "film")
 
