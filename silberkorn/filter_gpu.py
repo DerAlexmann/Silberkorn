@@ -9,7 +9,8 @@ wenigen Durchlaeufen zusammengefasst:
   licht:          Weissabgleich, Belichtung, Tonwerte
   nlm, ...:       Entrauschen - Ergebnis je Bild und Einstellung zwischengespeichert
   klarheit:       lokaler Kontrast aus Helligkeit und ihrer weichen Fassung
-  kurven_farbe:   Gradationskurven, HSL je Farbbereich, Dynamik, Saettigung, LUT
+  kurven_farbe:   Gradationskurven, HSL je Farbbereich, Dynamik, Saettigung,
+                  Schwarzweiss, Teiltonung, LUT
   ausgabe:        Schaerfen und Umwandlung nach sRGB-uint8
 
 Was auf grossen Nachbarschaften rechnet - Dunst schaetzen, Klarheit und
@@ -50,6 +51,9 @@ _GEMEINSAM = (
     + f"#define HSL_FARBTON_GRAD {f.HSL_FARBTON_GRAD}f\n"
     + f"#define HSL_LUMINANZ {f.HSL_LUMINANZ}f\n"
     + f"#define HSL_CHROMA_VOLL {f.HSL_CHROMA_VOLL}f\n"
+    + f"#define SW_MISCHER {f.SW_MISCHER}f\n"
+    + f"#define TON_UEBERGANG {f.TON_UEBERGANG}f\n"
+    + f"#define TON_RAND {f.TON_RAND}f\n"
 ) + r"""
 #define EPS 1e-6f
 __device__ __forceinline__ float luma(float r, float g, float b) {
@@ -120,6 +124,53 @@ __device__ void hsl_verschieben(float& r, float& g, float& b, const float* werte
     matrix3(OKLAB_M2_INV, l, a, bb);
     l = l * l * l; a = a * a * a; bb = bb * bb * bb;
     matrix3(OKLAB_M1_INV, l, a, bb);
+    r = l; g = a; b = bb;
+}
+__device__ __forceinline__ void zu_oklab(float& l, float& a, float& bb) {
+    matrix3(OKLAB_M1, l, a, bb);
+    l = cbrtf(l); a = cbrtf(a); bb = cbrtf(bb);
+    matrix3(OKLAB_M2, l, a, bb);
+}
+__device__ __forceinline__ void von_oklab(float& l, float& a, float& bb) {
+    matrix3(OKLAB_M2_INV, l, a, bb);
+    l = l * l * l; a = a * a * a; bb = bb * bb * bb;
+    matrix3(OKLAB_M1_INV, l, a, bb);
+}
+// Schwarzweiss mit Mischer je Farbbereich - dieselbe Rechnung wie filter.schwarzweiss()
+__device__ void schwarzweiss(float& r, float& g, float& b, const float* mischer) {
+    float l = r, a = g, bb = b;
+    zu_oklab(l, a, bb);
+    float chroma = sqrtf(a * a + bb * bb);
+    float winkel = atan2f(bb, a) * (180.0f / 3.14159265358979f);
+    winkel = winkel - 360.0f * floorf(winkel / 360.0f);
+    float summe = 0.0f;
+    for (int k = 0; k < BEREICHE; k++) {
+        float mitte = BEREICH_MITTE[k];
+        float vorher = k == 0 ? BEREICH_MITTE[BEREICHE - 1] - 360.0f : BEREICH_MITTE[k - 1];
+        float nachher = k == BEREICHE - 1 ? BEREICH_MITTE[0] + 360.0f : BEREICH_MITTE[k + 1];
+        float t = winkel - mitte + 180.0f;
+        float abstand = t - 360.0f * floorf(t / 360.0f) - 180.0f;
+        float gewicht = abstand < 0.0f
+            ? 0.5f * (1.0f + cosf(3.14159265358979f
+                                  * fminf(fmaxf(-abstand / (mitte - vorher), 0.0f), 1.0f)))
+            : 0.5f * (1.0f + cosf(3.14159265358979f
+                                  * fminf(fmaxf(abstand / (nachher - mitte), 0.0f), 1.0f)));
+        summe += gewicht * mischer[k];
+    }
+    float buntheit = fminf(fmaxf(chroma / HSL_CHROMA_VOLL, 0.0f), 1.0f);
+    l = l * fmaxf(1.0f + summe * (SW_MISCHER / 100.0f) * buntheit, 0.0f);
+    r = g = b = l * l * l;
+}
+// Teiltonung - wie filter.teiltonung(); ton: (a, b) Schatten, (a, b) Lichter, Grenze
+__device__ void teiltonung(float& r, float& g, float& b, const float* ton) {
+    float l = r, a = g, bb = b;
+    zu_oklab(l, a, bb);
+    float licht = glatt(ton[4] - TON_UEBERGANG, ton[4] + TON_UEBERGANG, l);
+    float huelle = fminf(fmaxf(l / TON_RAND, 0.0f), 1.0f)
+                   * fminf(fmaxf((1.0f - l) / TON_RAND, 0.0f), 1.0f);
+    a += ((1.0f - licht) * ton[0] + licht * ton[2]) * huelle;
+    bb += ((1.0f - licht) * ton[1] + licht * ton[3]) * huelle;
+    von_oklab(l, a, bb);
     r = l; g = a; b = bb;
 }
 // Tetraedrische Interpolation in einer 3D-LUT [b][g][r] - wie lut.anwenden()
@@ -245,8 +296,8 @@ _klarheit = cp.ElementwiseKernel(
 _kurven_farbe = cp.ElementwiseKernel(
     "raw float32 quelle, raw float32 tabellen, int32 n, int32 hell, int32 rot, int32 gruen, "
     "int32 blau, int32 farbig, float32 saettigung, float32 dynamik, int32 hsl_an, "
-    "raw float32 hsl, int32 lut_an, raw float32 lut, int32 lut_n, raw float32 lut_bereich, "
-    "float32 lut_staerke",
+    "raw float32 hsl, int32 sw_an, raw float32 sw_mischer, int32 ton_an, raw float32 ton, "
+    "int32 lut_an, raw float32 lut, int32 lut_n, raw float32 lut_bereich, float32 lut_staerke",
     "raw float32 ziel",
     r"""
     float r = quelle[3 * i], g = quelle[3 * i + 1], b = quelle[3 * i + 2];
@@ -288,6 +339,12 @@ _kurven_farbe = cp.ElementwiseKernel(
         }
         faktor = fmaxf(faktor, 0.0f);
         r = y + (r - y) * faktor; g = y + (g - y) * faktor; b = y + (b - y) * faktor;
+    }
+    if (sw_an) {
+        schwarzweiss(r, g, b, &sw_mischer[0]);
+    }
+    if (ton_an) {
+        teiltonung(r, g, b, &ton[0]);
     }
     if (lut_an) {
         lut_anwenden(r, g, b, &lut[0], lut_n, &lut_bereich[0], lut_staerke);
@@ -544,7 +601,8 @@ def anwenden_ausgabe(rgb_linear, werte: f.Einstellungen, massstab: float = 1.0,
 
     tabellen = f.kurven_tabellen(werte)
     farbig = int(werte.dynamik != 0 or werte.saettigung != 0)
-    if tabellen or farbig or werte.hsl_aktiv() or werte.lut_aktiv():
+    if (tabellen or farbig or werte.hsl_aktiv() or werte.sw or werte.tonung_aktiv()
+            or werte.lut_aktiv()):
         alle = np.concatenate([tabellen.get(name, kurven.tabelle(kurven.IDENTITAET))
                                for name in f.KURVEN])
         hsl = np.concatenate([werte.hsl_farbton, werte.hsl_saettigung, werte.hsl_luminanz])
@@ -558,6 +616,8 @@ def anwenden_ausgabe(rgb_linear, werte: f.Einstellungen, massstab: float = 1.0,
                       *(cp.int32(name in tabellen) for name in f.KURVEN), cp.int32(farbig),
                       cp.float32(werte.saettigung / 100), cp.float32(werte.dynamik / 100),
                       cp.int32(werte.hsl_aktiv()), cp.asarray(hsl, dtype=cp.float32),
+                      cp.int32(werte.sw), cp.asarray(werte.sw_mischer, dtype=cp.float32),
+                      cp.int32(werte.tonung_aktiv()), cp.asarray(f.tonung_werte(werte)),
                       cp.int32(werte.lut_aktiv()), lut_daten, cp.int32(lut_n),
                       cp.asarray(bereich, dtype=cp.float32),
                       cp.float32(werte.lut_staerke / 100), zwischen, size=pixel)

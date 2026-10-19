@@ -29,6 +29,7 @@ def gruppen_titel(gruppe: str) -> str:
         "grundregler": _("Grundregler"),
         "kurven": _("Gradationskurve"),
         "hsl": _("Farbbereiche"),
+        "schwarzweiss": _("Schwarzweiß & Tönung"),
         "lut": _("LUT"),
         "rauschen": _("Rauschminderung"),
         "film": _("Scan & Film"),

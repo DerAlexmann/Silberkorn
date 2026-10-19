@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import math
 import os
 import random
 import time
@@ -155,6 +156,27 @@ def farbbereich_titel(nummer: int) -> str:
 # Farbton, Saettigung oder Luminanz desselben Bereichs
 HSL_REGLER = tuple(filter.Regler(f"hsl_{i}", "hsl", -100, 100)
                    for i in range(len(filter.FARBBEREICHE)))
+# Regler des Schwarzweiss-Mischers: wie hell jeder Farbbereich als Grau wird
+SW_REGLER = tuple(filter.Regler(f"sw_{i}", "schwarzweiss", -100, 100)
+                  for i in range(len(filter.FARBBEREICHE)))
+
+
+def sw_filter_titel(name: str) -> str:
+    return {"rot": _("Rotfilter"), "orange": _("Orangefilter"), "gelb": _("Gelbfilter"),
+            "gruen": _("Grünfilter"), "blau": _("Blaufilter")}[name]
+
+
+def tonung_titel(name: str) -> str:
+    return {"sepia": _("Sepia"), "selen": _("Selen"), "cyanotypie": _("Cyanotypie"),
+            "warm_kalt": _("Lichter warm, Schatten kalt")}[name]
+
+
+def farbton_farbe(winkel: float) -> str:
+    """Eine mittelhelle, bunte Farbe zum Farbton (OkLCh-Winkel) als #rrggbb."""
+    bogen = math.radians(winkel)
+    lab = np.array([[[0.72, 0.12 * math.cos(bogen), 0.12 * math.sin(bogen)]]], dtype=np.float32)
+    rgb = filter.linear_zu_srgb(np.clip(filter.von_oklab(lab), 0, 1))[0, 0]
+    return "#" + "".join(f"{round(float(k) * 255):02x}" for k in rgb)
 
 
 def regler_titel(name: str) -> str:
@@ -195,7 +217,13 @@ def regler_titel(name: str) -> str:
         "bokeh": _("Unschärfe"),
         "fokus": _("Fokus (fern – nah)"),
         "schaerfentiefe": _("Schärfentiefe"),
-    }[name] if not name.startswith("hsl_") else farbbereich_titel(int(name[4:]))
+        "ton_lichter_farbton": _("Lichter: Farbton"),
+        "ton_lichter_saettigung": _("Lichter: Sättigung"),
+        "ton_schatten_farbton": _("Schatten: Farbton"),
+        "ton_schatten_saettigung": _("Schatten: Sättigung"),
+        "ton_balance": _("Balance"),
+    }[name] if not name.startswith(("hsl_", "sw_")) else farbbereich_titel(
+        int(name.split("_")[1]))
 
 
 def speicherformate() -> list[tuple[str, str, int]]:
@@ -287,8 +315,10 @@ def wert_anzeige(regler: filter.Regler, wert: float) -> str:
     elif regler.name in ("lut_staerke", "ki_entrauschen", "ki_rauschen", "ki_schaerfe",
                          "ki_farbe"):
         text += " %"
-    elif regler.name == "begradigen":
+    elif regler.name in ("begradigen", "ton_lichter_farbton", "ton_schatten_farbton"):
         text += "°"
+    elif regler.name in ("ton_lichter_saettigung", "ton_schatten_saettigung"):
+        text += " %"
     return text
 
 
@@ -353,15 +383,32 @@ class ReglerZeile:
         self.schieber.blockSignals(True)
         self.schieber.setValue(stufe)
         self.schieber.blockSignals(False)
-        self.anzeige.setText(wert_anzeige(self.regler, self.wert()))
+        self._anzeigen()
 
     def zuruecksetzen(self):
         self.setzen(self.regler.vorgabe)
         self._bewegt()
 
-    def _bewegt(self, *_args):
+    def _anzeigen(self):
         self.anzeige.setText(wert_anzeige(self.regler, self.wert()))
+
+    def _bewegt(self, *_args):
+        self._anzeigen()
         self.seite.wert_geaendert(self.regler.name, self.wert())
+
+
+class FarbtonZeile(ReglerZeile):
+    """Ein Farbtonregler, der die Farbe als Feld vor dem Wert zeigt."""
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.anzeige.setTextFormat(Qt.TextFormat.RichText)
+        self._anzeigen()
+
+    def _anzeigen(self):
+        # Nur Zahlen und eine selbst berechnete Farbe - nichts von aussen im Rich Text
+        self.anzeige.setText(f'<span style="color:{farbton_farbe(self.wert())}">■</span> '
+                             f"{wert_anzeige(self.regler, self.wert())}")
 
 
 class BearbeitenSeite(QWidget):
@@ -524,6 +571,8 @@ class BearbeitenSeite(QWidget):
         karten: dict[str, QFrame] = {}
         zaehler: dict[str, int] = {}
         for regler in filter.REGLER:
+            if regler.gruppe == "tonung":
+                continue                    # steht auf der Karte Schwarzweiß & Tönung
             if regler.gruppe not in gruppen:
                 karte, innen = self._karte(gruppen_titel(regler.gruppe))
                 if regler.gruppe == "lut":
@@ -559,6 +608,7 @@ class BearbeitenSeite(QWidget):
         # Gradationskurve hinter die Tonwerte, Farbbereiche hinter Dynamik und Saettigung
         spalte.insertWidget(spalte.indexOf(karten["licht"]) + 1, self._kurvenkarte())
         spalte.insertWidget(spalte.indexOf(karten["farbe"]) + 1, self._hsl_karte())
+        spalte.insertWidget(spalte.indexOf(karten["farbe"]) + 2, self._sw_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 1, self._entfern_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 2, self._anonym_karte())
         spalte.insertWidget(spalte.indexOf(karten["maske"]) + 3, self._metadaten_karte())
@@ -2909,6 +2959,109 @@ class BearbeitenSeite(QWidget):
         for zeile, wert in zip(self.hsl_zeilen, werte, strict=True):
             zeile.setzen(wert)
 
+    def _sw_karte(self) -> QFrame:
+        """Schwarzweiss mit Mischer je Farbbereich, darunter die Teiltonung."""
+        karte, innen = self._karte(_("Schwarzweiß & Tönung"))
+        self.sw_box = QCheckBox()
+        self.fenster.beschriften(self.sw_box.setText, _("In Schwarzweiß umwandeln"))
+        self.fenster.beschriften(self.sw_box.setToolTip, _(
+            "Die Regler darunter bestimmen, wie hell jede Farbe als Grau wird – wie ein "
+            "Farbfilter vor dem Objektiv bei Schwarzweißfilm."))
+        self.sw_box.toggled.connect(lambda an: self.wert_geaendert("sw", an))
+        innen.addWidget(self.sw_box)
+        self.sw_filter_wahl = QComboBox()
+        self.fenster.beschriften(self.sw_filter_wahl.setPlaceholderText, _("Eigene Mischung"))
+        self.fenster.beschriften(self.sw_filter_wahl.setToolTip, _(
+            "Mischung wie ein klassischer Farbfilter: Rot und Orange dunkeln den Himmel ab, "
+            "Grün hellt Laub auf."))
+        self._eintrag(self.sw_filter_wahl, _("Ohne Filter"), "")
+        for name in filter.SW_FILTER:
+            self._eintrag(self.sw_filter_wahl, sw_filter_titel(name), name)
+        self.sw_filter_wahl.activated.connect(self._sw_filter_gewaehlt)
+        innen.addWidget(self.sw_filter_wahl)
+        gitter = QGridLayout()
+        gitter.setVerticalSpacing(2)
+        gitter.setColumnStretch(0, 1)
+        innen.addLayout(gitter)
+        self.sw_zeilen = [ReglerZeile(self, regler, gitter, 2 * i)
+                          for i, regler in enumerate(SW_REGLER)]
+
+        titel = QLabel(objectName="kartentitel")
+        self.fenster.beschriften(titel.setText, _("Teiltonung"))
+        innen.addSpacing(8)
+        innen.addWidget(titel)
+        self.ton_vorlage_wahl = QComboBox()
+        self.fenster.beschriften(self.ton_vorlage_wahl.setPlaceholderText, _("Eigene Tönung"))
+        self.fenster.beschriften(self.ton_vorlage_wahl.setToolTip, _(
+            "Lichter und Schatten getrennt einfärben – auf Schwarzweiß wie im Labor getönt, "
+            "auf Farbbildern als Farblook."))
+        self._eintrag(self.ton_vorlage_wahl, _("Ohne Tönung"), "")
+        for name in filter.TONUNG_VORLAGEN:
+            self._eintrag(self.ton_vorlage_wahl, tonung_titel(name), name)
+        self.ton_vorlage_wahl.activated.connect(self._ton_vorlage_gewaehlt)
+        innen.addWidget(self.ton_vorlage_wahl)
+        gitter = QGridLayout()
+        gitter.setVerticalSpacing(2)
+        gitter.setColumnStretch(0, 1)
+        innen.addLayout(gitter)
+        for nummer, name in enumerate(filter.TONUNG):
+            art = FarbtonZeile if name.endswith("_farbton") else ReglerZeile
+            self.zeilen[name] = art(self, filter.REGLER_NACH_NAME[name], gitter, 2 * nummer)
+        return karte
+
+    def _sw_anzeigen(self):
+        """Schalter, Mischer und Vorlagen auf die Werte der Sitzung setzen."""
+        offen = self.sitzung is not None
+        werte = self.sitzung.werte if offen else filter.Einstellungen()
+        if self.sw_box.isChecked() != werte.sw:
+            self.sw_box.blockSignals(True)
+            self.sw_box.setChecked(werte.sw)
+            self.sw_box.blockSignals(False)
+        self.sw_box.setEnabled(offen)
+        for zeile, wert in zip(self.sw_zeilen, werte.sw_mischer, strict=True):
+            zeile.setzen(wert)
+            zeile.schieber.setEnabled(offen and werte.sw)
+        self.sw_filter_wahl.setEnabled(offen and werte.sw)
+        filtername = next((name for name, mischung in filter.SW_FILTER.items()
+                           if mischung == tuple(werte.sw_mischer)),
+                          "" if not any(werte.sw_mischer) else None)
+        self.sw_filter_wahl.setCurrentIndex(self.sw_filter_wahl.findData(filtername)
+                                            if filtername is not None else -1)
+        ton = tuple(getattr(werte, name) for name in filter.TONUNG)
+        vorlage = next((name for name, vorgabe in filter.TONUNG_VORLAGEN.items()
+                        if vorgabe == ton), "" if not werte.tonung_aktiv() else None)
+        self.ton_vorlage_wahl.setCurrentIndex(self.ton_vorlage_wahl.findData(vorlage)
+                                              if vorlage is not None else -1)
+        self.ton_vorlage_wahl.setEnabled(offen)
+
+    def _sw_filter_gewaehlt(self, nummer: int):
+        if self.sitzung is None:
+            return
+        name = self.sw_filter_wahl.itemData(nummer)
+        self._festhalten(sofort=True)             # eine eben gemachte Aenderung zuerst
+        self._schritt_name = "sw_filter"
+        self.sitzung.werte.sw_mischer = filter.SW_FILTER.get(name, filter.HSL_NEUTRAL)
+        self._sw_anzeigen()
+        self.zeichnen_anfordern()
+
+    def _ton_vorlage_gewaehlt(self, nummer: int):
+        if self.sitzung is None:
+            return
+        name = self.ton_vorlage_wahl.itemData(nummer)
+        self._festhalten(sofort=True)             # eine eben gemachte Aenderung zuerst
+        self._schritt_name = "ton_vorlage"
+        werte = self.sitzung.werte
+        if name:
+            for feld, wert in zip(filter.TONUNG, filter.TONUNG_VORLAGEN[name], strict=True):
+                setattr(werte, feld, wert)
+        else:
+            werte.ton_lichter_saettigung = werte.ton_schatten_saettigung = 0.0
+            werte.ton_balance = 0.0
+        for feld in filter.TONUNG:
+            self.zeilen[feld].setzen(getattr(werte, feld))
+        self._sw_anzeigen()
+        self.zeichnen_anfordern()
+
     def _lut_bedienung(self, innen: QVBoxLayout):
         self.lut_name = QLabel(objectName="nebentext")
         self.lut_name.setWordWrap(True)
@@ -2989,6 +3142,7 @@ class BearbeitenSeite(QWidget):
             zeile.schieber.setEnabled(offen)
         for knopf in self._hsl_knoepfe.values():
             knopf.setEnabled(offen)
+        self._sw_anzeigen()
         self.kurven.setEnabled(offen)
         self.lut_knopf.setEnabled(offen)
         self._ki_anzeigen()
@@ -3016,7 +3170,13 @@ class BearbeitenSeite(QWidget):
             werte = list(getattr(self.sitzung.werte, self.hsl_modus))
             werte[int(name[4:])] = wert
             name, wert = self.hsl_modus, tuple(werte)
+        elif name.startswith("sw_") and name[3:].isdigit():
+            werte = list(self.sitzung.werte.sw_mischer)
+            werte[int(name[3:])] = wert
+            name, wert = "sw_mischer", tuple(werte)
         setattr(self.sitzung.werte, name, wert)
+        if name in ("sw", "sw_mischer") or name in filter.TONUNG:
+            self._sw_anzeigen()                   # Mischer frei? Passt die Vorlage noch?
         self.zeichnen_anfordern()
 
     def zeichnen_anfordern(self):
@@ -3098,6 +3258,7 @@ class BearbeitenSeite(QWidget):
             zeile.setzen(getattr(werte, name))
         self.kurven.alle_setzen({name: getattr(werte, name) for name in filter.KURVEN})
         self._hsl_anzeigen()
+        self._sw_anzeigen()
         self._lut_anzeigen()
         self._ki_bild_anzeigen()
         self._film_anzeigen()
@@ -3222,6 +3383,10 @@ class BearbeitenSeite(QWidget):
             return _("Voreinstellung")
         if name == "einfuegen":
             return _("Einstellungen eingefügt")
+        if name == "sw_filter":
+            return _("Schwarzweiß-Filter")
+        if name == "ton_vorlage":
+            return _("Tönungsvorlage")
         teile = dict(vorher.teile), dict(nachher.teile)
         felder = verlauf.unterschied(vorher, nachher)
         # Eine KI-Berechnung sagt mehr als der Regler, den sie dabei mitstellt - das
@@ -3250,6 +3415,8 @@ class BearbeitenSeite(QWidget):
             if regler.gruppe in ("rauschen", "ki_rauschen", "ki_schaerfe", "ki_farbe", "maske",
                                  "tiefe", "lut"):
                 titel = f"{gruppen_titel(regler.gruppe)}: {titel}"
+            elif regler.gruppe == "tonung":
+                titel = f"{_('Teiltonung')} – {titel}"
             return titel, regler.gruppe
         if feld == "staub":
             return (_("Staub entfernt") if teile_nachher[feld] is not None else
@@ -3265,11 +3432,13 @@ class BearbeitenSeite(QWidget):
                   "bokeh_motiv": "tiefe", "erweiterung": "geometrie",
                   **dict.fromkeys(filter.KURVEN, "kurven"),
                   **dict.fromkeys(filter.HSL, "hsl"),
+                  **dict.fromkeys(filter.SW_FELDER, "sw"),
                   **dict.fromkeys(filter.ANONYM_FELDER, "anonym"),
                   **dict.fromkeys(filter.FILM_FELDER, "film")}.get(feld, feld)
         if gruppe in ("ki_rauschen", "ki_schaerfe", "ki_farbe", "maske", "tiefe"):
             return gruppen_titel(gruppe), gruppe
         texte = {"kurven": _("Gradationskurve"), "hsl": _("Farbbereiche"), "lut": _("LUT"),
+                 "sw": _("Schwarzweiß"),
                  "anonym": _("Anonymisieren"), "angaben": _("Metadaten"),
                  "film": _("Scan & Film"),
                  "drehung90": _("Drehen"), "spiegeln": _("Spiegeln"),

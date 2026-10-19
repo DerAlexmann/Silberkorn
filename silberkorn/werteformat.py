@@ -39,9 +39,10 @@ FILM_MASKE_BEREICH = (film.KLEINSTE, 16.0)
 FILM_UMFANG_BEREICH = (-10.0, 10.0)
 
 # Felder, die nicht einfach Zahl oder Schalter sind - jedes hat unten seinen eigenen Leser
-_SCHALTER = ("spiegeln", "maske_umkehren", "freistellen", "bokeh_motiv", "metadaten_entfernen")
-_BESONDERE = ("film", "film_maske", "film_umfang", *filter.KURVEN, *filter.HSL, "lut",
-              "drehung90", "zuschnitt", "objektivprofil", "anonym_flaechen", "anonym_art",
+_SCHALTER = ("spiegeln", "maske_umkehren", "freistellen", "bokeh_motiv", "metadaten_entfernen",
+             "sw")
+_BESONDERE = ("film", "film_maske", "film_umfang", *filter.KURVEN, *filter.HSL, "sw_mischer",
+              "lut", "drehung90", "zuschnitt", "objektivprofil", "anonym_flaechen", "anonym_art",
               "anonym_bloecke", "angaben")
 
 
@@ -196,7 +197,7 @@ def _feld_lesen(name: str, wert):
         return wert if isinstance(wert, bool) else None
     if name in filter.KURVEN:
         return _kurve(wert)
-    if name in filter.HSL:
+    if name in filter.HSL or name == "sw_mischer":
         return _zahlen(wert, (len(filter.FARBBEREICHE),), -100.0, 100.0)
     if name == "film":
         return wert if isinstance(wert, str) and wert in film.ARTEN else None

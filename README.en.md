@@ -63,6 +63,12 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 - **Colour ranges (HSL)**: hue, saturation and luminance separately for red, orange,
   yellow, green, aqua, blue, purple and magenta. Computed in the perceptually uniform
   OkLCh colour space with soft transitions between the ranges; greys stay untouched.
+- **Black & white & toning**: convert to black and white with a mixer for the same eight
+  colour ranges – how bright does each colour turn out as grey? Presets act like classic
+  colour filters in front of the lens (red, orange, yellow, green, blue). Plus **split
+  toning**: tint highlights and shadows separately, with a balance – toned as in the
+  darkroom on black and white (presets sepia, selenium, cyanotype), a colour look on
+  colour images. Brightness is kept; white and black stay neutral.
 - **LUTs**: load looks as `.cube` files (3D and 1D), tetrahedral interpolation, with a
   strength slider.
 - **Noise reduction**: luminance noise with non-local means, colour noise with a
@@ -206,8 +212,8 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   at a time, cancellable; an error only affects its own image, and a report follows at
   the end.
 - **Presets**: save settings under a name and apply them to other images – choosing
-  what to include: basic adjustments, curves, colour ranges, LUT, noise reduction and
-  film are preselected; geometry, anonymisation and metadata usually belong to one image
+  what to include: basic adjustments, curves, colour ranges, black & white & toning,
+  LUT, noise reduction and film are preselected; geometry, anonymisation and metadata usually belong to one image
   only. For film, optionally with the measured film base for images from the same strip;
   otherwise it is estimated anew for each image. `Ctrl`+`Shift`+`C` / `V` copy settings
   straight from one image to the next. Presets are stored as JSON in the `voreinstellungen`
