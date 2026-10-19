@@ -180,6 +180,47 @@ def test_rueckgaengig_und_wiederholen(fenster, tmp_path, monkeypatch):
         seite._knoepfe_freischalten()
 
 
+def test_schwarzweiss_und_toenung(fenster, tmp_path, monkeypatch):
+    """Schalter, Filter- und Tönungsvorlagen wirken aufs Bild, sind je ein Schritt und
+    lassen sich zuruecknehmen."""
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen
+    from silberkorn import filter as f
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "bild.png")
+    Image.new("RGB", (64, 48), (200, 60, 40)).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert seite.sw_box.isEnabled() and not seite.sw_filter_wahl.isEnabled()
+        assert not seite.sw_zeilen[0].schieber.isEnabled()
+        seite.sw_box.setChecked(True)
+        assert seite.sitzung.werte.sw and seite.sw_zeilen[0].schieber.isEnabled()
+        bild, _ms, _h = seite.sitzung.vorschau()
+        bild = np.asarray(bild).astype(int)
+        assert np.abs(bild[..., 0] - bild[..., 2]).max() <= 1          # grau
+
+        seite.sw_filter_wahl.activated.emit(seite.sw_filter_wahl.findData("rot"))
+        assert seite.sitzung.werte.sw_mischer == f.SW_FILTER["rot"]
+        seite.sw_zeilen[0].schieber.setValue(seite.sw_zeilen[0].schieber.value() + 10)
+        assert seite.sw_filter_wahl.currentIndex() == -1             # eigene Mischung
+
+        seite.ton_vorlage_wahl.activated.emit(seite.ton_vorlage_wahl.findData("sepia"))
+        assert tuple(getattr(seite.sitzung.werte, n) for n in f.TONUNG) \
+            == f.TONUNG_VORLAGEN["sepia"]
+        assert seite.zeilen["ton_schatten_saettigung"].wert() == 35
+        seite._festhalten(sofort=True)
+        assert "Tönungsvorlage" in seite.rueckgaengig_knopf.toolTip()
+        seite.rueckgaengig()
+        assert not seite.sitzung.werte.tonung_aktiv()
+        assert seite.ton_vorlage_wahl.currentData() == ""
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
 def test_kartenwahl_springt_und_laeuft_mit(fenster):
     """Die Auswahl ueber den Karten nennt jede Karte, springt zu ihr und zeigt beim Rollen
     die oberste. Leinwand und erste Karte beginnen auf derselben Hoehe."""

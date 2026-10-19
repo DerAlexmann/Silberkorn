@@ -3,6 +3,18 @@
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Neu
+
+- **Schwarzweiß & Tönung** (neue Karte hinter den Farbbereichen): Schwarzweiß
+  mit einem Mischer für die acht Farbbereiche und Vorlagen wie klassische
+  Farbfilter (Rot, Orange, Gelb, Grün, Blau); Teiltonung für Lichter und
+  Schatten mit Balance und den Vorlagen Sepia, Selen, Cyanotypie und „Lichter
+  warm, Schatten kalt“. Gerechnet in OkLab auf der Grafikkarte im selben
+  Durchlauf wie Kurven und Farbbereiche; gilt für Rückgängig, Begleitdatei,
+  Voreinstellungen und Stapel.
+
 ## [0.9.0] – 2026-10-17
 
 ### Neu
@@ -497,6 +509,7 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Rechengenauigkeit (FP16, FP8 ab Ada, FP4 ab Blackwell).
 - Programmsymbol, Marken- und Lizenzhinweise (NOTICE).
 
+[Unveröffentlicht]: https://github.com/DerAlexmann/Silberkorn/compare/v0.9.0...HEAD
 [0.9.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.9.0
 [0.8.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.8.0
 [0.7.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.7.0

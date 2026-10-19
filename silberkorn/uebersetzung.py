@@ -395,6 +395,42 @@ TRANSLATIONS = {
         "gespeicherte Bild.":
             "The preview is scaled down and shows less noise than the saved image.",
         "Farbbereiche": "Colour ranges",
+        "Schwarzweiß & Tönung": "Black & white & toning",
+        "In Schwarzweiß umwandeln": "Convert to black & white",
+        "Die Regler darunter bestimmen, wie hell jede Farbe als Grau wird – wie ein "
+        "Farbfilter vor dem Objektiv bei Schwarzweißfilm.":
+            "The sliders below set how bright each colour turns out as grey – like a colour "
+            "filter in front of the lens with black-and-white film.",
+        "Eigene Mischung": "Custom mix",
+        "Mischung wie ein klassischer Farbfilter: Rot und Orange dunkeln den Himmel ab, "
+        "Grün hellt Laub auf.":
+            "Mix like a classic colour filter: red and orange darken the sky, green "
+            "brightens foliage.",
+        "Ohne Filter": "No filter",
+        "Rotfilter": "Red filter",
+        "Orangefilter": "Orange filter",
+        "Gelbfilter": "Yellow filter",
+        "Grünfilter": "Green filter",
+        "Blaufilter": "Blue filter",
+        "Teiltonung": "Split toning",
+        "Eigene Tönung": "Custom toning",
+        "Lichter und Schatten getrennt einfärben – auf Schwarzweiß wie im Labor getönt, "
+        "auf Farbbildern als Farblook.":
+            "Tint highlights and shadows separately – toned as in the darkroom on black and "
+            "white, a colour look on colour images.",
+        "Ohne Tönung": "No toning",
+        "Sepia": "Sepia",
+        "Selen": "Selenium",
+        "Cyanotypie": "Cyanotype",
+        "Lichter warm, Schatten kalt": "Warm highlights, cool shadows",
+        "Lichter: Farbton": "Highlights: hue",
+        "Lichter: Sättigung": "Highlights: saturation",
+        "Schatten: Farbton": "Shadows: hue",
+        "Schatten: Sättigung": "Shadows: saturation",
+        "Balance": "Balance",
+        "Schwarzweiß-Filter": "Black & white filter",
+        "Tönungsvorlage": "Toning preset",
+        "Schwarzweiß": "Black & white",
         "Farbton": "Hue",
         "Rot": "Red",
         "Orange": "Orange",

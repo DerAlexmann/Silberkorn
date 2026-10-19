@@ -67,6 +67,13 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Orange, Gelb, Grün, Aqua, Blau, Lila und Magenta. Gerechnet wird im
   wahrnehmungsgleichmäßigen Farbraum OkLCh, mit weichen Übergängen zwischen den
   Bereichen; Grautöne bleiben unberührt.
+- **Schwarzweiß & Tönung**: Umwandeln in Schwarzweiß mit einem Mischer für
+  dieselben acht Farbbereiche – wie hell wird jede Farbe als Grau? Vorlagen
+  wirken wie klassische Farbfilter vor dem Objektiv (Rot, Orange, Gelb, Grün,
+  Blau). Dazu eine **Teiltonung**: Lichter und Schatten getrennt einfärben, mit
+  Balance – auf Schwarzweiß wie im Labor getönt (Vorlagen Sepia, Selen,
+  Cyanotypie), auf Farbbildern als Farblook. Die Helligkeit bleibt dabei, Weiß
+  und Schwarz bleiben neutral.
 - **LUTs**: Looks als `.cube`-Datei (3D und 1D) laden, tetraedrisch
   interpoliert, mit Stärkeregler.
 - **Rauschminderung**: Luminanzrauschen mit Non-Local Means, Farbrauschen mit
@@ -236,7 +243,7 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   betrifft nur sein Bild, am Ende steht ein Bericht.
 - **Voreinstellungen**: Einstellungen unter einem Namen sichern und auf andere
   Bilder legen – mit Auswahl, was mitgeht: Grundregler, Kurven, Farbbereiche,
-  LUT, Rauschminderung und Film sind vorgewählt, Geometrie, Anonymisieren und
+  Schwarzweiß & Tönung, LUT, Rauschminderung und Film sind vorgewählt, Geometrie, Anonymisieren und
   Metadaten gehören meist nur zu einem Bild. Beim Film wahlweise mit der
   gemessenen Filmmaske, für Bilder vom selben Streifen, sonst wird sie je Bild
   neu geschätzt. Mit `Strg`+`Umschalt`+`C` / `V` gehen Einstellungen direkt von

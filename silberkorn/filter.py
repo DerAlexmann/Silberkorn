@@ -109,6 +109,12 @@ REGLER = (
     Regler("ca_rot", "objektiv", -100, 100),
     Regler("ca_blau", "objektiv", -100, 100),
     Regler("lut_staerke", "lut", 0, 100, vorgabe=100),
+    # Teiltonung (Karte „Schwarzweiß & Tönung“): Farbton als Winkel in OkLCh
+    Regler("ton_lichter_farbton", "tonung", 0, 360, vorgabe=70),
+    Regler("ton_lichter_saettigung", "tonung", 0, 100),
+    Regler("ton_schatten_farbton", "tonung", 0, 360, vorgabe=240),
+    Regler("ton_schatten_saettigung", "tonung", 0, 100),
+    Regler("ton_balance", "tonung", -100, 100),
 )
 
 # Geometriefelder ohne Schieberegler, mit ihren Vorgaben
@@ -132,6 +138,26 @@ FARBBEREICHE = ("rot", "orange", "gelb", "gruen", "aqua", "blau", "lila", "magen
 FARBBEREICH_MITTE = (29.0, 55.0, 105.0, 142.0, 195.0, 264.0, 300.0, 330.0)
 HSL = ("hsl_farbton", "hsl_saettigung", "hsl_luminanz")
 HSL_NEUTRAL = (0.0,) * len(FARBBEREICHE)
+# Schwarzweiss: an/aus und je Farbbereich, wie hell er als Grau wird (-100..100)
+SW_FELDER = {"sw": False, "sw_mischer": HSL_NEUTRAL}
+TONUNG = ("ton_lichter_farbton", "ton_lichter_saettigung", "ton_schatten_farbton",
+          "ton_schatten_saettigung", "ton_balance")
+# Vorlagen fuer den Mischer wie klassische Farbfilter vor dem Objektiv - Werte fuer
+# Rot, Orange, Gelb, Gruen, Aqua, Blau, Lila, Magenta
+SW_FILTER = {
+    "rot": (60.0, 50.0, 30.0, -20.0, -50.0, -60.0, -30.0, 30.0),
+    "orange": (40.0, 50.0, 40.0, -10.0, -40.0, -50.0, -30.0, 10.0),
+    "gelb": (20.0, 30.0, 40.0, 10.0, -20.0, -40.0, -20.0, 0.0),
+    "gruen": (-30.0, -10.0, 20.0, 50.0, 20.0, -20.0, -30.0, -30.0),
+    "blau": (-40.0, -30.0, -30.0, -10.0, 30.0, 50.0, 30.0, 0.0),
+}
+# Vorlagen fuer die Teiltonung - Werte der Felder in TONUNG
+TONUNG_VORLAGEN = {
+    "sepia": (75.0, 20.0, 55.0, 35.0, 0.0),
+    "selen": (70.0, 0.0, 345.0, 18.0, -20.0),
+    "cyanotypie": (240.0, 30.0, 250.0, 55.0, 0.0),
+    "warm_kalt": (70.0, 25.0, 240.0, 25.0, 0.0),
+}
 REGLER_NACH_NAME = {r.name: r for r in REGLER}
 
 
@@ -163,6 +189,14 @@ class Einstellungen:
     hsl_farbton: tuple[float, ...] = HSL_NEUTRAL
     hsl_saettigung: tuple[float, ...] = HSL_NEUTRAL
     hsl_luminanz: tuple[float, ...] = HSL_NEUTRAL
+    # Schwarzweiss und Teiltonung - nach HSL und Saettigung, vor der LUT
+    sw: bool = False
+    sw_mischer: tuple[float, ...] = HSL_NEUTRAL
+    ton_lichter_farbton: float = 70.0
+    ton_lichter_saettigung: float = 0.0
+    ton_schatten_farbton: float = 240.0
+    ton_schatten_saettigung: float = 0.0
+    ton_balance: float = 0.0
     # Pfad einer .cube-Datei; leer heisst keine LUT
     lut: str = ""
     rauschen_luminanz: float = 0.0
@@ -234,13 +268,20 @@ class Einstellungen:
             elif feld.name in FILM_FELDER:
                 if wert != FILM_FELDER[feld.name]:
                     return False
-            elif feld.name not in ("schaerfe_radius", "lut_staerke", "fokus", "schaerfentiefe") \
+            elif feld.name in SW_FELDER:
+                if wert != SW_FELDER[feld.name]:
+                    return False
+            elif feld.name not in ("schaerfe_radius", "lut_staerke", "fokus", "schaerfentiefe",
+                                   "ton_lichter_farbton", "ton_schatten_farbton") \
                     and wert != REGLER_NACH_NAME[feld.name].vorgabe:
                 return False
         return True
 
     def hsl_aktiv(self) -> bool:
         return any(any(getattr(self, name)) for name in HSL)
+
+    def tonung_aktiv(self) -> bool:
+        return self.ton_lichter_saettigung > 0 or self.ton_schatten_saettigung > 0
 
     def lut_aktiv(self) -> bool:
         return bool(self.lut) and self.lut_staerke > 0
@@ -767,6 +808,69 @@ def hsl(rgb, werte: Einstellungen):
 
 
 # --------------------------------------------------------------------------
+# Schwarzweiss und Teiltonung - ebenfalls in OkLab
+# --------------------------------------------------------------------------
+
+SW_MISCHER = 0.5             # Mischer +-100 aendert die Helligkeit eines bunten Bereichs um 50 %
+TON_CHROMA = 0.1             # Saettigung 100 toent mit dieser Buntheit (OkLab-Chroma)
+TON_UEBERGANG = 0.35         # halbe Breite des Uebergangs von Schatten zu Lichtern (OkLab-L)
+TON_BALANCE = 0.3            # Balance +-100 verschiebt die Grenze um so viel
+TON_RAND = 0.15              # so nah an Schwarz und Weiss laeuft die Toenung aus
+
+
+def schwarzweiss(rgb, werte: Einstellungen):
+    """Grau mit der OkLab-Helligkeit; der Mischer hellt oder dunkelt jeden Farbbereich ab.
+
+    Grau bleibt, wie es ist - der Mischer wirkt erst mit der Buntheit eines Pixels
+    (wie bei HSL), so verstaerkt er kein Rauschen in grauen Flaechen.
+    """
+    if not werte.sw:
+        return rgb
+    xp = xp_von(rgb)
+    lab = nach_oklab(rgb)
+    hell, a, b = lab[..., 0], lab[..., 1], lab[..., 2]
+    chroma = xp.sqrt(a * a + b * b)
+    winkel = xp.degrees(xp.arctan2(b, a)) % 360.0
+    summe = (bereichsgewichte(winkel) * xp.asarray(werte.sw_mischer, dtype=xp.float32)) \
+        .sum(axis=-1) * xp.float32(SW_MISCHER / 100)
+    buntheit = xp.clip(chroma / HSL_CHROMA_VOLL, 0, 1)
+    hell = hell * xp.maximum(1 + summe * buntheit, 0)
+    grau = hell * hell * hell
+    return xp.repeat(grau[..., None], 3, axis=-1).astype(xp.float32)
+
+
+def tonung_werte(werte: Einstellungen) -> np.ndarray:
+    """Die Teiltonung als (a, b) fuer Schatten und Lichter und die Grenze dazwischen -
+    so rechnen Referenz und Grafikkarte mit denselben Zahlen."""
+    def richtung(farbton, saettigung):
+        winkel = math.radians(farbton)
+        return (saettigung / 100 * TON_CHROMA * math.cos(winkel),
+                saettigung / 100 * TON_CHROMA * math.sin(winkel))
+    return np.array([*richtung(werte.ton_schatten_farbton, werte.ton_schatten_saettigung),
+                     *richtung(werte.ton_lichter_farbton, werte.ton_lichter_saettigung),
+                     0.5 - werte.ton_balance / 100 * TON_BALANCE], dtype=np.float32)
+
+
+def teiltonung(rgb, werte: Einstellungen):
+    """Schatten und Lichter getrennt einfaerben, die OkLab-Helligkeit bleibt.
+
+    Positive Balance laesst die Farbe der Lichter weiter in die Schatten reichen.
+    """
+    if not werte.tonung_aktiv():
+        return rgb
+    xp = xp_von(rgb)
+    ton = tonung_werte(werte)
+    lab = nach_oklab(rgb)
+    hell = lab[..., 0]
+    licht = _glatt(xp, ton[4] - TON_UEBERGANG, ton[4] + TON_UEBERGANG, hell)
+    huelle = xp.clip(hell / TON_RAND, 0, 1) * xp.clip((1 - hell) / TON_RAND, 0, 1)
+    da = ((1 - licht) * ton[0] + licht * ton[2]) * huelle
+    db = ((1 - licht) * ton[1] + licht * ton[3]) * huelle
+    lab_neu = xp.stack([hell, lab[..., 1] + da, lab[..., 2] + db], axis=-1)
+    return von_oklab(lab_neu).astype(xp.float32)
+
+
+# --------------------------------------------------------------------------
 # LUT
 # --------------------------------------------------------------------------
 
@@ -918,6 +1022,8 @@ def anwenden(rgb_linear, werte: Einstellungen, massstab: float = 1.0):
     bild = gradation(bild, werte)
     bild = hsl(bild, werte)
     bild = farbe(bild, werte.dynamik, werte.saettigung)
+    bild = schwarzweiss(bild, werte)
+    bild = teiltonung(bild, werte)
     bild = lut_anwenden(bild, werte)
     return schaerfen(bild, werte.schaerfe, werte.schaerfe_radius * massstab)
 
