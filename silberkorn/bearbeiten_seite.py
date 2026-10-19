@@ -139,6 +139,8 @@ def gruppen_titel(gruppe: str) -> str:
         "maske": _("Motiv & Hintergrund"),
         "tiefe": _("Tiefe & Bokeh"),
         "korn": _("Filmkorn"),
+        "lokal_motiv": _("Motiv für lokale Anpassungen"),
+        "lokal_tiefe": _("Tiefe für lokale Anpassungen"),
     }[gruppe]
 
 
@@ -166,7 +168,25 @@ SW_REGLER = tuple(filter.Regler(f"sw_{i}", "schwarzweiss", -100, 100)
 
 
 def lokal_art_titel(art: str) -> str:
-    return {"verlauf": _("Verlauf"), "radial": _("Radial"), "pinsel": _("Pinsel")}[art]
+    return {"verlauf": _("Verlauf"), "radial": _("Radial"), "pinsel": _("Pinsel"),
+            "motiv": _("Motiv"), "objekt": _("Objekt per Klick"),
+            "tiefe": _("Tiefenbereich"), "helligkeit": _("Helligkeitsbereich"),
+            "farbe": _("Farbbereich")}[art]
+
+
+def lokal_bereich_titel(art: str, nummer: int) -> str:
+    """Titel der Regler eines Bereichsteils."""
+    return {"tiefe": (_("Tiefe von"), _("Tiefe bis"), _("Übergang")),
+            "helligkeit": (_("Helligkeit von"), _("Helligkeit bis"), _("Übergang")),
+            "farbe": (_("Farbton"), _("Breite"), _("Übergang"))}[art][nummer]
+
+
+# Regler der Bereichsteile: Daten des gewaehlten Teils
+LOKAL_BEREICH_REGLER = {
+    art: tuple(filter.Regler(f"teil_{art}_{nummer}", "lokal", unten, oben,
+                             vorgabe=lokal.VORGABEN[art][nummer])
+               for nummer, (_name, unten, oben) in enumerate(lokal.DATEN[art]))
+    for art in ("tiefe", "helligkeit", "farbe")}
 
 
 def lokal_modus_titel(modus: str) -> str:
@@ -216,6 +236,17 @@ def farbton_farbe(winkel: float) -> str:
 
 
 def regler_titel(name: str) -> str:
+    if name.startswith(("hsl_", "sw_")):
+        return farbbereich_titel(int(name.split("_")[1]))
+    if name.startswith("teil_"):
+        _vorsilbe, art, nummer = name.split("_")
+        return lokal_bereich_titel(art, int(nummer))
+    if name == "lokal_weich":
+        return _("Weicher Rand")
+    if name == "lokal_schaerfe":
+        return _("Schärfe")
+    if name.startswith("lokal_"):
+        return regler_titel(name[6:])
     return {
         "temperatur": _("Temperatur"),
         "toenung": _("Tönung"),
@@ -264,10 +295,7 @@ def regler_titel(name: str) -> str:
         "korn": _("Stärke"),
         "korn_groesse": _("Größe"),
         "korn_rauheit": _("Rauheit"),
-    }[name] if not name.startswith(("hsl_", "sw_", "lokal_")) else (
-        farbbereich_titel(int(name.split("_")[1])) if not name.startswith("lokal_") else
-        _("Weicher Rand") if name == "lokal_weich" else
-        _("Schärfe") if name == "lokal_schaerfe" else regler_titel(name[6:]))
+    }[name]
 
 
 def speicherformate() -> list[tuple[str, str, int]]:
@@ -359,10 +387,12 @@ def wert_anzeige(regler: filter.Regler, wert: float) -> str:
     elif regler.name in ("lut_staerke", "ki_entrauschen", "ki_rauschen", "ki_schaerfe",
                          "ki_farbe"):
         text += " %"
-    elif regler.name in ("begradigen", "ton_lichter_farbton", "ton_schatten_farbton"):
+    elif regler.name in ("begradigen", "ton_lichter_farbton", "ton_schatten_farbton",
+                         "teil_farbe_0", "teil_farbe_1"):
         text += "°"
     elif regler.name in ("ton_lichter_saettigung", "ton_schatten_saettigung", "lokal_weich",
-                         "malen_weich", "malen_deckkraft", "malen_groesse"):
+                         "malen_weich", "malen_deckkraft", "malen_groesse", "teil_farbe_2") \
+            or regler.name.startswith(("teil_tiefe_", "teil_helligkeit_")):
         text += " %"
     return text
 
@@ -1670,8 +1700,8 @@ class BearbeitenSeite(QWidget):
         self.zeichnen_anfordern()
 
     def _sam_klickt(self) -> bool:
-        """Waehlt SAM gerade per Klick aus? Fokus und Pipette brauchen kein Netz."""
-        return self._klick_ziel in ("maske", "entfernen")
+        """Waehlt SAM gerade per Klick aus? Fokus und Pipetten brauchen kein Netz."""
+        return self._klick_ziel in ("maske", "entfernen", "lokal")
 
     def _klick_knoepfe(self) -> dict:
         return {"maske": self.auswahl_knopf, "entfernen": self.entfern_klick_knopf}
@@ -1737,11 +1767,14 @@ class BearbeitenSeite(QWidget):
         self.leinwand.klickmodus_setzen(False)
         if ziel == "maske":
             self.maske_zeigen_box.setChecked(self._maske_zeigen_vorher)
+        if ziel == "lokal":
+            self._lokal_klick_teil = None
         self._masken_anzeigen()
         self._entfernen_anzeigen()
         self._tiefe_anzeigen()
         self._film_anzeigen()
         self._erweitern_anzeigen()
+        self._lokal_anzeigen()
         self.zeichnen_anfordern()
 
     def _bild_geklickt(self, x: float, y: float, dazu: bool):
@@ -1761,13 +1794,26 @@ class BearbeitenSeite(QWidget):
             self.wert_geaendert("fokus", float(wert))
             self.auswahl_beenden()               # ein Klick genuegt
             return
+        if ziel == "lokal_farbe":
+            farbton = self.sitzung.farbton_an(*quelle)
+            self.auswahl_beenden()               # ein Klick genuegt
+            if farbton is None:
+                self.fenster.melden(_("Dort ist keine Farbe – eine buntere Stelle "
+                                      "anklicken."))
+                return
+            zeile = self.lokal_bereich_zeilen["farbe"][0]
+            zeile.setzen(round(farbton))
+            zeile._bewegt()
+            return
         try:
             ms = self.sitzung.ki_klick(self._auswaehler, *quelle, dazu, ziel)
         except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as fehler:
             self._fehler(_("Die Auswahl ist fehlgeschlagen."), str(fehler))
             return
-        self._klick_marken[ziel].append((x, y, dazu))
+        self._klick_marken.setdefault(ziel, []).append((x, y, dazu))
         self._klick_geo[ziel] = geometrie.aus(self.sitzung.werte)
+        if ziel == "lokal":
+            self._lokal_objekt_ablegen()
         self.fenster.rechenzeit_zeigen(ms)
         self._masken_anzeigen()
         self._entfernen_anzeigen()
@@ -1779,6 +1825,8 @@ class BearbeitenSeite(QWidget):
             return
         if self.sitzung.ki_klick_zurueck(self._auswaehler, ziel):
             del self._klick_marken[ziel][-1:]
+            if ziel == "lokal":
+                self._lokal_objekt_ablegen()
             self._masken_anzeigen()
             self._entfernen_anzeigen()
             self.zeichnen_anfordern()
@@ -3080,6 +3128,7 @@ class BearbeitenSeite(QWidget):
         self._lokal_sitzung = None                # fuer welche Sitzung die Wahl gilt
         self._lokal_baut = False                  # Listen werden gerade neu gefuellt
         self._lokal_pinsel_neu = False            # der naechste Strich beginnt einen Teil
+        self._lokal_klick_teil = None             # (Maske, Teil), fuer den SAM klickt
         self._malen = {r.name: r.vorgabe for r in MALEN_REGLER}
         hinweis = QLabel(objectName="nebentext")
         hinweis.setWordWrap(True)
@@ -3088,21 +3137,12 @@ class BearbeitenSeite(QWidget):
         innen.addWidget(hinweis)
         leiste = QHBoxLayout()
         leiste.setSpacing(4)
-        beschriftung = QLabel()
-        self.fenster.beschriften(beschriftung.setText, _("Neue Maske:"))
-        leiste.addWidget(beschriftung)
-        self.lokal_neu_knoepfe = {}
-        for art in lokal.ARTEN:
-            knopf = self._knopf(lokal_art_titel(art),
-                                lambda _an=False, a=art: self.lokal_neue_maske(a), "kanal")
-            leiste.addWidget(knopf)
-            self.lokal_neu_knoepfe[art] = knopf
-        self.fenster.beschriften(self.lokal_neu_knoepfe["verlauf"].setToolTip, _(
-            "Verlauf von voller zu keiner Wirkung – im Bild vom Anfang zum Ende ziehen."))
-        self.fenster.beschriften(self.lokal_neu_knoepfe["radial"].setToolTip, _(
-            "Ellipse, innen volle Wirkung – im Bild von der Mitte nach außen ziehen."))
-        self.fenster.beschriften(self.lokal_neu_knoepfe["pinsel"].setToolTip, _(
-            "Den Bereich frei ins Bild malen."))
+        self.lokal_neu_knopf = self._knopf(_("Neue Maske ▾"), None, "kanal")
+        self.lokal_neu_knopf.setMenu(self._lokal_menue(self.lokal_neue_maske))
+        self.fenster.beschriften(self.lokal_neu_knopf.setToolTip, _(
+            "Eine Maske anlegen – aus einer Form, einer KI-Auswahl oder einem Bereich von "
+            "Helligkeit, Farbe oder Tiefe."))
+        leiste.addWidget(self.lokal_neu_knopf)
         leiste.addStretch(1)
         innen.addLayout(leiste)
 
@@ -3141,17 +3181,11 @@ class BearbeitenSeite(QWidget):
         bereich.addWidget(self.lokal_teile)
         leiste = QHBoxLayout()
         leiste.setSpacing(4)
-        beschriftung = QLabel()
-        self.fenster.beschriften(beschriftung.setText, _("Teil dazu:"))
-        leiste.addWidget(beschriftung)
-        self.lokal_teil_knoepfe = {}
-        for art in lokal.ARTEN:
-            knopf = self._knopf(lokal_art_titel(art),
-                                lambda _an=False, a=art: self.lokal_teil_neu(a), "kanal")
-            self.fenster.beschriften(knopf.setToolTip, _(
-                "Der Maske einen weiteren Teil hinzufügen – im Bild aufziehen."))
-            leiste.addWidget(knopf)
-            self.lokal_teil_knoepfe[art] = knopf
+        self.lokal_teil_knopf = self._knopf(_("Teil dazu ▾"), None, "kanal")
+        self.lokal_teil_knopf.setMenu(self._lokal_menue(self.lokal_teil_neu))
+        self.fenster.beschriften(self.lokal_teil_knopf.setToolTip, _(
+            "Der Maske einen weiteren Teil hinzufügen."))
+        leiste.addWidget(self.lokal_teil_knopf)
         leiste.addStretch(1)
         bereich.addLayout(leiste)
         leiste = QHBoxLayout()
@@ -3177,6 +3211,55 @@ class BearbeitenSeite(QWidget):
         gitter.setColumnStretch(0, 1)
         bereich.addLayout(gitter)
         self.lokal_weich_zeile = ReglerZeile(self, LOKAL_WEICH, gitter, 0)
+        # KI-Teile: was berechnet ist, Knopf zum Berechnen oder Klicken
+        self.lokal_ki_feld = QWidget()
+        feld = QVBoxLayout(self.lokal_ki_feld)
+        feld.setContentsMargins(0, 0, 0, 0)
+        self.lokal_ki_hinweis = QLabel(objectName="nebentext")
+        self.lokal_ki_hinweis.setWordWrap(True)
+        feld.addWidget(self.lokal_ki_hinweis)
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.lokal_ki_knopf = QPushButton()
+        self.lokal_ki_knopf.clicked.connect(self._lokal_ki_knopf_gedrueckt)
+        self.lokal_klick_zurueck_knopf = self._knopf(_("Klick zurück"), self.klick_zuruecknehmen,
+                                                     "kanal")
+        self.fenster.beschriften(self.lokal_klick_zurueck_knopf.setToolTip,
+                                 _("Den letzten Klick zurücknehmen (Strg+Z)"))
+        leiste.addWidget(self.lokal_ki_knopf, 1)
+        leiste.addWidget(self.lokal_klick_zurueck_knopf)
+        feld.addLayout(leiste)
+        bereich.addWidget(self.lokal_ki_feld)
+        # Bereiche: Tiefe, Helligkeit, Farbe - je eigene Regler
+        self.lokal_bereich_felder: dict[str, QWidget] = {}
+        self.lokal_bereich_zeilen: dict[str, list] = {}
+        for art, reglerliste in LOKAL_BEREICH_REGLER.items():
+            widget = QWidget()
+            spalte = QVBoxLayout(widget)
+            spalte.setContentsMargins(0, 0, 0, 0)
+            gitter = QGridLayout()
+            gitter.setVerticalSpacing(2)
+            gitter.setColumnStretch(0, 1)
+            spalte.addLayout(gitter)
+            self.lokal_bereich_zeilen[art] = [
+                (FarbtonZeile if regler.name == "teil_farbe_0" else ReglerZeile)(
+                    self, regler, gitter, 2 * nummer)
+                for nummer, regler in enumerate(reglerliste)]
+            if art == "farbe":
+                self.lokal_pipette_knopf = QPushButton(objectName="kanal")
+                self.lokal_pipette_knopf.setCheckable(True)
+                self.fenster.beschriften(self.lokal_pipette_knopf.setText,
+                                         _("Farbe im Bild aufnehmen"))
+                self.lokal_pipette_knopf.toggled.connect(self._lokal_pipette)
+                spalte.addWidget(self.lokal_pipette_knopf)
+            if art == "tiefe":
+                hinweis = QLabel(objectName="nebentext")
+                hinweis.setWordWrap(True)
+                self.fenster.beschriften(hinweis.setText, _("0 % ist das Fernste, 100 % das "
+                                                            "Nächste im Bild."))
+                spalte.addWidget(hinweis)
+            bereich.addWidget(widget)
+            self.lokal_bereich_felder[art] = widget
         # Der Pinsel: Einstellungen fuer die naechsten Striche
         self.lokal_malen_feld = QWidget()
         malen = QVBoxLayout(self.lokal_malen_feld)
@@ -3242,8 +3325,8 @@ class BearbeitenSeite(QWidget):
         self.lokal_liste.setCurrentRow(self._lokal_maske if gewaehlt else -1)
         self.lokal_liste.setEnabled(offen)
         platz = len(masken) < lokal.MAX_MASKEN
-        for knopf in self.lokal_neu_knoepfe.values():
-            knopf.setEnabled(offen and platz)
+        self.lokal_neu_knopf.setEnabled(offen and platz)
+        self._lokal_menue_freischalten()
         self.lokal_umbenennen_knopf.setEnabled(gewaehlt)
         self.lokal_duplizieren_knopf.setEnabled(gewaehlt and platz)
         self.lokal_loeschen_knopf.setEnabled(gewaehlt)
@@ -3280,8 +3363,19 @@ class BearbeitenSeite(QWidget):
                 self.leinwand.lokal_pinsel_setzen(pinsel)
             if radial:
                 self.lokal_weich_zeile.setzen(teil.daten[5])
-            for knopf in self.lokal_teil_knoepfe.values():
-                knopf.setEnabled(len(maske.teile) < lokal.MAX_TEILE)
+            self.lokal_teil_knopf.setEnabled(len(maske.teile) < lokal.MAX_TEILE)
+            art = teil.art if teil is not None else None
+            for name, widget in self.lokal_bereich_felder.items():
+                widget.setVisible(art == name)
+            if art in self.lokal_bereich_felder:
+                for zeile, wert in zip(self.lokal_bereich_zeilen[art], teil.daten, strict=True):
+                    zeile.setzen(wert)
+            if art != "farbe" and self._klick_ziel == "lokal_farbe":
+                self.auswahl_beenden()
+            self.lokal_pipette_knopf.blockSignals(True)
+            self.lokal_pipette_knopf.setChecked(self._klick_ziel == "lokal_farbe")
+            self.lokal_pipette_knopf.blockSignals(False)
+            self._lokal_ki_anzeigen(teil)
             for name, zeile in self.lokal_zeilen.items():
                 zeile.setzen(lokal.wert(maske, name))
         self._lokal_baut = False
@@ -3320,6 +3414,8 @@ class BearbeitenSeite(QWidget):
         """Die Masken nicht mehr bearbeiten - sie wirken weiter."""
         if not self.leinwand.lokalmodus:
             return
+        if self._klick_ziel in ("lokal", "lokal_farbe"):
+            self.auswahl_beenden()
         self.leinwand.lokalmodus_setzen(False)
         self._lokal_maske = self._lokal_teil = None
         self._lokal_anzeigen()
@@ -3349,10 +3445,245 @@ class BearbeitenSeite(QWidget):
         self._lokal_setzen(masken, len(masken) - 1, None)
         self.lokal_teil_neu(art)
 
+    def _lokal_menue(self, aktion) -> QMenu:
+        """Die Arten als Menue - Formen, KI, Bereiche, durch Linien getrennt."""
+        menue = QMenu(self)
+        self._lokal_menue_eintraege = getattr(self, "_lokal_menue_eintraege", [])
+        for gruppe in (("verlauf", "radial", "pinsel"), ("motiv", "objekt", "tiefe"),
+                       ("helligkeit", "farbe")):
+            if not menue.isEmpty():
+                menue.addSeparator()
+            for art in gruppe:
+                eintrag = menue.addAction("")
+                self.fenster.beschriften(eintrag.setText, lokal_art_titel(art))
+                eintrag.triggered.connect(lambda _an=False, a=art: aktion(a))
+                self._lokal_menue_eintraege.append((art, eintrag))
+        return menue
+
+    def _lokal_ki_modell(self, art: str):
+        return {"motiv": self._masken_modell, "objekt": self._auswahl_modell,
+                "tiefe": self._tiefe_modell}[art]()
+
+    def _lokal_menue_freischalten(self):
+        """KI-Arten nur, wenn die Grafikkarte ihr Modell kann."""
+        stufe = self._ki_stufe()
+        for art, eintrag in getattr(self, "_lokal_menue_eintraege", []):
+            eintrag.setEnabled(art not in lokal.KI_ARTEN
+                               or ki.angeboten(self._lokal_ki_modell(art), stufe))
+
+    def _lokal_ki_anzeigen(self, teil):
+        """Hinweis und Knopf fuer einen KI-Teil."""
+        art = teil.art if teil is not None else None
+        self.lokal_ki_feld.setVisible(art in lokal.KI_ARTEN)
+        if art not in lokal.KI_ARTEN:
+            return
+        klickt = self._klick_ziel == "lokal"
+        self.lokal_klick_zurueck_knopf.setVisible(klickt)
+        self.lokal_klick_zurueck_knopf.setEnabled(klickt and bool(
+            self.sitzung.klicks_von("lokal")))
+        knopf, text = None, ""
+        if art == "motiv":
+            if self.sitzung.lokal_ki_da(("motiv",)):
+                text = _("Motiv erkannt.")
+            else:
+                text = _("Das Motiv ist noch nicht erkannt.")
+                knopf = _("Motiv erkennen")
+        elif art == "tiefe":
+            if self.sitzung.ki_tiefe_da:
+                text = _("Tiefe geschätzt – sie gilt auch für „Tiefe & Bokeh“.")
+            else:
+                text = _("Die Tiefe ist noch nicht geschätzt.")
+                knopf = _("Tiefe schätzen")
+        else:
+            if klickt:
+                text = _("Linksklick ins Bild nimmt einen Bereich dazu, Rechtsklick nimmt "
+                         "einen weg.")
+                knopf = _("Auswahl fertig")
+            elif teil.daten:
+                text = _("Objekt ausgewählt.")
+                knopf = _("Neu auswählen")
+            else:
+                text = _("Noch nichts ausgewählt.")
+                knopf = _("Im Bild anklicken")
+        self.fenster.beschriften(self.lokal_ki_hinweis.setText, text)
+        self.lokal_ki_knopf.setVisible(knopf is not None)
+        if knopf is not None:
+            self.fenster.beschriften(self.lokal_ki_knopf.setText, knopf)
+            modell = self._lokal_ki_modell(art)
+            self._modell_tooltip(self.lokal_ki_knopf, modell)
+
+    def _lokal_ki_knopf_gedrueckt(self):
+        teil = self._lokal_gewaehlter_teil()
+        if teil is None:
+            return
+        if teil.art == "motiv":
+            self._lokal_ki_rechnen("lokal_motiv")
+        elif teil.art == "tiefe":
+            self._lokal_ki_rechnen("lokal_tiefe")
+        elif teil.art == "objekt":
+            self._lokal_klicken(self._klick_ziel != "lokal")
+
+    def _lokal_gewaehlter_teil(self):
+        if self.sitzung is None or self._lokal_maske is None or self._lokal_teil is None:
+            return None
+        return self.sitzung.werte.masken[self._lokal_maske].teile[self._lokal_teil]
+
+    def _lokal_ki_rechnen(self, gruppe: str) -> bool:
+        """Motiv oder Tiefe fuer lokale Masken einmal berechnen; fehlt das Modell, wird es
+        angeboten. Die Tiefe gilt auch fuer „Tiefe & Bokeh“ - Fokus und Bokeh bleiben."""
+        if self.sitzung is None:
+            return False
+        modell = self._masken_modell() if gruppe == "lokal_motiv" else self._tiefe_modell()
+        if not ki.vorhanden(modell):
+            self.ki_modell_laden(modell)
+            return False
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            if gruppe == "lokal_motiv":
+                kachel = modell.kacheln[modell.mindeststufe]
+                netz = self._ki_laden(modell, kachel,
+                                      lambda **weg: ki.Freisteller(modell, **weg))
+                ms = self.sitzung.lokal_motiv(netz)
+            else:
+                netz = ki.Tiefenschaetzer(modell)
+                ms = self.sitzung.ki_tiefe(netz)
+            del netz                             # Grafikspeicher fuer die Bearbeitung frei
+        except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as fehler:
+            text = str(fehler) if isinstance(fehler, ki.KiFehler) else _(
+                "Für dieses Bild reicht der Grafikspeicher nicht.")
+            self._fehler(_("Das Motiv ließ sich nicht erkennen.") if gruppe == "lokal_motiv"
+                         else _("Die Tiefe ließ sich nicht schätzen."), text)
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+            cp.get_default_memory_pool().free_all_blocks()
+        self.fenster.melden((_("Motiv erkannt ({s} s)") if gruppe == "lokal_motiv"
+                             else _("Tiefe geschätzt ({s} s)")).format(s=f"{ms / 1000:.1f}"))
+        self._tiefe_anzeigen()
+        self._lokal_anzeigen()
+        self.zeichnen_anfordern()
+        return True
+
+    def _lokal_ki_nachrechnen(self):
+        """Nach einer Voreinstellung: was lokale Masken an Motiv oder Tiefe brauchen."""
+        if self.sitzung is None:
+            return
+        for gruppe in self.sitzung.lokal_ki_fehlt():
+            if not self._lokal_ki_rechnen(gruppe):
+                break
+
+    def _lokal_klicken(self, an: bool):
+        """Ein Objekt per Klick auswaehlen (SAM) - ohne den Maskenmodus zu verlassen."""
+        if not an:
+            if self._klick_ziel == "lokal":
+                self.auswahl_beenden()
+            return
+        teil = self._lokal_gewaehlter_teil()
+        if teil is None or teil.art != "objekt":
+            return
+        sam = self._auswahl_modell()
+        if not ki.vorhanden(sam):
+            self.ki_modell_laden(sam)
+            return
+        if self._klick_ziel is not None:
+            self.auswahl_beenden()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            if self._auswaehler is None:
+                self._auswaehler = ki.Auswaehler(sam)
+            self.sitzung.lokal_klicks_beginnen()
+            ms = self.sitzung.ki_auswahl_beginnen(self._auswaehler, "lokal")
+        except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as fehler:
+            self._auswaehler = None
+            text = str(fehler) if isinstance(fehler, ki.KiFehler) else _(
+                "Für dieses Bild reicht der Grafikspeicher nicht.")
+            self._fehler(_("Die Auswahl per Klick ließ sich nicht starten."), text)
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            cp.get_default_memory_pool().free_all_blocks()
+        self._klick_ziel = "lokal"
+        self._klick_marken["lokal"] = []
+        self._lokal_klick_teil = (self._lokal_maske, self._lokal_teil)
+        self.leinwand.klickmodus_setzen(True)
+        self.lokal_zeigen_box.setChecked(True)
+        self.fenster.melden(_("Bereit zum Klicken ({s} s)").format(s=f"{ms / 1000:.1f}"))
+        self._lokal_anzeigen()
+        self.zeichnen_anfordern()
+
+    def _lokal_objekt_ablegen(self):
+        """Die Klicks und was sie ergeben in den Objekt-Teil, fuer den geklickt wird."""
+        if self.sitzung is None or self._lokal_klick_teil is None:
+            return
+        nummer, stelle = self._lokal_klick_teil
+        masken = list(self.sitzung.werte.masken)
+        if nummer >= len(masken) or stelle >= len(masken[nummer].teile):
+            return
+        hoehe, breite = self.sitzung.original.shape[:2]
+        klicks = []
+        for x, y, dazu in self.sitzung.klicks_von("lokal"):
+            klicks += [x / breite, y / hoehe, 1.0 if dazu else 0.0]
+        daten = lokal.daten_begrenzen("objekt", klicks)
+        self.sitzung.lokal_objekt_merken(daten)
+        teile = list(masken[nummer].teile)
+        teile[stelle] = dataclasses.replace(teile[stelle], daten=daten)
+        masken[nummer] = dataclasses.replace(masken[nummer], teile=tuple(teile))
+        self._lokal_setzen(masken, nummer, stelle)
+
+    def _lokal_pipette(self, an: bool):
+        if not an:
+            if self._klick_ziel == "lokal_farbe":
+                self.auswahl_beenden()
+            return
+        if self.sitzung is None:
+            return
+        if self._klick_ziel is not None:
+            self.auswahl_beenden()
+        self._klick_ziel = "lokal_farbe"
+        self.leinwand.klickmodus_setzen(True)
+        self.fenster.melden(_("Eine Stelle mit der gewünschten Farbe anklicken."))
+
+    def _lokal_teil_wert(self, name: str, wert: float):
+        """Ein Regler eines Bereichsteils: Daten des gewaehlten Teils."""
+        _vorsilbe, art, stelle = name.split("_")
+        teil = self._lokal_gewaehlter_teil()
+        if teil is None or teil.art != art:
+            return
+        daten = list(teil.daten)
+        daten[int(stelle)] = wert
+        masken = list(self.sitzung.werte.masken)
+        maske = masken[self._lokal_maske]
+        teile = list(maske.teile)
+        teile[self._lokal_teil] = dataclasses.replace(teil, daten=tuple(daten))
+        masken[self._lokal_maske] = dataclasses.replace(maske, teile=tuple(teile))
+        self._lokal_setzen(masken, self._lokal_maske, self._lokal_teil, voll=False)
+
     def lokal_teil_neu(self, art: str):
         if self.sitzung is None or self._lokal_maske is None:
             return
         self._lokal_modus_beginnen()
+        if art not in ("verlauf", "radial", "pinsel"):
+            # KI und Bereiche: gleich anlegen, Motiv und Tiefe gleich berechnen
+            if self._klick_ziel in ("lokal", "lokal_farbe"):
+                self.auswahl_beenden()
+            self._lokal_pinsel_neu = False
+            self.leinwand.lokal_werkzeug_setzen(None)
+            masken = list(self.sitzung.werte.masken)
+            maske = masken[self._lokal_maske]
+            if len(maske.teile) >= lokal.MAX_TEILE:
+                return
+            teil = lokal.Teil(art, lokal.VORGABEN.get(art, ()))
+            masken[self._lokal_maske] = dataclasses.replace(maske, teile=(*maske.teile, teil))
+            self._lokal_setzen(masken, self._lokal_maske, len(maske.teile))
+            if art == "motiv" and not self.sitzung.lokal_ki_da(("motiv",)):
+                self._lokal_ki_rechnen("lokal_motiv")
+            elif art == "tiefe" and not self.sitzung.ki_tiefe_da:
+                self._lokal_ki_rechnen("lokal_tiefe")
+            elif art == "objekt":
+                self._lokal_klicken(True)
+            elif art in ("helligkeit", "farbe"):
+                self.lokal_zeigen_box.setChecked(True)
+            return
         if art == "pinsel":
             # Der erste Strich legt den Teil an; „Maske zeigen“ zeigt, was gemalt ist
             self.leinwand.lokal_werkzeug_setzen(None)
@@ -3374,6 +3705,8 @@ class BearbeitenSeite(QWidget):
             self.lokal_beenden()
             return
         maske = self.sitzung.werte.masken[zeile]
+        if self._klick_ziel in ("lokal", "lokal_farbe"):
+            self.auswahl_beenden()
         self._lokal_modus_beginnen()
         self.leinwand.lokal_werkzeug_setzen(None)
         self._lokal_pinsel_neu = False
@@ -3384,6 +3717,8 @@ class BearbeitenSeite(QWidget):
     def _lokal_teil_gewaehlt(self, zeile: int):
         if self._lokal_baut or self.sitzung is None or self._lokal_maske is None:
             return
+        if self._klick_ziel in ("lokal", "lokal_farbe") and zeile != self._lokal_teil:
+            self.auswahl_beenden()
         self._lokal_teil = zeile if zeile >= 0 else None
         self._lokal_pinsel_neu = False
         self.leinwand.lokal_werkzeug_setzen(None)
@@ -3754,6 +4089,9 @@ class BearbeitenSeite(QWidget):
             name, wert = self.hsl_modus, tuple(werte)
         elif name.startswith("lokal_"):
             self._lokal_wert(name, wert)
+            return
+        elif name.startswith("teil_"):
+            self._lokal_teil_wert(name, wert)
             return
         elif name.startswith("sw_") and name[3:].isdigit():
             werte = list(self.sitzung.werte.sw_mischer)
@@ -4194,6 +4532,7 @@ class BearbeitenSeite(QWidget):
             return
         if self._einstellungen_uebernehmen(daten, "voreinstellung"):
             self.fenster.melden(_("Voreinstellung „{name}“ angewendet.").format(name=name))
+            QTimer.singleShot(0, self._lokal_ki_nachrechnen)
 
     def voreinstellung_loeschen(self):
         name = self.vor_wahl.currentText()
@@ -4276,6 +4615,7 @@ class BearbeitenSeite(QWidget):
             return
         if self._einstellungen_uebernehmen(self._zwischenablage, "einfuegen"):
             self.fenster.melden(_("Einstellungen eingefügt."))
+            QTimer.singleShot(0, self._lokal_ki_nachrechnen)
 
     def _einstellungen_uebernehmen(self, daten: dict, schritt: str) -> bool:
         """Eine Voreinstellung oder kopierte Einstellungen auf das Bild legen - als ein
@@ -4404,7 +4744,11 @@ class BearbeitenSeite(QWidget):
         stufe = self._ki_stufe()
         offen = []
         for gruppe in sitzung.ki_neu_zu_rechnen():
-            modell = self._ki_bild_art(gruppe)["modell"]
+            if gruppe in ("lokal_motiv", "lokal_tiefe"):
+                modell = (self._masken_modell() if gruppe == "lokal_motiv"
+                          else self._tiefe_modell())
+            else:
+                modell = self._ki_bild_art(gruppe)["modell"]
             if ki.angeboten(modell, stufe) and ki.vorhanden(modell):
                 offen.append(gruppe)
         if not offen:
@@ -4420,7 +4764,9 @@ class BearbeitenSeite(QWidget):
             return
         gesichert = not sitzung.begleit_geaendert
         for gruppe in offen:
-            if not self.ki_bild_berechnen(gruppe):
+            berechnet = (self._lokal_ki_rechnen(gruppe) if gruppe.startswith("lokal_")
+                         else self.ki_bild_berechnen(gruppe))
+            if not berechnet:
                 break
         if self.sitzung is not sitzung:
             return

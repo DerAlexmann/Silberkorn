@@ -102,6 +102,7 @@ MASKE_VERSCHIEBEN = 20.0       # Kante verschieben: Pixel des Originals bei +-10
 HG_UNSCHAERFE = 40.0           # Hintergrund weichzeichnen: Sigma bei 100 % in Pixeln
 MASKE_FARBE = (1.0, 0.25, 0.2)  # Maskenansicht: so wird der Hintergrund eingefaerbt
 LOKAL_DECKUNG = 0.5            # so deckt die Farbe dort, wo eine lokale Maske voll wirkt
+LOKAL_KI_AUFHEBEN = 4          # so viele nicht mehr gebrauchte Objektauswahlen bleiben
 MARKIERUNG_FARBE = (0.2, 0.55, 1.0)   # was entfernt werden soll
 MARKIERUNG_DECKUNG = 0.55
 BOKEH_MAX = 0.012              # Bokeh 100 %: Sigma als Anteil der laengsten Bildkante
@@ -177,8 +178,14 @@ class Sitzung:
         self.lokal_zeigen: int | None = None  # Vorschau faerbt den Bereich dieser Maske ein
         self._lokal_raster: dict = {}         # (Teile, voll, Geometrie, ...) -> Gewicht
         self._pinsel_raster: dict = {}        # (Striche davor, Gitter) -> Ebene, lokal.py
+        # KI-Ergebnisse lokaler Masken: ("motiv",) oder ("objekt", Klicks) ->
+        # (voll als uint8, Vorschau float32); dazu, was die Klicks gerade ergeben
+        self._lokal_ki: dict = {}
+        self._lokal_klick = None
+        self._lokal_quellen_nr = 0            # zaehlt hoch, wenn sich eine Quelle aendert
+        self._lokal_bild: dict = {}           # voll -> (Stand, Helligkeit, Farbton, Buntheit)
         self.maske_per_klick = False          # Maske stammt aus der Auswahl per Klick
-        self._klickstand = {"maske": _Klicks(), "entfernen": _Klicks()}
+        self._klickstand = {"maske": _Klicks(), "entfernen": _Klicks(), "lokal": _Klicks()}
         self._entfern_klick = None            # (voll, Vorschau): per Klick markiert
         self._pinsel = None                   # (voll, Vorschau): mit dem Pinsel markiert
         self._flicken: list[_Flicken] = []    # entfernte Objekte, in Reihenfolge
@@ -390,6 +397,9 @@ class Sitzung:
             inhalt.maske_per_klick = self.maske_per_klick
         if self._ki_tiefe is not None:
             inhalt.tiefe = cp.asnumpy(self._ki_tiefe).astype(np.float16)
+        for schluessel in self._lokal_ki_gebraucht():
+            if schluessel in self._lokal_ki:
+                inhalt.lokal_ki.append((schluessel, cp.asnumpy(self._lokal_ki[schluessel][0])))
         for flicken in self._flicken:
             y0, y1, x0, x1, deckkraft, gefuellt = flicken.voll
             inhalt.flicken.append(begleitdatei.Flicken(
@@ -442,9 +452,13 @@ class Sitzung:
             voll = cp.asarray(inhalt.maske, dtype=cp.float32) / 255
             self._ki_maske = (voll, self._vorschau_von(voll))
             self.maske_per_klick = inhalt.maske_per_klick
-        self._klickstand = {"maske": _Klicks(), "entfernen": _Klicks()}
+        self._klickstand = {"maske": _Klicks(), "entfernen": _Klicks(), "lokal": _Klicks()}
         self._ki_tiefe = (None if inhalt.tiefe is None
                           else cp.asarray(inhalt.tiefe, dtype=cp.float32))
+        self._lokal_ki, self._lokal_klick = {}, None
+        for schluessel, maske in inhalt.lokal_ki:
+            self._lokal_ki_setzen(schluessel, cp.asarray(maske, dtype=cp.float32) / 255)
+        self._lokal_quellen_neu()
         self._flicken = []
         for f in inhalt.flicken:
             voll = (f.y0, f.y1, f.x0, f.x1, cp.asarray(f.deckkraft, dtype=cp.float32),
@@ -479,8 +493,9 @@ class Sitzung:
         fehlt = {"ki_rauschen": self._ki_rauschfrei is None,
                  "ki_schaerfe": self._ki_schaerfe is None,
                  "ki_farbe": self._ki_farbe is None}
-        return [gruppe for gruppe, offen in fehlt.items()
-                if offen and getattr(self.werte, gruppe) > 0]
+        gruppen = [gruppe for gruppe, offen in fehlt.items()
+                   if offen and getattr(self.werte, gruppe) > 0]
+        return gruppen + self.lokal_ki_fehlt()
 
     def ki_freistellen(self, freisteller) -> float:
         """Die Maske des Motivs einmal mit KI berechnen; Rueckgabe: Rechenzeit in ms.
@@ -577,11 +592,15 @@ class Sitzung:
     def _ziel_lesen(self, ziel: str):
         if ziel == "maske":
             return self._ki_maske, self.maske_per_klick
+        if ziel == "lokal":
+            return self._lokal_klick
         return self._entfern_klick
 
     def _ziel_setzen(self, ziel: str, wert):
         if ziel == "maske":
             self._ki_maske, self.maske_per_klick = wert
+        elif ziel == "lokal":
+            self._lokal_klick = wert
         else:
             self._entfern_klick = wert
         self._vollbild = None                    # das Vollbild zeigte den alten Stand
@@ -875,6 +894,7 @@ class Sitzung:
                                              0, 1))
         self._ki_tiefe = schaetzer.tiefe(srgb)
         del srgb
+        self._lokal_quellen_neu()
         self._vollbild = None
         cp.get_default_memory_pool().free_all_blocks()
         return (time.perf_counter() - beginn) * 1000
@@ -951,6 +971,137 @@ class Sitzung:
             maske = geometrie.anwenden(cp.repeat(maske[..., None], 3, axis=2), nur_form)[..., 0]
         return cp.ascontiguousarray(cp.clip(maske, 0, 1), dtype=cp.float32)
 
+    # ------------------------------------------------------------------
+    # Quellen lokaler Masken: KI-Ergebnisse und das Bild selbst
+    # ------------------------------------------------------------------
+
+    def _lokal_quellen_neu(self):
+        """Eine Quelle hat sich geaendert - gerasterte Masken gelten nicht mehr."""
+        self._lokal_quellen_nr += 1
+        self._lokal_raster.clear()
+        self._lokal_bild.clear()
+        self._vollbild = None
+
+    def _lokal_ki_setzen(self, schluessel: tuple, voll):
+        acht = (cp.clip(voll, 0, 1) * 255 + 0.5).astype(cp.uint8)
+        self._lokal_ki[schluessel] = (acht, self._vorschau_von(acht.astype(cp.float32) / 255))
+        self._lokal_quellen_neu()
+
+    def _lokal_ki_gebraucht(self) -> list[tuple]:
+        """Die KI-Ergebnisse, die die Masken der jetzigen Werte brauchen."""
+        gebraucht = []
+        for maske in self.werte.masken:
+            for quelle in lokal.quellen_von(maske):
+                schluessel = ("motiv",) if quelle == "motiv" else quelle
+                if isinstance(schluessel, tuple) and schluessel not in gebraucht:
+                    gebraucht.append(schluessel)
+        return gebraucht
+
+    def lokal_ki_da(self, schluessel: tuple) -> bool:
+        return schluessel in self._lokal_ki
+
+    def lokal_ki_fehlt(self) -> list[str]:
+        """Was lokale Masken brauchen und sich neu rechnen laesst, aber fehlt:
+        "lokal_motiv", "lokal_tiefe" - etwa nach einer Voreinstellung."""
+        quellen = set()
+        for maske in self.werte.masken:
+            quellen |= lokal.quellen_von(maske)
+        fehlt = []
+        if "motiv" in quellen and ("motiv",) not in self._lokal_ki:
+            fehlt.append("lokal_motiv")
+        if "tiefe" in quellen and self._ki_tiefe is None:
+            fehlt.append("lokal_tiefe")
+        return fehlt
+
+    def lokal_motiv(self, freisteller) -> float:
+        """Das Motiv fuer lokale Masken einmal mit KI erkennen; Rueckgabe in ms. Wie beim
+        Freistellen sieht das Netz das Bild, wie es gerade entrauscht und geschaerft ist."""
+        beginn = time.perf_counter()
+        srgb = filter.linear_zu_srgb(cp.clip(self._ausgang(self.werte, True, leinwand=False),
+                                             0, 1))
+        voll = freisteller.maske(srgb)
+        del srgb
+        self._lokal_ki_setzen(("motiv",), voll)
+        return self._ki_fertig(beginn)
+
+    def lokal_klicks_beginnen(self):
+        """Ein Objekt neu auswaehlen: die Klicks beginnen von vorn."""
+        self._klickstand["lokal"] = _Klicks()
+        self._lokal_klick = None
+
+    def lokal_objekt_merken(self, klicks: tuple):
+        """Was die Klicks ergeben haben, unter ihren Klicks merken. Aeltere Staende bleiben
+        fuer Rueckgaengig, aber nicht unbegrenzt."""
+        if self._lokal_klick is not None:
+            self._lokal_ki_setzen(("objekt", klicks), self._lokal_klick[0])
+        gebraucht = set(self._lokal_ki_gebraucht()) | {("objekt", klicks), ("motiv",)}
+        uebrig = [k for k in self._lokal_ki if k not in gebraucht]
+        for schluessel in uebrig[:-LOKAL_KI_AUFHEBEN]:
+            del self._lokal_ki[schluessel]
+
+    def _lokal_bildquellen(self, werte: Einstellungen, voll: bool) -> dict:
+        """Helligkeit (sRGB-kodiert), Farbton und Buntheit des Bildes vor allen Reglern -
+        auf der Leinwand, in der Groesse von Original oder Vorschau."""
+        stand = (werte.film, werte.film_maske, werte.film_umfang, id(self._staub),
+                 id(self._erweiterung), self._lokal_quellen_nr)
+        gespeichert = self._lokal_bild.get(voll)
+        if gespeichert is not None and gespeichert[0] == stand:
+            return gespeichert[1]
+        self._lokal_bild.pop(voll, None)
+        bild = self._film_bild(werte, voll)
+        if self._erweiterung is not None:
+            bild = self._auf_leinwand(bild, 0 if voll else 1)
+        bild = cp.clip(bild, 0, 1)
+        lab = filter.nach_oklab(bild)
+        chroma = cp.sqrt(lab[..., 1] ** 2 + lab[..., 2] ** 2)
+        quellen = {"helligkeit": filter.linear_zu_srgb(filter.luminanz(bild)),
+                   "farbton": cp.degrees(cp.arctan2(lab[..., 2], lab[..., 1])) % 360.0,
+                   "buntheit": cp.clip(chroma / filter.HSL_CHROMA_VOLL, 0, 1)}
+        del lab, chroma
+        self._lokal_bild[voll] = (stand, quellen)
+        return quellen
+
+    def _lokal_quellen(self, maske: lokal.Maske, werte: Einstellungen, voll: bool) -> dict:
+        """Was die KI- und Bereichsteile einer Maske brauchen, auf der Leinwand."""
+        noetig = lokal.quellen_von(maske)
+        quellen = {}
+        stelle = 0 if voll else 1
+        for quelle in noetig:
+            if quelle == "tiefe":
+                if self._ki_tiefe is not None:
+                    groesse = (self.original if voll else self.vorschau_original).shape[:2]
+                    quellen["tiefe"] = self._ebene_auf_leinwand(
+                        filter.vergroessern(self._ki_tiefe, *groesse))
+            elif quelle == "motiv" or isinstance(quelle, tuple):
+                paar = self._lokal_ki.get(("motiv",) if quelle == "motiv" else quelle)
+                if paar is not None:
+                    ebene = paar[0].astype(cp.float32) / 255 if stelle == 0 else paar[1]
+                    quellen[quelle] = self._ebene_auf_leinwand(ebene)
+        if "helligkeit" in noetig or "farbe" in noetig:
+            quellen.update(self._lokal_bildquellen(werte, voll))
+        return quellen
+
+    def farbton_an(self, x: float, y: float) -> float | None:
+        """Farbton (OkLCh, Grad) um den Punkt (x, y) im Original - nach Buntheit gemittelt;
+        None, wo nichts bunt ist."""
+        quellen = self._lokal_bildquellen(self.werte, False)
+        hoehe, breite = quellen["farbton"].shape
+        h_orig, b_orig = self.quellform()
+        if self._erweiterung is not None:
+            x, y = x + self._erweiterung.x, y + self._erweiterung.y
+        sx, sy = int(x * breite / b_orig), int(y * hoehe / h_orig)
+        y0, y1 = max(0, sy - 2), min(hoehe, sy + 3)
+        x0, x1 = max(0, sx - 2), min(breite, sx + 3)
+        if y1 <= y0 or x1 <= x0:
+            return None
+        winkel = cp.radians(quellen["farbton"][y0:y1, x0:x1])
+        gewicht = quellen["buntheit"][y0:y1, x0:x1]
+        if float(gewicht.sum()) < 1e-3:
+            return None
+        mitte = float(cp.degrees(cp.arctan2((cp.sin(winkel) * gewicht).sum(),
+                                            (cp.cos(winkel) * gewicht).sum())))
+        return mitte % 360.0
+
     def _lokal_gewicht(self, maske: lokal.Maske, werte: Einstellungen, voll: bool):
         """Wirkung einer lokalen Maske (H, W) in der Geometrie des fertigen Bildes. Bleibt
         gespeichert, solange sich Teile, Geometrie und Leinwand nicht aendern."""
@@ -965,10 +1116,13 @@ class Sitzung:
         hoehe, breite = gitter.shape[:2]
         quelle = (self.original if voll else self.vorschau_original).shape[:2]
         faktor = (original[0] / quelle[0], original[1] / quelle[1])
-        schluessel = (maske.teile, voll, geometrie.aus(werte), (hoehe, breite), versatz)
+        schluessel = (maske.teile, voll, geometrie.aus(werte), (hoehe, breite), versatz,
+                      self._lokal_quellen_nr, (werte.film, werte.film_maske, werte.film_umfang)
+                      if {"helligkeit", "farbe"} & lokal.quellen_von(maske) else ())
         if schluessel not in self._lokal_raster:
             raster = lokal.gewicht(maske, hoehe, breite, original, versatz, faktor, cp,
-                                   self._pinsel_raster)
+                                   self._pinsel_raster,
+                                   self._lokal_quellen(maske, werte, voll))
             self._lokal_raster[schluessel] = self._in_geometrie(raster, werte)
         return self._lokal_raster[schluessel]
 
@@ -1483,7 +1637,7 @@ class Sitzung:
         self._ki_rauschfrei = None
         self._ki_schaerfe = None
         self._ki_maske = None
-        self._klickstand = {"maske": _Klicks(), "entfernen": _Klicks()}
+        self._klickstand = {"maske": _Klicks(), "entfernen": _Klicks(), "lokal": _Klicks()}
         self._entfern_klick = None
         self._pinsel = None
         self._flicken = []

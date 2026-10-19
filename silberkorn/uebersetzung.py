@@ -398,7 +398,47 @@ TRANSLATIONS = {
         "Schwarzweiß & Tönung": "Black & white & toning",
         "Filmkorn": "Film grain",
         "Lokale Anpassungen": "Local adjustments",
-        "Den Bereich frei ins Bild malen.": "Paint the area freely into the image.",
+        "Neue Maske ▾": "New mask ▾",
+        "Teil dazu ▾": "Add part ▾",
+        "Eine Maske anlegen – aus einer Form, einer KI-Auswahl oder einem Bereich von "
+        "Helligkeit, Farbe oder Tiefe.":
+            "Create a mask – from a shape, an AI selection or a range of brightness, colour "
+            "or depth.",
+        "Der Maske einen weiteren Teil hinzufügen.": "Add another part to the mask.",
+        "Motiv": "Subject",
+        "Objekt per Klick": "Object by click",
+        "Tiefenbereich": "Depth range",
+        "Helligkeitsbereich": "Luminance range",
+        "Farbbereich": "Colour range",
+        "Tiefe von": "Depth from",
+        "Tiefe bis": "Depth to",
+        "Helligkeit von": "Luminance from",
+        "Helligkeit bis": "Luminance to",
+        "Breite": "Width",
+        "Übergang": "Transition",
+        "0 % ist das Fernste, 100 % das Nächste im Bild.":
+            "0 % is the farthest, 100 % the nearest in the image.",
+        "Farbe im Bild aufnehmen": "Pick colour in the image",
+        "Eine Stelle mit der gewünschten Farbe anklicken.":
+            "Click a spot with the colour you want.",
+        "Dort ist keine Farbe – eine buntere Stelle anklicken.":
+            "There is no colour there – click a more colourful spot.",
+        "Motiv erkannt.": "Subject detected.",
+        "Das Motiv ist noch nicht erkannt.": "The subject has not been detected yet.",
+        "Motiv erkannt ({s} s)": "Subject detected ({s} s)",
+        "Tiefe geschätzt – sie gilt auch für „Tiefe & Bokeh“.":
+            "Depth estimated – it also applies to \"Depth & bokeh\".",
+        "Die Tiefe ist noch nicht geschätzt.": "The depth has not been estimated yet.",
+        "Tiefe schätzen": "Estimate depth",
+        "Linksklick ins Bild nimmt einen Bereich dazu, Rechtsklick nimmt einen weg.":
+            "Left-click in the image adds an area, right-click removes one.",
+        "Auswahl fertig": "Selection done",
+        "Objekt ausgewählt.": "Object selected.",
+        "Neu auswählen": "Select again",
+        "Noch nichts ausgewählt.": "Nothing selected yet.",
+        "Im Bild anklicken": "Click in the image",
+        "Motiv für lokale Anpassungen": "Subject for local adjustments",
+        "Tiefe für lokale Anpassungen": "Depth for local adjustments",
         "Im Bild malen.": "Paint in the image.",
         "Im Bild malen; mit der rechten Maustaste oder Alt radieren. [ und ] ändern die "
         "Größe.":
@@ -408,21 +448,13 @@ TRANSLATIONS = {
             "This brush part is full – add a new part for more.",
         "Regler nur für einen Bereich: eine neue Maske wählen und im Bild aufziehen.":
             "Adjustments for one area only: choose a new mask and drag it out in the image.",
-        "Neue Maske:": "New mask:",
         "Verlauf": "Gradient",
         "Radial": "Radial",
-        "Verlauf von voller zu keiner Wirkung – im Bild vom Anfang zum Ende ziehen.":
-            "Gradient from full to no effect – drag in the image from start to end.",
-        "Ellipse, innen volle Wirkung – im Bild von der Mitte nach außen ziehen.":
-            "Ellipse with full effect inside – drag in the image from the centre outwards.",
         "Häkchen schaltet eine Maske ein und aus, Doppelklick benennt sie um.":
             "The tick turns a mask on and off, double-click renames it.",
         "Umbenennen …": "Rename …",
         "Duplizieren": "Duplicate",
         "Bereich": "Area",
-        "Teil dazu:": "Add part:",
-        "Der Maske einen weiteren Teil hinzufügen – im Bild aufziehen.":
-            "Add another part to the mask – drag it out in the image.",
         "Hinzufügen": "Add",
         "Abziehen": "Subtract",
         "Schneiden": "Intersect",
@@ -449,10 +481,10 @@ TRANSLATIONS = {
             "Drag the gradient in the image from start to end.",
         "Radial im Bild von der Mitte nach außen ziehen.":
             "Drag the radial in the image from the centre outwards.",
-        "Die Masken mit Verlauf und Radial und ihren Reglern – sie liegen "
-        "relativ zum Bild und passen meist nur zu ähnlichen Motiven":
-            "The masks with gradient and radial and their sliders – they sit relative to "
-            "the image and usually only suit similar subjects",
+        "Die Masken mit ihren Reglern. Pinsel und Objekte gehören zum Bild und "
+        "bleiben weg; Motiv und Tiefe rechnet jedes Bild selbst":
+            "The masks with their sliders. Brush strokes and objects belong to the image "
+            "and are left out; subject and depth are computed for each image",
         "Rauheit": "Roughness",
         "Das Korn wächst mit dem Bild. Die verkleinerte Vorschau zeigt es "
         "schwächer – beurteilen lässt es sich in der 100-%-Ansicht.":

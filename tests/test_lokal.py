@@ -388,3 +388,101 @@ def test_pinsel_cuda_wie_numpy():
     referenz = gewicht(m)
     gpu = cp.asnumpy(lokal.gewicht(m, H, W, (H, W), xp=cp))
     assert np.abs(referenz - gpu).max() < 1e-4
+
+
+# ----------------------------------------------------------------------
+# KI- und Bereichsteile
+# ----------------------------------------------------------------------
+
+def test_bereich_mit_weichem_uebergang_und_offenen_raendern():
+    werte = np.linspace(0, 100, 101, dtype=np.float32)
+    mitte = lokal._bereich(werte, 40, 60, 10)
+    assert mitte[50] == 1 and mitte[29] == 0 and mitte[71] == 0
+    assert 0 < mitte[35] < 1 and 0 < mitte[65] < 1
+    oben = lokal._bereich(werte, 70, 100, 10)
+    assert oben[100] == 1 and oben[59] == 0
+    unten = lokal._bereich(werte, 0, 30, 0)
+    assert unten[0] == 1 and unten[30] == 1 and unten[32] == 0
+    assert np.array_equal(lokal._bereich(werte, 60, 40, 10), mitte)     # vertauscht
+
+
+def quellen_maske(*teile):
+    return maske(*teile, belichtung=1.0)
+
+
+def test_helligkeit_tiefe_motiv_objekt_aus_quellen():
+    hell = np.tile(np.linspace(0, 1, W, dtype=np.float32), (H, 1))
+    oben = lokal.Teil("helligkeit", (70.0, 100.0, 0.0))
+    g = lokal.gewicht(quellen_maske(oben), H, W, (H, W), quellen={"helligkeit": hell})
+    assert g[0, -1] == 1 and g[0, 0] == 0
+    tiefe = lokal.Teil("tiefe", (0.0, 30.0, 0.0))
+    g = lokal.gewicht(quellen_maske(tiefe), H, W, (H, W), quellen={"tiefe": hell})
+    assert g[0, 0] == 1 and g[0, -1] == 0
+    motiv = np.zeros((H, W), np.float32)
+    motiv[10:20, 10:20] = 1
+    klicks = (0.5, 0.5, 1.0)
+    for teil, quellen in ((lokal.Teil("motiv", ()), {"motiv": motiv}),
+                          (lokal.Teil("objekt", klicks), {("objekt", klicks): motiv})):
+        g = lokal.gewicht(quellen_maske(teil), H, W, (H, W), quellen=quellen)
+        assert np.array_equal(g, motiv)
+        umgekehrt = lokal.gewicht(quellen_maske(dataclasses.replace(teil, umkehren=True)),
+                                  H, W, (H, W), quellen=quellen)
+        assert np.array_equal(umgekehrt, 1 - motiv)
+
+
+def test_ohne_quelle_wirkt_der_teil_nicht():
+    for teil in (lokal.Teil("motiv", ()), lokal.Teil("objekt", (0.5, 0.5, 1.0)),
+                 lokal.Teil("tiefe", (0.0, 100.0, 0.0)), lokal.Teil("farbe", (0.0, 30.0, 0.0))):
+        assert not lokal.gewicht(quellen_maske(teil), H, W, (H, W)).any()
+
+
+def test_farbbereich_trifft_den_farbton_und_laesst_grau():
+    farbton = np.tile(np.linspace(0, 359, W, dtype=np.float32), (H, 1))
+    buntheit = np.ones((H, W), np.float32)
+    buntheit[:10] = 0                                       # grau
+    teil = lokal.Teil("farbe", (180.0, 20.0, 0.0))
+    g = lokal.gewicht(quellen_maske(teil), H, W, (H, W),
+                      quellen={"farbton": farbton, "buntheit": buntheit})
+    spalte_180 = int(np.argmin(np.abs(farbton[0] - 180)))
+    assert g[30, spalte_180] == 1 and g[30, 0] == 0 and g[30, -1] == 0
+    assert not g[:10].any()
+    # Ueber die Grenze 360/0 hinweg
+    rot = lokal.Teil("farbe", (355.0, 20.0, 0.0))
+    g = lokal.gewicht(quellen_maske(rot), H, W, (H, W),
+                      quellen={"farbton": farbton, "buntheit": buntheit})
+    assert g[30, 0] == 1 and g[30, -1] == 1
+
+
+def test_quellen_von_und_uebertragbar():
+    klicks = (0.2, 0.3, 1.0, 0.4, 0.4, 0.0)
+    m = maske(lokal.Teil("motiv", ()), lokal.Teil("objekt", klicks, modus="weg"),
+              lokal.Teil("tiefe", (0, 50, 10)), lokal.Teil("helligkeit", (0, 50, 10)),
+              lokal.Teil("farbe", (10, 20, 30)), radial())
+    assert lokal.quellen_von(m) == {"motiv", ("objekt", klicks), "tiefe", "helligkeit",
+                                    "farbe"}
+    uebrig = lokal.uebertragbar((m,))[0]
+    assert [t.art for t in uebrig.teile] == ["motiv", "tiefe", "helligkeit", "farbe", "radial"]
+    nur_objekt = maske(lokal.Teil("objekt", klicks), radial(modus="schnitt"))
+    assert lokal.uebertragbar((nur_objekt,))[0].teile[0].modus == "dazu"
+
+
+def test_objekt_klicks_lesen():
+    klicks = [0.25, 0.5, 1, 1.5, -2.0, 0]
+    teil = {"art": "objekt", "modus": "dazu", "umkehren": False, "daten": klicks}
+    roh = _roh(teile=[teil])
+    gelesen = werteformat.aus_dict({"masken": roh})
+    assert gelesen.werte.masken[0].teile[0].daten == (0.25, 0.5, 1.0, 1.0, 0.0, 0.0)
+    for falsch in ([0.1, 0.2], [0.1, 0.2, "ja"], [0.1, 0.2, float("nan")],
+                   [0.5, 0.5, 1.0] * (lokal.MAX_KLICKS + 1)):
+        teil["daten"] = falsch
+        assert "masken" in werteformat.aus_dict({"masken": _roh(teile=[teil])}).verworfen
+    assert werteformat.lokal_klicks("x") is None
+
+
+def test_bereiche_hin_und_zurueck():
+    m = maske(lokal.Teil("tiefe", (10.0, 60.0, 5.0)), lokal.Teil("helligkeit", (0, 40, 20)),
+              lokal.Teil("farbe", (200.0, 30.0, 50.0), umkehren=True), lokal.Teil("motiv", ()),
+              lokal.Teil("objekt", (0.1, 0.2, 1.0), modus="schnitt"), kontrast=20)
+    werte = f.Einstellungen(masken=(m,))
+    gelesen = werteformat.aus_dict(werteformat.als_dict(werte))
+    assert gelesen.werte == werte and not gelesen.verworfen

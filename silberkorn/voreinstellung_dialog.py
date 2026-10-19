@@ -58,8 +58,8 @@ def gruppen_tooltip(gruppe: str) -> str:
                        "ein bestimmtes Bild richtig"),
         "anonym": _("Die Flächen zum Anonymisieren – sie gehören zu einem bestimmten Bild"),
         "metadaten": _("Titel, Beschreibung, Urheber, Ort, Datum und Bewertung"),
-        "lokal": _("Die Masken mit Verlauf und Radial und ihren Reglern – sie liegen "
-                   "relativ zum Bild und passen meist nur zu ähnlichen Motiven"),
+        "lokal": _("Die Masken mit ihren Reglern. Pinsel und Objekte gehören zum Bild und "
+                   "bleiben weg; Motiv und Tiefe rechnet jedes Bild selbst"),
     }.get(gruppe, "")
 
 
