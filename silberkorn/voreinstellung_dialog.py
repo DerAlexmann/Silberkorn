@@ -32,6 +32,7 @@ def gruppen_titel(gruppe: str) -> str:
         "schwarzweiss": _("Schwarzweiß & Tönung"),
         "lut": _("LUT"),
         "rauschen": _("Rauschminderung"),
+        "korn": _("Filmkorn"),
         "film": _("Scan & Film"),
         "ki": _("KI-Stärken"),
         "hintergrund": _("Motiv & Hintergrund"),

@@ -55,6 +55,7 @@ GRUPPEN: dict[str, tuple[str, ...]] = {
     "schwarzweiss": (*filter.SW_FELDER, *filter.TONUNG),
     "lut": ("lut", "lut_staerke"),
     "rauschen": ("rauschen_luminanz", "rauschen_farbe"),
+    "korn": ("korn", "korn_groesse", "korn_rauheit"),
     "film": tuple(filter.FILM_FELDER),
     "ki": ("ki_rauschen", "ki_schaerfe", "ki_farbe"),
     "hintergrund": (*filter.HINTERGRUND, "maske_kante", "maske_verschieben", "maske_umkehren",
@@ -66,7 +67,7 @@ GRUPPEN: dict[str, tuple[str, ...]] = {
     "anonym": tuple(filter.ANONYM_FELDER),
     "metadaten": tuple(filter.METADATEN_FELDER),
 }
-VORGABE = ("grundregler", "kurven", "hsl", "schwarzweiss", "lut", "rauschen", "film")
+VORGABE = ("grundregler", "kurven", "hsl", "schwarzweiss", "lut", "rauschen", "korn", "film")
 
 
 class VoreinstellungFehler(Exception):

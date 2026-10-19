@@ -396,6 +396,12 @@ TRANSLATIONS = {
             "The preview is scaled down and shows less noise than the saved image.",
         "Farbbereiche": "Colour ranges",
         "Schwarzweiß & Tönung": "Black & white & toning",
+        "Filmkorn": "Film grain",
+        "Rauheit": "Roughness",
+        "Das Korn wächst mit dem Bild. Die verkleinerte Vorschau zeigt es "
+        "schwächer – beurteilen lässt es sich in der 100-%-Ansicht.":
+            "The grain grows with the image. The scaled-down preview shows it weaker – "
+            "judge it in the 100 % view.",
         "In Schwarzweiß umwandeln": "Convert to black & white",
         "Die Regler darunter bestimmen, wie hell jede Farbe als Grau wird – wie ein "
         "Farbfilter vor dem Objektiv bei Schwarzweißfilm.":

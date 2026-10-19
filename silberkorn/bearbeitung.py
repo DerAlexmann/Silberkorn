@@ -47,6 +47,10 @@ fortgesetzt. Die KI-Netze (Freistellen, Klicks, Entfernen, Tiefe) sehen weiter
 nur das Original - so bleiben ihre Ergebnisse gueltig, wenn die Erweiterung
 wegfaellt oder neu erzeugt wird.
 
+Ganz am Ende liegt das Filmkorn (korn.py), nach Hintergrund und Bokeh. Beim
+KI-Hochskalieren rechnet die Kette ohne Korn; es kommt erst aufs vergroesserte
+Bild, die KI wuerde es sonst glaetten.
+
 Fuer Rueckgaengig haelt der Verlauf (verlauf.py) Staende der Sitzung fest:
 die Werte als Kopie, die KI-Ergebnisse als Verweise. Deshalb ersetzt jede
 KI-Aenderung ihr Ergebnis durch ein neues Objekt, statt das alte zu
@@ -80,6 +84,7 @@ from . import (
     filter,
     geometrie,
     ki,
+    korn,
     metadaten,
     objektivprofile,
     staub,
@@ -960,10 +965,12 @@ class Sitzung:
         return self._in_geometrie(self._ebene_auf_leinwand(maske), werte)
 
     def _rendern(self, werte: Einstellungen, voll: bool, speicher, bits: int = 8,
-                 zeigen: bool = False, leinwand: bool = True, flicken: bool = True):
+                 zeigen: bool = False, leinwand: bool = True, flicken: bool = True,
+                 mit_korn: bool = True):
         """Die ganze Kette bis zum sRGB-Bild - mit eigenem Hintergrund, falls eingestellt.
         leinwand=False: ohne die Raender einer KI-Erweiterung, flicken=False: ohne
-        entfernte Objekte (beides fuer „Vorher“)."""
+        entfernte Objekte (beides fuer „Vorher“), mit_korn=False: ohne Filmkorn (das
+        kommt beim KI-Hochskalieren erst danach)."""
         massstab = 1.0 if voll else self.vorschau_massstab
         if not flicken and (self._flicken or self._staub is not None):
             speicher = {}       # die Zwischenstufen im Speicher enthalten die Flicken
@@ -971,7 +978,8 @@ class Sitzung:
                                                     flicken=flicken), werte, voll, leinwand)
         bild = filter.anwenden_ausgabe(eingang, werte, massstab, speicher, bits=bits)
         if not leinwand and self._erweiterung is not None:
-            return bild                 # Masken, Tiefe und Markierung liegen auf der Leinwand
+            # Masken, Tiefe und Markierung liegen auf der Leinwand
+            return korn.auflegen(bild, werte) if mit_korn else bild
         markierung = self._markierung(voll) if zeigen else None
         if zeigen and self.staub_zeigen and self._staub_fund is not None:
             fund = self._staub_fund[1].astype(cp.float32) if voll else self._staub_fund[2]
@@ -981,7 +989,7 @@ class Sitzung:
         hintergrund = self._ki_maske is not None and (werte.hintergrund_aktiv() or zeigen)
         bokeh = self._ki_tiefe is not None and werte.bokeh > 0
         if not (hintergrund or bokeh or tiefe_zeigen or markierung is not None):
-            return bild
+            return korn.auflegen(bild, werte) if mit_korn else bild
         hoechst = 65535.0 if bits == 16 else 255.0
         typ = cp.uint16 if bits == 16 else cp.uint8
         ergebnis = bild.astype(cp.float32)
@@ -1000,6 +1008,8 @@ class Sitzung:
             ergebnis = hg + maske * (ergebnis - hg)
         if bokeh:
             ergebnis = self._bokeh(ergebnis, werte, voll, hoechst)
+        if mit_korn:
+            ergebnis = korn.auflegen(ergebnis, werte, hoechst)
         if tiefe_zeigen:
             ergebnis = cp.repeat(self._tiefe_fuer(werte, voll)[..., None], 3, axis=2) * hoechst
         if zeigen and maske is not None:
@@ -1333,12 +1343,13 @@ class Sitzung:
             faktor = 1
         else:
             hochskalierer, faktor, kachel = ki_auftrag
-            fertig = self._rendern(self.werte, True, None, bits=16)
+            fertig = self._rendern(self.werte, True, None, bits=16, mit_korn=False)
             srgb = fertig.astype(cp.float32) / 65535
             del fertig
             cp.get_default_memory_pool().free_all_blocks()
             rgb = hochskalierer.hochskalieren(srgb, faktor, kachel, bits, fortschritt)
             del srgb
+            rgb = self._korn_nach_hochskalieren(rgb)
         # Zwischenergebnisse der vollen Groesse sofort zurueckgeben - der
         # Speicherpool von CuPy hielte sie sonst fuer das naechste Mal fest.
         cp.get_default_memory_pool().free_all_blocks()
@@ -1348,6 +1359,18 @@ class Sitzung:
         self._flicken_gespeichert = self._flicken_stand
         return (time.perf_counter() - beginn) * 1000
 
+    def _korn_nach_hochskalieren(self, rgb: np.ndarray) -> np.ndarray:
+        """Das Korn erst aufs hochskalierte Bild - die KI glaettete es sonst. In Streifen
+        auf der Grafikkarte; das grosse Bild muss nicht auf einmal hinauf."""
+        if not korn.aktiv(self.werte):
+            return rgb
+        form = rgb.shape[:2]
+        for oben in range(0, form[0], korn.STREIFEN):
+            teil = cp.asarray(rgb[oben:oben + korn.STREIFEN])
+            rgb[oben:oben + korn.STREIFEN] = cp.asnumpy(
+                korn.auflegen(teil, self.werte, form=form, y0=oben))
+        return rgb
+
     def druckbild(self, ki_auftrag=None, fortschritt=None) -> np.ndarray:
         """Das fertige Bild fuer den Drucker: sRGB mit 8 Bit, Durchsichtiges auf Weiss.
         ki_auftrag wie bei exportieren(). Gilt nicht als Speichern."""
@@ -1356,12 +1379,13 @@ class Sitzung:
             faktor = 1
         else:
             hochskalierer, faktor, kachel = ki_auftrag
-            fertig = self._rendern(self.werte, True, None, bits=16)
+            fertig = self._rendern(self.werte, True, None, bits=16, mit_korn=False)
             srgb = fertig.astype(cp.float32) / 65535
             del fertig
             cp.get_default_memory_pool().free_all_blocks()
             rgb = hochskalierer.hochskalieren(srgb, faktor, kachel, 8, fortschritt)
             del srgb
+            rgb = self._korn_nach_hochskalieren(rgb)
         cp.get_default_memory_pool().free_all_blocks()
         alpha = self._alpha_gesamt(faktor)
         if alpha is None:

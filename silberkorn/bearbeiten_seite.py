@@ -135,6 +135,7 @@ def gruppen_titel(gruppe: str) -> str:
         "ki_farbe": _("KI-Kolorieren"),
         "maske": _("Motiv & Hintergrund"),
         "tiefe": _("Tiefe & Bokeh"),
+        "korn": _("Filmkorn"),
     }[gruppe]
 
 
@@ -222,6 +223,9 @@ def regler_titel(name: str) -> str:
         "ton_schatten_farbton": _("Schatten: Farbton"),
         "ton_schatten_saettigung": _("Schatten: Sättigung"),
         "ton_balance": _("Balance"),
+        "korn": _("Stärke"),
+        "korn_groesse": _("Größe"),
+        "korn_rauheit": _("Rauheit"),
     }[name] if not name.startswith(("hsl_", "sw_")) else farbbereich_titel(
         int(name.split("_")[1]))
 
@@ -591,12 +595,14 @@ class BearbeitenSeite(QWidget):
                 gitter.setVerticalSpacing(2)
                 gitter.setColumnStretch(0, 1)
                 innen.addLayout(gitter)
-                if regler.gruppe == "rauschen":
+                if regler.gruppe in ("rauschen", "korn"):
                     hinweis = QLabel(objectName="nebentext")
                     hinweis.setWordWrap(True)
                     self.fenster.beschriften(hinweis.setText, _(
                         "Die Vorschau ist verkleinert und zeigt Rauschen schwächer als das "
-                        "gespeicherte Bild."))
+                        "gespeicherte Bild.") if regler.gruppe == "rauschen" else _(
+                        "Das Korn wächst mit dem Bild. Die verkleinerte Vorschau zeigt es "
+                        "schwächer – beurteilen lässt es sich in der 100-%-Ansicht."))
                     innen.addWidget(hinweis)
                 spalte.addWidget(karte)
                 karten[regler.gruppe] = karte
@@ -3413,7 +3419,7 @@ class BearbeitenSeite(QWidget):
         if regler is not None:
             titel = regler_titel(feld)
             if regler.gruppe in ("rauschen", "ki_rauschen", "ki_schaerfe", "ki_farbe", "maske",
-                                 "tiefe", "lut"):
+                                 "tiefe", "lut", "korn"):
                 titel = f"{gruppen_titel(regler.gruppe)}: {titel}"
             elif regler.gruppe == "tonung":
                 titel = f"{_('Teiltonung')} – {titel}"
