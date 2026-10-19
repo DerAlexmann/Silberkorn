@@ -9,6 +9,7 @@ Neben foto.jpg liegt foto.jpg.silberkorn - ein ZIP mit fest benannten Teilen:
   vorschau.webp       das bearbeitete Bild klein, fuer die Ordneransicht
   maske.npy           Maske des Motivs (uint8)
   tiefe.npy           Tiefe, verkleinert (float16)
+  lokal-ki-N.npy      Motiv und Objekte lokaler Masken (uint8), welche: im Kopf
   flicken-N-*.npy     entfernte Objekte: Deckkraft und Fuellung (float16)
   staub-*.npy         gefuellter Staub: Stellen und Werte
   erweiterung.npy     Leinwand der KI-Erweiterung (sRGB, uint16)
@@ -66,6 +67,7 @@ MAX_JSON = 4 * 2**20
 MAX_LUT = 64 * 2**20
 MAX_VORSCHAU = 2 * 2**20
 MAX_FLICKEN = 500
+MAX_LOKAL_KI = 20               # Motiv und Objekte lokaler Masken
 MAX_TIEFE_KANTE = 8192
 MAX_LEINWAND = 9                 # die Leinwand hat hoechstens so viele Pixel wie 9 Originale
 FINGER_BYTES = 2**20             # so viel vom Anfang und vom Ende geht in den Fingerabdruck
@@ -110,6 +112,8 @@ class Inhalt:
     maske: np.ndarray | None = None  # (h, w) uint8
     maske_per_klick: bool = False
     tiefe: np.ndarray | None = None  # (th, tw) float16, 0..1
+    # KI-Ergebnisse lokaler Masken: (("motiv",) oder ("objekt", Klicks), (h, w) uint8)
+    lokal_ki: list = field(default_factory=list)
     flicken: list[Flicken] = field(default_factory=list)
     staub: Staub | None = None
     erweiterung: Erweiterung | None = None
@@ -162,6 +166,9 @@ def schreiben(bild: str, inhalt: Inhalt, finger: dict, programm: str = ""):
         "lut": None if lut_daten is None else {"name": lut_daten["name"]},
         "maske": None if inhalt.maske is None else {"per_klick": bool(inhalt.maske_per_klick)},
         "tiefe": inhalt.tiefe is not None,
+        "lokal_ki": [{"art": "motiv"} if schluessel[0] == "motiv" else
+                     {"art": "objekt", "klicks": list(schluessel[1])}
+                     for schluessel, _maske in inhalt.lokal_ki],
         "flicken": [[f.y0, f.y1, f.x0, f.x1] for f in inhalt.flicken],
         "staub": None if inhalt.staub is None else {"anzahl": int(inhalt.staub.anzahl)},
         "erweiterung": None if inhalt.erweiterung is None else {
@@ -187,6 +194,8 @@ def schreiben(bild: str, inhalt: Inhalt, finger: dict, programm: str = ""):
                 _npy(archiv, "maske.npy", inhalt.maske.astype(np.uint8))
             if inhalt.tiefe is not None:
                 _npy(archiv, "tiefe.npy", inhalt.tiefe.astype(np.float16))
+            for nummer, (_schluessel, maske) in enumerate(inhalt.lokal_ki):
+                _npy(archiv, f"lokal-ki-{nummer}.npy", maske.astype(np.uint8))
             for nummer, flicken in enumerate(inhalt.flicken):
                 _npy(archiv, f"flicken-{nummer}-deckkraft.npy", flicken.deckkraft.astype("<f2"))
                 _npy(archiv, f"flicken-{nummer}-fuellung.npy", flicken.fuellung.astype("<f2"))
@@ -283,6 +292,7 @@ def _erlaubte_namen() -> set[str]:
              "staub-werte.npy", "erweiterung.npy"}
     for nummer in range(MAX_FLICKEN):
         namen |= {f"flicken-{nummer}-deckkraft.npy", f"flicken-{nummer}-fuellung.npy"}
+    namen |= {f"lokal-ki-{nummer}.npy" for nummer in range(MAX_LOKAL_KI)}
     return namen
 
 
@@ -367,6 +377,24 @@ def _lesen(archiv: _Archiv, bild: str, hoehe: int, breite: int,
             return (len(f) == 2 and 1 <= f[0] <= min(hoehe, MAX_TIEFE_KANTE)
                     and 1 <= f[1] <= min(breite, MAX_TIEFE_KANTE))
         inhalt.tiefe = np.clip(archiv.array("tiefe.npy", "<f2", tiefe_ok), 0, 1)
+
+    eintraege = kopf.get("lokal_ki", [])
+    if not isinstance(eintraege, list) or len(eintraege) > MAX_LOKAL_KI:
+        raise BegleitFehler("lokal_ki")
+    for nummer, eintrag in enumerate(eintraege):
+        if not isinstance(eintrag, dict) or eintrag.get("art") not in ("motiv", "objekt"):
+            raise BegleitFehler("lokal_ki")
+        if eintrag["art"] == "motiv":
+            if set(eintrag) != {"art"}:
+                raise BegleitFehler("lokal_ki")
+            schluessel = ("motiv",)
+        else:
+            klicks = werteformat.lokal_klicks(eintrag.get("klicks"))
+            if set(eintrag) != {"art", "klicks"} or klicks is None:
+                raise BegleitFehler("lokal_ki")
+            schluessel = ("objekt", klicks)
+        maske = archiv.array(f"lokal-ki-{nummer}.npy", "|u1", lambda f: f == (hoehe, breite))
+        inhalt.lokal_ki.append((schluessel, maske))
 
     lagen = kopf.get("flicken", [])
     if not isinstance(lagen, list) or len(lagen) > MAX_FLICKEN:

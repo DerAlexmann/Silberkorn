@@ -19,7 +19,11 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   abziehen, schneiden, umkehren), je Maske zehn Regler von Temperatur bis
   Schärfe. Der Pinsel malt mit Größe, weichem Rand und Deckkraft und radiert mit
   rechter Maustaste oder `Alt`; Pinselstriche gehören zum Bild und gehen nicht
-  in Voreinstellungen mit. Linien und Griffe
+  in Voreinstellungen mit. Dazu KI-Teile – Motiv, Objekt per Klick und
+  Tiefenbereich – sowie Helligkeits- und Farbbereich mit Pipette; „Neue Maske“
+  und „Teil dazu“ sind jetzt Menüs. Motiv und Objekte stehen in der
+  Begleitdatei (ältere Silberkorn-Versionen können solche Begleitdateien nicht
+  lesen); Voreinstellungen und Stapel rechnen Motiv und Tiefe je Bild. Linien und Griffe
   im Bild, „Maske zeigen“ mit `O`. Die Masken liegen relativ zum Original und
   folgen der Geometrie; gerechnet wird nach der Geometrie in einem Durchlauf
   für alle Masken. Rückgängig, Begleitdatei (strenge Prüfung) und

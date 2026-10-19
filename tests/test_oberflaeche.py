@@ -343,6 +343,56 @@ def test_lokaler_pinsel(fenster, tmp_path, monkeypatch):
         seite._knoepfe_freischalten()
 
 
+def test_lokale_bereiche_und_pipette(fenster, tmp_path, monkeypatch):
+    """Helligkeits- und Farbbereich aus dem Menue, Regler des Teils, Pipette."""
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "bild.png")
+    pixel = np.zeros((120, 160, 3), np.uint8)
+    pixel[:, :80] = (200, 40, 40)
+    pixel[:, 80:] = (40, 60, 200)
+    Image.fromarray(pixel).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        menue = seite.lokal_neu_knopf.menu()
+        assert len([a for a in menue.actions() if not a.isSeparator()]) == 8
+        seite.lokal_neue_maske("farbe")
+        teil = seite.sitzung.werte.masken[0].teile[0]
+        assert teil.art == "farbe" and seite.lokal_bereich_felder["farbe"].isVisibleTo(seite)
+        assert not seite.lokal_ki_feld.isVisibleTo(seite)
+        seite.lokal_pipette_knopf.setChecked(True)
+        assert seite._klick_ziel == "lokal_farbe"
+        seite._bild_geklickt(40.0, 60.0, True)                     # rot
+        assert seite._klick_ziel is None
+        farbton = seite.sitzung.werte.masken[0].teile[0].daten[0]
+        assert farbton < 50 or farbton > 340
+        seite.lokal_zeilen["belichtung"].schieber.setValue(
+            seite.lokal_zeilen["belichtung"].schieber.value() + 20)
+        seite.lokal_zeigen_box.setChecked(False)
+        seite._zeichnen()
+        bild, _ms, _h = seite.sitzung.vorschau()
+        bild = np.asarray(bild).astype(int)
+        w = bild.shape[1]
+        assert bild[30, w // 4, 0] > 230 and abs(bild[30, 3 * w // 4, 2] - 200) <= 2
+
+        seite.lokal_teil_neu("helligkeit")
+        zeilen = seite.lokal_bereich_zeilen["helligkeit"]
+        assert seite.lokal_bereich_felder["helligkeit"].isVisibleTo(seite)
+        assert not seite.lokal_bereich_felder["farbe"].isVisibleTo(seite)
+        zeilen[0].setzen(10)
+        zeilen[0]._bewegt()
+        assert seite.sitzung.werte.masken[0].teile[1].daten[0] == 10
+        seite.lokal_modus_wahl.activated.emit(seite.lokal_modus_wahl.findData("schnitt"))
+        assert seite.sitzung.werte.masken[0].teile[1].modus == "schnitt"
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
 def test_kartenwahl_springt_und_laeuft_mit(fenster):
     """Die Auswahl ueber den Karten nennt jede Karte, springt zu ihr und zeigt beim Rollen
     die oberste. Leinwand und erste Karte beginnen auf derselben Hoehe."""

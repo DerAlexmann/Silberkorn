@@ -206,6 +206,16 @@ def _angaben(wert) -> tuple | None:
     return tuple(sorted(angaben.items()))
 
 
+def lokal_klicks(wert) -> tuple[float, ...] | None:
+    """Klicks eines Objekts: flach (x, y, dazu, ...), hoechstens lokal.MAX_KLICKS."""
+    if not isinstance(wert, list) or len(wert) % 3 or len(wert) > 3 * lokal.MAX_KLICKS:
+        return None
+    zahlen = [_zahl(z) for z in wert]
+    if None in zahlen:
+        return None
+    return lokal.daten_begrenzen("objekt", zahlen)
+
+
 def _strich(wert) -> lokal.Strich | None:
     if not isinstance(wert, dict) or set(wert) != {"radius", "weich", "deckkraft", "radieren",
                                                    "punkte"}:
@@ -242,11 +252,14 @@ def _teil(wert) -> lokal.Teil | None:
         return None
     grenzen = lokal.DATEN[art]
     daten = wert.get("daten")
-    if not isinstance(daten, list) or len(daten) != len(grenzen):
+    if grenzen is None:
+        zahlen = lokal_klicks(daten)
+    elif not isinstance(daten, list) or len(daten) != len(grenzen):
         return None
-    zahlen = [_begrenzt(z, unten, oben) for z, (_n, unten, oben) in zip(daten, grenzen,
-                                                                         strict=True)]
-    if None in zahlen:
+    else:
+        zahlen = [_begrenzt(z, unten, oben) for z, (_n, unten, oben) in zip(daten, grenzen,
+                                                                             strict=True)]
+    if zahlen is None or None in zahlen:
         return None
     striche = ()
     if art == "pinsel":

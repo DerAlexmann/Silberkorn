@@ -3,8 +3,15 @@ Lokale Anpassungen: Masken aus Teilen, je Maske eigene Regler
 
 Eine Maske ist ein Bereich des Bildes mit eigenen Werten fuer Weissabgleich,
 Belichtung, Tonwerte, Klarheit, Dunst, Saettigung und Schaerfe. Den Bereich
-bilden ihre Teile - Verlauf, Radial und Pinsel -, die hinzugefuegt, abgezogen
-oder geschnitten werden; jeder Teil laesst sich umkehren.
+bilden ihre Teile, die hinzugefuegt, abgezogen oder geschnitten werden; jeder
+Teil laesst sich umkehren:
+
+- Formen: Verlauf, Radial und Pinsel.
+- KI: Motiv (BiRefNet), Objekt per Klick (SAM 2) und ein Bereich der Tiefe
+  (Depth Anything). Ihre Ergebnisse haelt die Sitzung; hier kommen sie als
+  Quellen herein (gewicht(..., quellen=...)).
+- Bereiche des Bildes selbst: Helligkeit und Farbe - aus dem Bild vor allen
+  Reglern, damit die Maske sich nicht mit ihren eigenen Reglern verschiebt.
 
 Ein Pinsel-Teil besteht aus Strichen: je Strich Radius, weicher Rand,
 Deckkraft, ob er malt oder radiert, und seine Punkte. Gerastert wird jeder
@@ -44,8 +51,11 @@ import numpy as np
 
 from . import filter as f
 
-ARTEN = ("verlauf", "radial", "pinsel")
-UEBERTRAGBAR = ("verlauf", "radial")      # ein Pinsel gehoert zu genau einem Bild
+ARTEN = ("verlauf", "radial", "pinsel", "motiv", "objekt", "tiefe", "helligkeit", "farbe")
+# Pinsel und Objekt gehoeren zu genau einem Bild; Motiv und Tiefe rechnet jedes Bild selbst
+UEBERTRAGBAR = ("verlauf", "radial", "motiv", "tiefe", "helligkeit", "farbe")
+KI_ARTEN = ("motiv", "objekt", "tiefe")
+MAX_KLICKS = 50                  # je Objekt
 MODI = ("dazu", "weg", "schnitt")
 MAX_MASKEN = 10
 MAX_TEILE = 20
@@ -78,7 +88,20 @@ DATEN = {
                ("winkel", -180.0, 180.0), ("weich", 0.0, 100.0)),
     # Der Pinsel hat keine festen Daten - nur Striche
     "pinsel": (),
+    "motiv": (),
+    # Objekt: Klicks (x, y als Anteil von Breite und Hoehe, 1 dazu / 0 weg) - beliebig viele
+    "objekt": None,
+    # Bereiche in Prozent: Tiefe 0 = fern, 100 = nah; Helligkeit sRGB-kodiert
+    "tiefe": (("von", 0.0, 100.0), ("bis", 0.0, 100.0), ("weich", 0.0, 100.0)),
+    "helligkeit": (("von", 0.0, 100.0), ("bis", 0.0, 100.0), ("weich", 0.0, 100.0)),
+    # Farbton in OkLCh, halbe Breite in Grad, Uebergang in %
+    "farbe": (("farbton", 0.0, 360.0), ("breite", 0.0, 180.0), ("weich", 0.0, 100.0)),
 }
+# So beginnen neue Teile: das Nahe, die Lichter, Himmelblau
+VORGABEN = {"tiefe": (60.0, 100.0, 20.0), "helligkeit": (70.0, 100.0, 20.0),
+            "farbe": (250.0, 25.0, 50.0)}
+FARBE_UEBERGANG = 60.0           # Uebergang 100 % = so viele Grad weich
+
 # Ein Strich: Radius als Anteil der langen Kante, weicher Rand und Deckkraft in %,
 # Punkte als Anteil von Breite und Hoehe
 STRICH = {"radius": (0.0005, 0.25), "weich": (0.0, 100.0), "deckkraft": (1.0, 100.0)}
@@ -147,8 +170,29 @@ def uebertragbar(masken) -> tuple[Maske, ...]:
 
 
 def daten_begrenzen(art: str, daten) -> tuple[float, ...]:
+    if art == "objekt":
+        # Klicks: Ort im Bild, dazu als 1 oder 0
+        if len(daten) % 3:
+            raise ValueError("Klicks in Dreiergruppen")
+        klicks = []
+        for x, y, dazu in zip(*[iter(daten)] * 3, strict=True):
+            klicks += [min(max(float(x), 0.0), 1.0), min(max(float(y), 0.0), 1.0),
+                       1.0 if float(dazu) >= 0.5 else 0.0]
+        return tuple(klicks)
     return tuple(min(max(float(wert), unten), oben)
                  for wert, (_name, unten, oben) in zip(daten, DATEN[art], strict=True))
+
+
+def quellen_von(maske: Maske) -> set:
+    """Was die Teile einer Maske aus der Sitzung brauchen: "motiv", ("objekt", Klicks),
+    "tiefe", "helligkeit", "farbe"."""
+    quellen = set()
+    for teil in maske.teile:
+        if teil.art == "objekt":
+            quellen.add(("objekt", teil.daten))
+        elif teil.art in ("motiv", "tiefe", "helligkeit", "farbe"):
+            quellen.add(teil.art)
+    return quellen
 
 
 # --------------------------------------------------------------------------
@@ -168,8 +212,8 @@ def _radial_achsen(teil: Teil, breite: float, hoehe: float):
 
 
 def griffe(teil: Teil, breite: float, hoehe: float) -> dict[str, tuple[float, float]]:
-    """Die Griffe eines Teils im Original - ein Pinsel hat keine."""
-    if teil.art == "pinsel":
+    """Die Griffe eines Teils im Original - nur Verlauf und Radial haben welche."""
+    if teil.art not in ("verlauf", "radial"):
         return {}
     if teil.art == "verlauf":
         ax, ay, bx, by = teil.daten
@@ -184,10 +228,10 @@ def griffe(teil: Teil, breite: float, hoehe: float) -> dict[str, tuple[float, fl
 
 
 def linien(teil: Teil, breite: float, hoehe: float) -> list[np.ndarray]:
-    """Was die Leinwand von einem Teil zeichnet - Linienzuege (n, 2) im Original. Einen
-    Pinsel zeigt „Maske zeigen“, nicht die Leinwand."""
+    """Was die Leinwand von einem Teil zeichnet - Linienzuege (n, 2) im Original. Pinsel,
+    KI- und Bereichsteile zeigt „Maske zeigen“, nicht die Leinwand."""
     lang = max(breite, hoehe)
-    if teil.art == "pinsel":
+    if teil.art not in ("verlauf", "radial"):
         return []
     if teil.art == "verlauf":
         g = griffe(teil, breite, hoehe)
@@ -362,6 +406,39 @@ def _pinsel_gewicht(teil: Teil, xs_host, ys_host, xs, ys, breite, hoehe, gitter,
     return _striche_auflegen(basis.copy(), letzter, xs_host, ys_host, xs, ys, breite, hoehe)
 
 
+def _bereich(wert, von: float, bis: float, weich: float):
+    """1 zwischen von und bis (in %), mit weichem Uebergang; am Rand 0 bzw. 100 ohne
+    Abfall - „ab 70“ meint bis ganz oben."""
+    xp = f.xp_von(wert)
+    von, bis = min(von, bis), max(von, bis)
+    rand = max(weich, 0.5)
+    gewicht = xp.ones_like(wert)
+    if von > 0:
+        gewicht = gewicht * f._glatt(xp, von - rand, von, wert)
+    if bis < 100:
+        gewicht = gewicht * (1 - f._glatt(xp, bis, bis + rand, wert))
+    return gewicht
+
+
+def _quellen_gewicht(teil: Teil, quellen: dict, form: tuple[int, int], xp):
+    """Wirkung eines Teils, der aus einer Quelle der Sitzung rechnet; fehlt die Quelle
+    (noch nicht berechnet), wirkt er nicht."""
+    schluessel = ("objekt", teil.daten) if teil.art == "objekt" else teil.art
+    if teil.art == "farbe":
+        if "farbton" not in quellen:
+            return xp.zeros(form, dtype=xp.float32)
+        farbton, breite, weich = teil.daten
+        abstand = xp.abs((quellen["farbton"] - farbton + 180.0) % 360.0 - 180.0)
+        rand = max(weich / 100 * FARBE_UEBERGANG, 0.5)
+        return (1 - f._glatt(xp, breite, breite + rand, abstand)) * quellen["buntheit"]
+    quelle = quellen.get(schluessel)
+    if quelle is None:
+        return xp.zeros(form, dtype=xp.float32)
+    if teil.art in ("tiefe", "helligkeit"):
+        return _bereich(quelle * 100, *teil.daten)
+    return quelle
+
+
 def _teil_gewicht(teil: Teil, x, y, breite: float, hoehe: float):
     """Wirkung 0..1 eines Teils an den Stellen (x, y) in Pixeln des Originals."""
     xp = f.xp_von(x)
@@ -388,11 +465,14 @@ def _teil_gewicht(teil: Teil, x, y, breite: float, hoehe: float):
 
 def gewicht(maske: Maske, hoehe: int, breite: int, original: tuple[int, int],
             versatz: tuple[int, int] = (0, 0), faktor: tuple[float, float] | None = None,
-            xp=np, pinsel_speicher=None):
+            xp=np, pinsel_speicher=None, quellen=None):
     """Wirkung der Maske (hoehe, breite) auf einem Gitter ueber dem Original der Groesse
     original = (H, W). faktor: Pixel des Originals je Gitterpixel (y, x) - ohne Angabe
     zeigt das Gitter genau das Original; versatz: Lage des Originals auf dem Gitter in
-    Gitterpixeln (KI-Erweiterung). pinsel_speicher: siehe _pinsel_gewicht."""
+    Gitterpixeln (KI-Erweiterung). pinsel_speicher: siehe _pinsel_gewicht. quellen: was
+    KI- und Bereichsteile brauchen (quellen_von), schon auf diesem Gitter - Motiv,
+    Objekte und Tiefe 0..1, Helligkeit sRGB-kodiert 0..1, Farbton in Grad und Buntheit
+    0..1."""
     if faktor is None:
         faktor = (original[0] / hoehe, original[1] / breite)
     h_orig, b_orig = original
@@ -412,9 +492,13 @@ def gewicht(maske: Maske, hoehe: int, breite: int, original: tuple[int, int],
                                 pinsel_speicher)
             if teil.umkehren:
                 g = 1 - g
-        else:
+        elif teil.art in ("verlauf", "radial"):
             g = _teil_gewicht(teil, x, y, b_orig, h_orig)
             g = xp.broadcast_to(g, (hoehe, breite))
+        else:
+            g = _quellen_gewicht(teil, quellen or {}, (hoehe, breite), xp).astype(xp.float32)
+            if teil.umkehren:
+                g = 1 - g
         if teil.modus == "dazu" or nummer == 0 and teil.modus == "schnitt":
             ergebnis = xp.maximum(ergebnis, g)
         elif teil.modus == "weg":

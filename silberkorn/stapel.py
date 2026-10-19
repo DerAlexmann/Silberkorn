@@ -205,6 +205,36 @@ class Stapel:
             def fortschritt(i, n):
                 return self.fortschritt(name, anteil + spanne * i / max(n, 1))
             getattr(sitzung, methode)(netz[0], netz[1], fortschritt)
+        # Lokale Masken mit Motiv oder Tiefe: jedes Bild hat sein eigenes
+        for gruppe in ("lokal_motiv", "lokal_tiefe"):
+            if gruppe not in offen:
+                continue
+            netz = self._lokal_netz(gruppe)
+            if netz is None:
+                ergebnis.hinweise.append(f"ohne {gruppe}")
+            elif gruppe == "lokal_motiv":
+                sitzung.lokal_motiv(netz)
+            else:
+                sitzung.ki_tiefe(netz)
+
+    def _lokal_netz(self, gruppe: str):
+        """Freisteller oder Tiefenschaetzer fuer lokale Masken - einmal je Stapel; None,
+        wenn das Modell fehlt."""
+        if gruppe not in self._netze:
+            stufe = self.seite._ki_stufe()
+            if gruppe == "lokal_motiv":
+                modell = self.seite._masken_modell()
+            else:
+                modell = self.seite._tiefe_modell()
+            if not (ki.angeboten(modell, stufe) and ki.vorhanden(modell)):
+                self._netze[gruppe] = None
+            elif gruppe == "lokal_motiv":
+                kachel = modell.kacheln[modell.mindeststufe]
+                self._netze[gruppe] = self.seite._ki_laden(
+                    modell, kachel, lambda **weg: ki.Freisteller(modell, **weg))
+            else:
+                self._netze[gruppe] = ki.Tiefenschaetzer(modell)
+        return self._netze[gruppe]
 
     def _ausgeben(self, sitzung: Sitzung, pfad: str) -> str:
         a = self.auftrag

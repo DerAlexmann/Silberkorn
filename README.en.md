@@ -69,9 +69,12 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   toning**: tint highlights and shadows separately, with a balance – toned as in the
   darkroom on black and white (presets sepia, selenium, cyanotype), a colour look on
   colour images. Brightness is kept; white and black stay neutral.
-- **Local adjustments**: sliders for one area only – up to ten masks, each made of
-  gradients, radial filters and brush strokes that can be added, subtracted, intersected
-  and inverted. The brush paints with size, feather and opacity and erases with the right
+- **Local adjustments**: sliders for one area only – up to ten masks, each made of parts
+  that can be added, subtracted, intersected and inverted: gradient, radial and brush;
+  with AI the **subject** (BiRefNet), an **object by click** (SAM 2) and a **depth range**
+  (Depth Anything); without AI a **luminance range** and a **colour range** (with
+  eyedropper). Subject and objects are kept in the sidecar file; with presets and batch
+  processing each image computes its own subject and depth. The brush paints with size, feather and opacity and erases with the right
   mouse button or `Alt`; `[` and `]` change the size.
   Per mask temperature, tint, exposure, contrast, highlights, shadows, clarity, haze,
   saturation and sharpness (negative softens). Lines and handles sit right in the image;
