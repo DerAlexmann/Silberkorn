@@ -31,7 +31,7 @@ import os
 import tempfile
 import unicodedata
 
-from . import einstellungen, filter, werteformat
+from . import einstellungen, filter, lokal, werteformat
 from .filter import Einstellungen
 
 KENNUNG = "silberkorn-voreinstellung"
@@ -95,6 +95,9 @@ def als_dict(werte: Einstellungen, auswahl: Auswahl, programm: str = "") -> dict
     """Die gewaehlten Gruppen der Werte als JSON-taugliches dict. LutFehler, wenn die
     LUT gewaehlt ist, sich aber nicht mehr lesen laesst."""
     namen = felder(auswahl)
+    if "masken" in namen:
+        # Pinselstriche gehoeren zu diesem Bild - mit ihnen kaeme etwas Fremdes aufs naechste
+        werte = dataclasses.replace(werte, masken=lokal.uebertragbar(werte.masken))
     daten = {"kennung": KENNUNG, "format": FORMAT, "programm": programm,
              "gruppen": list(auswahl.gruppen), "film_messung": auswahl.film_messung,
              "werte": werteformat.als_dict(werte, namen), "lut": None}

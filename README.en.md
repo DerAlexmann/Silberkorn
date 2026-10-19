@@ -70,7 +70,9 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   darkroom on black and white (presets sepia, selenium, cyanotype), a colour look on
   colour images. Brightness is kept; white and black stay neutral.
 - **Local adjustments**: sliders for one area only – up to ten masks, each made of
-  gradients and radial filters that can be added, subtracted, intersected and inverted.
+  gradients, radial filters and brush strokes that can be added, subtracted, intersected
+  and inverted. The brush paints with size, feather and opacity and erases with the right
+  mouse button or `Alt`; `[` and `]` change the size.
   Per mask temperature, tint, exposure, contrast, highlights, shadows, clarity, haze,
   saturation and sharpness (negative softens). Lines and handles sit right in the image;
   the masks follow rotating, straightening and cropping, and "Show mask" (`O`) tints

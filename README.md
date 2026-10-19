@@ -75,8 +75,10 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Cyanotypie), auf Farbbildern als Farblook. Die Helligkeit bleibt dabei, Weiß
   und Schwarz bleiben neutral.
 - **Lokale Anpassungen**: Regler nur für einen Bereich – bis zu zehn Masken,
-  jede aus Verläufen und Radialfiltern, die sich hinzufügen, abziehen,
-  schneiden und umkehren lassen. Je Maske Temperatur, Tönung, Belichtung,
+  jede aus Verläufen, Radialfiltern und Pinselstrichen, die sich hinzufügen,
+  abziehen, schneiden und umkehren lassen. Der Pinsel malt mit Größe, weichem
+  Rand und Deckkraft, radiert mit der rechten Maustaste oder `Alt`; `[` und
+  `]` ändern die Größe. Je Maske Temperatur, Tönung, Belichtung,
   Kontrast, Lichter, Tiefen, Klarheit, Dunst, Sättigung und Schärfe (negativ
   zeichnet weich). Linien und Griffe liegen direkt im Bild; die Masken folgen
   Drehen, Begradigen und Zuschnitt, „Maske zeigen“ (`O`) färbt den Bereich

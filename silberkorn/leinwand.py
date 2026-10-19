@@ -29,7 +29,9 @@ Im Maskenmodus (lokale Anpassungen) zeigt sie die Teile einer Maske als Linien m
 Griffen. Ziehen an einem Griff meldet `lokal_gezogen` mit dessen Namen; ist ein
 Werkzeug fuer einen neuen Teil gewaehlt (`lokal_neu`), legt Ziehen auf freiem Grund
 ihn an. Entf loescht den gewaehlten Teil (`lokal_loeschen`). Wie bei den Flaechen
-rechnet die Seite, was das im Original heisst.
+rechnet die Seite, was das im Original heisst. Malt der Pinsel einer Maske
+(`lokal_pinsel`), zeigt ein Kreis seine Groesse, und Ziehen meldet Punkte
+(`lokal_gemalt`) - mit der rechten Taste oder Alt zum Radieren.
 
 Licensed under MIT License
 Copyright 2026 Alexander Unverhau
@@ -65,6 +67,7 @@ class Leinwand(QFrame):
     # Art ("neu", "griff"), Teil, Griff, Start x, y, jetzt x, y, losgelassen
     lokal_gezogen = Signal(str, int, str, float, float, float, float, bool)
     lokal_loeschen = Signal(int)
+    lokal_gemalt = Signal(float, float, bool, bool)     # x, y, radieren, neuer Strich
 
     def __init__(self):
         super().__init__(objectName="leinwand")
@@ -99,6 +102,8 @@ class Leinwand(QFrame):
         self.lokal_gewaehlt: int | None = None
         self.lokal_neu: str | None = None     # Art eines neuen Teils, der aufgezogen wird
         self._lokal_ziehen = None             # (Art, Teil, Griff, Startpunkt im Bild)
+        self.lokal_pinsel = False             # der Pinsel einer Maske malt
+        self._lokal_malen: bool | None = None  # waehrend eines Strichs: radieren?
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
         aufbau = QVBoxLayout(self)
@@ -325,6 +330,14 @@ class Leinwand(QFrame):
             self.lokal_formen = []
             self.lokal_gewaehlt = None
             self.lokal_neu = None
+            self.lokal_pinsel = False
+            self._lokal_malen = None
+        self._zeiger()
+        self.update()
+
+    def lokal_pinsel_setzen(self, an: bool):
+        self.lokal_pinsel = an
+        self._lokal_malen = None
         self._zeiger()
         self.update()
 
@@ -374,7 +387,7 @@ class Leinwand(QFrame):
 
     def _zeiger(self):
         if self.klickmodus or self.pinselmodus or self.flaechenmodus or (
-                self.lokalmodus and self.lokal_neu is not None):
+                self.lokalmodus and (self.lokal_neu is not None or self.lokal_pinsel)):
             self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.setCursor(Qt.CursorShape.OpenHandCursor if self.zoom
@@ -400,6 +413,12 @@ class Leinwand(QFrame):
             self._flaeche_ziehen = (art, nummer, start)
             self.flaeche_gezogen.emit(art, nummer, *start, *start, False)
             return
+        if self.lokalmodus and self.lokal_pinsel and self.zuschnitt is None and knopf in (
+                Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
+            alt = bool(ereignis.modifiers() & Qt.KeyboardModifier.AltModifier)
+            self._lokal_malen = knopf == Qt.MouseButton.RightButton or alt
+            self.lokal_gemalt.emit(*self.zu_bild(punkt), self._lokal_malen, True)
+            return
         if self.lokalmodus and self.zuschnitt is None and knopf == Qt.MouseButton.LeftButton:
             treffer = self._lokal_bei(punkt)
             if treffer is not None:
@@ -423,6 +442,12 @@ class Leinwand(QFrame):
 
     def mouseMoveEvent(self, ereignis):               # noqa: N802 - Qt-Name
         punkt = ereignis.position()
+        if self.lokalmodus and self.lokal_pinsel:
+            self._maus = punkt
+            self.update()
+            if self._lokal_malen is not None:
+                self.lokal_gemalt.emit(*self.zu_bild(punkt), self._lokal_malen, False)
+                return
         if self.pinselmodus:
             self._maus = punkt
             self.update()
@@ -486,6 +511,10 @@ class Leinwand(QFrame):
         if self._pinsel_dazu is not None and ereignis.button() in (
                 Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
             self._pinsel_dazu = None
+            return
+        if self._lokal_malen is not None and ereignis.button() in (
+                Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
+            self._lokal_malen = None
             return
         if self._lokal_ziehen is not None and ereignis.button() == Qt.MouseButton.LeftButton:
             art, nummer, griff, start = self._lokal_ziehen
@@ -561,7 +590,8 @@ class Leinwand(QFrame):
             self._flaechen_zeichnen(maler)
         elif self.lokalmodus:
             self._lokal_zeichnen(maler)
-        if self.pinselmodus and self._maus is not None and self.zuschnitt is None:
+        pinsel = self.pinselmodus or (self.lokalmodus and self.lokal_pinsel)
+        if pinsel and self._maus is not None and self.zuschnitt is None:
             maler.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             maler.setBrush(Qt.BrushStyle.NoBrush)
             for farbe, breite in ((QColor(0, 0, 0, 160), 3), (QColor(255, 255, 255), 1)):

@@ -290,6 +290,59 @@ def test_lokale_anpassungen(fenster, tmp_path, monkeypatch):
         seite._knoepfe_freischalten()
 
 
+def test_lokaler_pinsel(fenster, tmp_path, monkeypatch):
+    """Pinsel: der erste Strich legt den Teil an, Punkte folgen mit Abstand, rechts radiert,
+    Groesse mit [ und ]."""
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen, lokal
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "bild.png")
+    Image.new("RGB", (160, 120), (70, 70, 70)).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        seite.lokal_neue_maske("pinsel")
+        assert seite.leinwand.lokal_pinsel and seite.lokal_malen_feld.isVisibleTo(seite)
+        assert seite.lokal_zeigen_box.isChecked()
+        assert seite.sitzung.werte.masken[0].teile == ()
+        seite._lokal_gemalt(20, 60, False, True)
+        for x in (20.5, 21, 40, 60, 80):     # 20,5: naeher als 0,2 Radius (0,64 px), faellt weg
+            seite._lokal_gemalt(x, 60, False, False)
+        teil = seite.sitzung.werte.masken[0].teile[0]
+        assert teil.art == "pinsel" and len(teil.striche) == 1
+        assert len(teil.striche[0].punkte) == 2 * 5
+        assert teil.striche[0].radius == pytest.approx(0.2 * 0.1)
+        seite._lokal_gemalt(50, 40, True, True)          # zweiter Strich radiert
+        seite._lokal_gemalt(50, 80, True, False)
+        teil = seite.sitzung.werte.masken[0].teile[0]
+        assert [s.radieren for s in teil.striche] == [False, True]
+        assert len(seite.sitzung.werte.masken[0].teile) == 1
+
+        seite.lokal_zeilen["belichtung"].schieber.setValue(
+            seite.lokal_zeilen["belichtung"].schieber.value() + 20)
+        seite.lokal_zeigen_box.setChecked(False)
+        seite._zeichnen()
+        bild, _ms, _h = seite.sitzung.vorschau()
+        bild = np.asarray(bild).astype(int)
+        h, w = bild.shape[:2]
+        assert bild[h // 2, w // 5, 0] > bild[h // 5, w // 5, 0] + 20     # gemalt: heller
+        assert abs(bild[h // 2, int(w * 50 / 160), 0] - 70) < 8           # radiert
+
+        groesse = seite.malen_zeilen["malen_groesse"].wert()
+        seite._malen_groesse_schritt(1)
+        assert seite.malen_zeilen["malen_groesse"].wert() > groesse
+        assert seite._malen["malen_groesse"] == seite.malen_zeilen["malen_groesse"].wert()
+        # Ein anderer Teil gewaehlt: der Pinsel ruht
+        seite.lokal_teil_neu("radial")
+        assert not seite.leinwand.lokal_pinsel
+        assert lokal.uebertragbar(seite.sitzung.werte.masken) == ()
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
 def test_kartenwahl_springt_und_laeuft_mit(fenster):
     """Die Auswahl ueber den Karten nennt jede Karte, springt zu ihr und zeigt beim Rollen
     die oberste. Leinwand und erste Karte beginnen auf derselben Hoehe."""
