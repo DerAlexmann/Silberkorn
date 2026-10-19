@@ -15,8 +15,11 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Durchlauf wie Kurven und Farbbereiche; gilt für Rückgängig, Begleitdatei,
   Voreinstellungen und Stapel.
 - **Lokale Anpassungen** (neue Karte hinter „Schwarzweiß & Tönung“): bis zu
-  zehn Masken aus Verläufen und Radialfiltern (hinzufügen, abziehen, schneiden,
-  umkehren), je Maske zehn Regler von Temperatur bis Schärfe. Linien und Griffe
+  zehn Masken aus Verläufen, Radialfiltern und Pinselstrichen (hinzufügen,
+  abziehen, schneiden, umkehren), je Maske zehn Regler von Temperatur bis
+  Schärfe. Der Pinsel malt mit Größe, weichem Rand und Deckkraft und radiert mit
+  rechter Maustaste oder `Alt`; Pinselstriche gehören zum Bild und gehen nicht
+  in Voreinstellungen mit. Linien und Griffe
   im Bild, „Maske zeigen“ mit `O`. Die Masken liegen relativ zum Original und
   folgen der Geometrie; gerechnet wird nach der Geometrie in einem Durchlauf
   für alle Masken. Rückgängig, Begleitdatei (strenge Prüfung) und

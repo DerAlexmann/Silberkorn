@@ -176,6 +176,7 @@ class Sitzung:
         self.maske_zeigen = False             # Vorschau faerbt den Hintergrund ein
         self.lokal_zeigen: int | None = None  # Vorschau faerbt den Bereich dieser Maske ein
         self._lokal_raster: dict = {}         # (Teile, voll, Geometrie, ...) -> Gewicht
+        self._pinsel_raster: dict = {}        # (Striche davor, Gitter) -> Ebene, lokal.py
         self.maske_per_klick = False          # Maske stammt aus der Auswahl per Klick
         self._klickstand = {"maske": _Klicks(), "entfernen": _Klicks()}
         self._entfern_klick = None            # (voll, Vorschau): per Klick markiert
@@ -966,7 +967,8 @@ class Sitzung:
         faktor = (original[0] / quelle[0], original[1] / quelle[1])
         schluessel = (maske.teile, voll, geometrie.aus(werte), (hoehe, breite), versatz)
         if schluessel not in self._lokal_raster:
-            raster = lokal.gewicht(maske, hoehe, breite, original, versatz, faktor, cp)
+            raster = lokal.gewicht(maske, hoehe, breite, original, versatz, faktor, cp,
+                                   self._pinsel_raster)
             self._lokal_raster[schluessel] = self._in_geometrie(raster, werte)
         return self._lokal_raster[schluessel]
 
@@ -984,6 +986,10 @@ class Sitzung:
         for schluessel in [k for k in self._lokal_raster
                            if k[1] == voll and (k[0], k[1]) not in gebraucht]:
             del self._lokal_raster[schluessel]
+        # Vom Pinsel bleibt nur, worauf ein Strich der jetzigen Masken weiter aufbaut
+        davor = {t.striche[:-1] for m in werte.masken for t in m.teile if t.art == "pinsel"}
+        for schluessel in [k for k in self._pinsel_raster if k[0] not in davor]:
+            del self._pinsel_raster[schluessel]
         return karten or None
 
     def _lokal_zeige_maske(self, werte: Einstellungen) -> lokal.Maske | None:

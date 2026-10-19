@@ -89,8 +89,17 @@ def als_dict(werte: Einstellungen, felder=None) -> dict:
 def _maske_als_dict(maske: lokal.Maske) -> dict:
     return {"name": maske.name, "an": maske.an,
             "werte": [float(w) for w in maske.werte],
-            "teile": [{"art": t.art, "modus": t.modus, "umkehren": t.umkehren,
-                       "daten": [float(z) for z in t.daten]} for t in maske.teile]}
+            "teile": [_teil_als_dict(t) for t in maske.teile]}
+
+
+def _teil_als_dict(teil: lokal.Teil) -> dict:
+    daten = {"art": teil.art, "modus": teil.modus, "umkehren": teil.umkehren,
+             "daten": [float(z) for z in teil.daten]}
+    if teil.art == "pinsel":
+        daten["striche"] = [{"radius": s.radius, "weich": s.weich, "deckkraft": s.deckkraft,
+                             "radieren": s.radieren, "punkte": [float(z) for z in s.punkte]}
+                            for s in teil.striche]
+    return daten
 
 
 def lut_als_dict(werte: Einstellungen) -> dict | None:
@@ -197,8 +206,34 @@ def _angaben(wert) -> tuple | None:
     return tuple(sorted(angaben.items()))
 
 
+def _strich(wert) -> lokal.Strich | None:
+    if not isinstance(wert, dict) or set(wert) != {"radius", "weich", "deckkraft", "radieren",
+                                                   "punkte"}:
+        return None
+    zahlen = [_begrenzt(wert[name], *lokal.STRICH[name]) for name in ("radius", "weich",
+                                                                      "deckkraft")]
+    punkte = wert["punkte"]
+    if (None in zahlen or not isinstance(wert["radieren"], bool) or not isinstance(punkte, list)
+            or not 2 <= len(punkte) <= 2 * lokal.MAX_PUNKTE or len(punkte) % 2):
+        return None
+    punkte = [_begrenzt(z, *lokal.PUNKT_BEREICH) for z in punkte]
+    if None in punkte:
+        return None
+    return lokal.Strich(*zahlen, wert["radieren"], tuple(punkte))
+
+
+def _striche(wert) -> tuple | None:
+    if not isinstance(wert, list) or len(wert) > lokal.MAX_STRICHE:
+        return None
+    striche = [_strich(s) for s in wert]
+    if None in striche or sum(len(s.punkte) // 2 for s in striche) > lokal.MAX_PUNKTE:
+        return None
+    return tuple(striche)
+
+
 def _teil(wert) -> lokal.Teil | None:
-    if not isinstance(wert, dict) or set(wert) - {"art", "modus", "umkehren", "daten"}:
+    if not isinstance(wert, dict) or set(wert) - {"art", "modus", "umkehren", "daten",
+                                                  "striche"}:
         return None
     art, modus = wert.get("art"), wert.get("modus", "dazu")
     umkehren = wert.get("umkehren", False)
@@ -213,7 +248,14 @@ def _teil(wert) -> lokal.Teil | None:
                                                                          strict=True)]
     if None in zahlen:
         return None
-    return lokal.Teil(art, tuple(zahlen), modus, umkehren)
+    striche = ()
+    if art == "pinsel":
+        striche = _striche(wert.get("striche", []))
+        if striche is None:
+            return None
+    elif "striche" in wert:
+        return None
+    return lokal.Teil(art, tuple(zahlen), modus, umkehren, striche)
 
 
 def _maske(wert) -> lokal.Maske | None:

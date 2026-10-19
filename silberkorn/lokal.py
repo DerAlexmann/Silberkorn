@@ -3,8 +3,16 @@ Lokale Anpassungen: Masken aus Teilen, je Maske eigene Regler
 
 Eine Maske ist ein Bereich des Bildes mit eigenen Werten fuer Weissabgleich,
 Belichtung, Tonwerte, Klarheit, Dunst, Saettigung und Schaerfe. Den Bereich
-bilden ihre Teile - Verlauf und Radial -, die hinzugefuegt, abgezogen oder
-geschnitten werden; jeder Teil laesst sich umkehren.
+bilden ihre Teile - Verlauf, Radial und Pinsel -, die hinzugefuegt, abgezogen
+oder geschnitten werden; jeder Teil laesst sich umkehren.
+
+Ein Pinsel-Teil besteht aus Strichen: je Strich Radius, weicher Rand,
+Deckkraft, ob er malt oder radiert, und seine Punkte. Gerastert wird jeder
+Strich nur in seinem Rechteck - auf der Grafikkarte mit einem kleinen Kernel,
+der fuer jeden Pixel den Abstand zum naechsten Stueck des Strichs sucht. Beim
+Malen aendert sich nur der letzte Strich; was die Striche davor ergeben, bleibt
+gespeichert (pinsel_speicher: (Striche davor, Gitter) -> Ebene; aufraeumen muss,
+wer ihn uebergibt).
 
 Die Teile liegen im Original: Punkte als Anteil von Breite und Hoehe (0..1),
 Laengen als Anteil der langen Kante. So folgen sie Drehen, Begradigen und
@@ -36,11 +44,14 @@ import numpy as np
 
 from . import filter as f
 
-ARTEN = ("verlauf", "radial")
+ARTEN = ("verlauf", "radial", "pinsel")
+UEBERTRAGBAR = ("verlauf", "radial")      # ein Pinsel gehoert zu genau einem Bild
 MODI = ("dazu", "weg", "schnitt")
 MAX_MASKEN = 10
 MAX_TEILE = 20
 MAX_NAME = 60
+MAX_STRICHE = 1000               # je Pinsel-Teil
+MAX_PUNKTE = 20000               # alle Punkte aller Striche eines Pinsel-Teils
 
 # Die Regler einer Maske, in dieser Reihenfolge in Maske.werte
 REGLER = (
@@ -65,10 +76,26 @@ DATEN = {
     # Mitte, Halbachsen als Anteil der langen Kante, Drehung in Grad, weicher Rand in %
     "radial": (("cx", -1.0, 2.0), ("cy", -1.0, 2.0), ("rx", 0.002, 2.0), ("ry", 0.002, 2.0),
                ("winkel", -180.0, 180.0), ("weich", 0.0, 100.0)),
+    # Der Pinsel hat keine festen Daten - nur Striche
+    "pinsel": (),
 }
+# Ein Strich: Radius als Anteil der langen Kante, weicher Rand und Deckkraft in %,
+# Punkte als Anteil von Breite und Hoehe
+STRICH = {"radius": (0.0005, 0.25), "weich": (0.0, 100.0), "deckkraft": (1.0, 100.0)}
+PUNKT_BEREICH = (-1.0, 2.0)
+PINSEL_ABSTAND = 0.2             # ein neuer Punkt erst ab diesem Anteil des Radius
 RADIAL_WEICH = 50.0              # weicher Rand eines neuen Radialfilters
 SCHAERFE_RADIUS = 1.0            # Radius des lokalen Schaerfens in Pixeln des Originals
 WEICH_SIGMA = 4.0                # Schaerfe -100 zeichnet mit diesem Sigma weich (Original)
+
+
+@dataclass(frozen=True)
+class Strich:
+    radius: float
+    weich: float
+    deckkraft: float
+    radieren: bool
+    punkte: tuple[float, ...]    # x0, y0, x1, y1, ...
 
 
 @dataclass(frozen=True)
@@ -77,6 +104,11 @@ class Teil:
     daten: tuple[float, ...]
     modus: str = "dazu"
     umkehren: bool = False
+    striche: tuple[Strich, ...] = ()
+
+    def punkte(self) -> int:
+        """Wie viele Punkte die Striche zusammen haben."""
+        return sum(len(strich.punkte) // 2 for strich in self.striche)
 
 
 @dataclass(frozen=True)
@@ -98,6 +130,20 @@ def mit_wert(maske: Maske, name: str, neu: float) -> Maske:
     werte = list(maske.werte)
     werte[NAMEN.index(name)] = float(neu)
     return Maske(maske.name, maske.teile, tuple(werte), maske.an)
+
+
+def uebertragbar(masken) -> tuple[Maske, ...]:
+    """Die Masken ohne Teile, die nur zu diesem Bild passen (Pinsel); Masken ohne Teil
+    fallen weg - fuer Voreinstellungen und Kopieren."""
+    ergebnis = []
+    for maske in masken:
+        teile = tuple(t for t in maske.teile if t.art in UEBERTRAGBAR)
+        if teile:
+            if teile[0].modus != "dazu":
+                teile = (Teil(teile[0].art, teile[0].daten, "dazu", teile[0].umkehren),
+                         *teile[1:])
+            ergebnis.append(Maske(maske.name, teile, maske.werte, maske.an))
+    return tuple(ergebnis)
 
 
 def daten_begrenzen(art: str, daten) -> tuple[float, ...]:
@@ -122,7 +168,9 @@ def _radial_achsen(teil: Teil, breite: float, hoehe: float):
 
 
 def griffe(teil: Teil, breite: float, hoehe: float) -> dict[str, tuple[float, float]]:
-    """Die Griffe eines Teils im Original."""
+    """Die Griffe eines Teils im Original - ein Pinsel hat keine."""
+    if teil.art == "pinsel":
+        return {}
     if teil.art == "verlauf":
         ax, ay, bx, by = teil.daten
         a, b = (ax * breite, ay * hoehe), (bx * breite, by * hoehe)
@@ -136,8 +184,11 @@ def griffe(teil: Teil, breite: float, hoehe: float) -> dict[str, tuple[float, fl
 
 
 def linien(teil: Teil, breite: float, hoehe: float) -> list[np.ndarray]:
-    """Was die Leinwand von einem Teil zeichnet - Linienzuege (n, 2) im Original."""
+    """Was die Leinwand von einem Teil zeichnet - Linienzuege (n, 2) im Original. Einen
+    Pinsel zeigt „Maske zeigen“, nicht die Leinwand."""
     lang = max(breite, hoehe)
+    if teil.art == "pinsel":
+        return []
     if teil.art == "verlauf":
         g = griffe(teil, breite, hoehe)
         a, b = np.array(g["a"]), np.array(g["b"])
@@ -206,6 +257,111 @@ def gezogen(teil: Teil, griff: str, a, b, breite: float, hoehe: float) -> Teil:
 # Rastern
 # --------------------------------------------------------------------------
 
+_STRICH_KERNEL = None
+
+
+def _strich_kernel():
+    """Abstand jedes Pixels zum naechsten Stueck eines Strichs - als weiche Scheibe."""
+    global _STRICH_KERNEL
+    if _STRICH_KERNEL is None:
+        from .cuda import cupy as cp
+        _STRICH_KERNEL = cp.ElementwiseKernel(
+            "raw float32 stuecke, int32 n, raw float32 xs, raw float32 ys, int32 breite, "
+            "float32 radius, float32 innen",
+            "float32 g",
+            r"""
+            float px = xs[i % breite], py = ys[i / breite];
+            float naechst = 3.0e38f;
+            for (int j = 0; j < n; j++) {
+                float ax = stuecke[4 * j], ay = stuecke[4 * j + 1];
+                float dx = stuecke[4 * j + 2] - ax, dy = stuecke[4 * j + 3] - ay;
+                float laenge = dx * dx + dy * dy;
+                float t = laenge > 0.0f
+                    ? fminf(fmaxf(((px - ax) * dx + (py - ay) * dy) / laenge, 0.0f), 1.0f)
+                    : 0.0f;
+                float ex = ax + t * dx - px, ey = ay + t * dy - py;
+                naechst = fminf(naechst, ex * ex + ey * ey);
+            }
+            float r = sqrtf(naechst) / radius;
+            float s = fminf(fmaxf((r - innen) / (1.0f - innen), 0.0f), 1.0f);
+            g = 1.0f - s * s * (3.0f - 2.0f * s);
+            """,
+            "silberkorn_strich")
+    return _STRICH_KERNEL
+
+
+def _stuecke(strich: Strich, breite: float, hoehe: float) -> np.ndarray:
+    """Die Stuecke eines Strichs (n, 4) als ax, ay, bx, by in Pixeln des Originals; ein
+    einzelner Punkt ist ein Stueck der Laenge null."""
+    punkte = np.asarray(strich.punkte, dtype=np.float64).reshape(-1, 2) * (breite, hoehe)
+    if len(punkte) == 1:
+        punkte = np.concatenate([punkte, punkte])
+    return np.concatenate([punkte[:-1], punkte[1:]], axis=1).astype(np.float32)
+
+
+def _strich_gewicht(strich: Strich, xs, ys, breite: float, hoehe: float):
+    """Wirkung eines Strichs (len(ys), len(xs)) an den Stellen xs, ys (Pixel des
+    Originals) - ohne Deckkraft."""
+    xp = f.xp_von(xs)
+    stuecke = _stuecke(strich, breite, hoehe)
+    radius = strich.radius * max(breite, hoehe)
+    innen = min(1 - strich.weich / 100, 0.999)
+    if xp is not np:
+        g = xp.empty((len(ys), len(xs)), dtype=xp.float32)
+        _strich_kernel()(xp.asarray(stuecke.ravel()), np.int32(len(stuecke)), xs, ys,
+                         np.int32(len(xs)), np.float32(radius), np.float32(innen), g)
+        return g
+    px, py = xs[None, :], ys[:, None]
+    naechst = np.full((len(ys), len(xs)), np.inf, dtype=np.float32)
+    for ax, ay, bx, by in stuecke:
+        dx, dy = bx - ax, by - ay
+        laenge = dx * dx + dy * dy
+        t = np.clip(((px - ax) * dx + (py - ay) * dy) / laenge, 0, 1) if laenge > 0 else 0.0
+        naechst = np.minimum(naechst, (ax + t * dx - px) ** 2 + (ay + t * dy - py) ** 2)
+    return (1 - f._glatt(np, innen, 1.0, np.sqrt(naechst) / np.float32(radius))) \
+        .astype(np.float32)
+
+
+def _striche_auflegen(ergebnis, striche, xs_host, ys_host, xs, ys, breite, hoehe):
+    """Striche nacheinander auf eine Ebene: malen hebt sie bis zur Deckkraft, radieren
+    nimmt sie im selben Mass zurueck. Jeder Strich nur in seinem Rechteck."""
+    lang = max(breite, hoehe)
+    for strich in striche:
+        punkte = np.asarray(strich.punkte, dtype=np.float64).reshape(-1, 2) * (breite, hoehe)
+        rand = strich.radius * lang
+        x0 = int(np.searchsorted(xs_host, punkte[:, 0].min() - rand))
+        x1 = int(np.searchsorted(xs_host, punkte[:, 0].max() + rand, side="right"))
+        y0 = int(np.searchsorted(ys_host, punkte[:, 1].min() - rand))
+        y1 = int(np.searchsorted(ys_host, punkte[:, 1].max() + rand, side="right"))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        g = _strich_gewicht(strich, xs[x0:x1], ys[y0:y1], breite, hoehe)
+        g = g * np.float32(strich.deckkraft / 100)
+        ausschnitt = ergebnis[y0:y1, x0:x1]
+        if strich.radieren:
+            ergebnis[y0:y1, x0:x1] = ausschnitt * (1 - g)
+        else:
+            ergebnis[y0:y1, x0:x1] = ausschnitt + (1 - ausschnitt) * g
+    return ergebnis
+
+
+def _pinsel_gewicht(teil: Teil, xs_host, ys_host, xs, ys, breite, hoehe, gitter,
+                    speicher):
+    """Wirkung eines Pinsel-Teils. Was die Striche ohne den letzten ergeben, steht unter
+    (Striche davor, Gitter) im speicher - so rechnet beim Malen nur der Strich, der
+    gerade waechst."""
+    xp = f.xp_von(xs)
+    davor, letzter = teil.striche[:-1], teil.striche[-1:]
+    schluessel = (davor, gitter)
+    speicher = {} if speicher is None else speicher
+    if schluessel not in speicher:
+        speicher[schluessel] = _striche_auflegen(
+            xp.zeros((len(ys_host), len(xs_host)), dtype=xp.float32), davor, xs_host, ys_host,
+            xs, ys, breite, hoehe)
+    basis = speicher[schluessel]
+    return _striche_auflegen(basis.copy(), letzter, xs_host, ys_host, xs, ys, breite, hoehe)
+
+
 def _teil_gewicht(teil: Teil, x, y, breite: float, hoehe: float):
     """Wirkung 0..1 eines Teils an den Stellen (x, y) in Pixeln des Originals."""
     xp = f.xp_von(x)
@@ -232,20 +388,33 @@ def _teil_gewicht(teil: Teil, x, y, breite: float, hoehe: float):
 
 def gewicht(maske: Maske, hoehe: int, breite: int, original: tuple[int, int],
             versatz: tuple[int, int] = (0, 0), faktor: tuple[float, float] | None = None,
-            xp=np):
+            xp=np, pinsel_speicher=None):
     """Wirkung der Maske (hoehe, breite) auf einem Gitter ueber dem Original der Groesse
     original = (H, W). faktor: Pixel des Originals je Gitterpixel (y, x) - ohne Angabe
     zeigt das Gitter genau das Original; versatz: Lage des Originals auf dem Gitter in
-    Gitterpixeln (KI-Erweiterung)."""
+    Gitterpixeln (KI-Erweiterung). pinsel_speicher: siehe _pinsel_gewicht."""
     if faktor is None:
         faktor = (original[0] / hoehe, original[1] / breite)
     h_orig, b_orig = original
-    y = ((xp.arange(hoehe, dtype=xp.float32) + 0.5 - versatz[1]) * xp.float32(faktor[0]))[:, None]
-    x = ((xp.arange(breite, dtype=xp.float32) + 0.5 - versatz[0]) * xp.float32(faktor[1]))[None, :]
+    ys_host = ((np.arange(hoehe, dtype=np.float32) + 0.5 - versatz[1])
+               * np.float32(faktor[0]))
+    xs_host = ((np.arange(breite, dtype=np.float32) + 0.5 - versatz[0])
+               * np.float32(faktor[1]))
+    ys, xs = xp.asarray(ys_host), xp.asarray(xs_host)
+    y, x = ys[:, None], xs[None, :]
+    gitter = (hoehe, breite, original, tuple(versatz), tuple(faktor))
     ergebnis = xp.zeros((hoehe, breite), dtype=xp.float32)
     for nummer, teil in enumerate(maske.teile):
-        g = _teil_gewicht(teil, x, y, b_orig, h_orig)
-        g = xp.broadcast_to(g, (hoehe, breite))
+        if teil.art == "pinsel":
+            if not teil.striche:
+                continue
+            g = _pinsel_gewicht(teil, xs_host, ys_host, xs, ys, b_orig, h_orig, gitter,
+                                pinsel_speicher)
+            if teil.umkehren:
+                g = 1 - g
+        else:
+            g = _teil_gewicht(teil, x, y, b_orig, h_orig)
+            g = xp.broadcast_to(g, (hoehe, breite))
         if teil.modus == "dazu" or nummer == 0 and teil.modus == "schnitt":
             ergebnis = xp.maximum(ergebnis, g)
         elif teil.modus == "weg":

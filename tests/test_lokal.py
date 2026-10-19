@@ -177,7 +177,8 @@ def _roh(**aenderung):
 @pytest.mark.parametrize("wert", [
     "maske", {"name": "M"}, [1, 2], _roh(werte=[0.0] * 9), _roh(werte=[float("nan")] * 10),
     _roh(an="ja"), _roh(name=5), _roh(teile="radial"), _roh(geheim=1),
-    _roh(teile=[{"art": "pinsel", "daten": []}]),
+    _roh(teile=[{"art": "pinsel", "daten": [], "striche": "malen"}]),
+    _roh(teile=[{"art": "radial", "daten": [0.5] * 6, "striche": []}]),
     _roh(teile=[{"art": "radial", "modus": "oder", "daten": [0.5] * 6}]),
     _roh(teile=[{"art": "radial", "daten": [0.5] * 5}]),
     _roh(teile=[{"art": "radial", "daten": [0.5] * 5 + ["x"]}]),
@@ -272,3 +273,118 @@ def test_griffe_ziehen_verlauf_und_linien():
 def test_gezogen_bleibt_im_bereich():
     teil = lokal.gezogen(radial(), "mitte", (0, 0), (10000, -10000), 90, 60)
     assert teil.daten[0] == 2.0 and teil.daten[1] == -1.0
+
+
+# ----------------------------------------------------------------------
+# Pinsel
+# ----------------------------------------------------------------------
+
+def strich(*punkte, radius=0.05, weich=0.0, deckkraft=100.0, radieren=False):
+    return lokal.Strich(radius, weich, deckkraft, radieren, tuple(float(z) for z in punkte))
+
+
+def pinsel(*striche, **art):
+    return lokal.Teil("pinsel", (), striche=tuple(striche), **art)
+
+
+def test_strich_deckt_seinen_weg():
+    # waagrechter Strich auf halber Hoehe, Radius 0,05 * 90 = 4,5 Pixel
+    g = gewicht(maske(pinsel(strich(0.2, 0.5, 0.8, 0.5))))
+    assert g[30, 18:72].min() == 1.0
+    assert g[30, :10].max() == 0.0 and g[30, 80:].max() == 0.0
+    assert g[30 - 3, 45] == 1.0 and g[30 - 6, 45] == 0.0
+
+
+def test_einzelner_punkt_ist_eine_scheibe():
+    g = gewicht(maske(pinsel(strich(0.5, 0.5, radius=0.1))))
+    assert g[30, 45] == 1.0 and g[30, 45 + 8] == 1.0 and g[30, 45 + 10] == 0.0
+
+
+def test_radieren_und_deckkraft():
+    malen = strich(0.1, 0.5, 0.9, 0.5)
+    halb = gewicht(maske(pinsel(strich(0.1, 0.5, 0.9, 0.5, deckkraft=50))))
+    assert halb[30, 45] == pytest.approx(0.5)
+    zweimal = gewicht(maske(pinsel(strich(0.1, 0.5, 0.9, 0.5, deckkraft=50),
+                                   strich(0.1, 0.5, 0.9, 0.5, deckkraft=50))))
+    assert zweimal[30, 45] == pytest.approx(0.75)
+    weg = gewicht(maske(pinsel(malen, strich(0.5, 0.2, 0.5, 0.8, radieren=True))))
+    assert weg[30, 45] == 0.0 and weg[30, 20] == 1.0
+
+
+def test_weicher_strich_laeuft_aus():
+    g = gewicht(maske(pinsel(strich(0.1, 0.5, 0.9, 0.5, radius=0.1, weich=100))))
+    spalte = g[:, 45]
+    assert spalte[30] > 0.95 and spalte[30 - 12] == 0
+    assert ((spalte > 0.05) & (spalte < 0.95)).sum() >= 6
+
+
+def test_pinsel_speicher_rechnet_nur_den_letzten_strich(monkeypatch):
+    erster, zweiter = strich(0.1, 0.2, 0.9, 0.2), strich(0.1, 0.7, 0.5, 0.7)
+    speicher = {}
+    m = maske(pinsel(erster, zweiter))
+    ohne = gewicht(m)
+    mit = lokal.gewicht(m, H, W, (H, W), pinsel_speicher=speicher)
+    assert np.array_equal(ohne, mit) and len(speicher) == 1
+    gerechnet = []
+    echt = lokal._strich_gewicht
+    monkeypatch.setattr(lokal, "_strich_gewicht",
+                        lambda s, *a: gerechnet.append(s) or echt(s, *a))
+    laenger = strich(0.1, 0.7, 0.5, 0.7, 0.8, 0.9)
+    lokal.gewicht(maske(pinsel(erster, laenger)), H, W, (H, W), pinsel_speicher=speicher)
+    assert gerechnet == [laenger]
+
+
+def test_pinsel_umkehren_und_abziehen():
+    kreis = radial(rx=0.3, ry=0.3, weich=0)
+    strich_ = strich(0.0, 0.5, 1.0, 0.5)
+    g = gewicht(maske(kreis, pinsel(strich_, modus="weg")))
+    assert g[30, 45] == 0.0 and g[20, 45] == 1.0
+    umgekehrt = gewicht(maske(pinsel(strich_, umkehren=True)))
+    assert umgekehrt[30, 45] == 0.0 and umgekehrt[5, 45] == 1.0
+
+
+def test_pinsel_hin_und_zurueck_und_nicht_uebertragbar():
+    m = maske(radial(), pinsel(strich(0.1, 0.1, 0.2, 0.3, radieren=True, weich=30),
+                               strich(0.5, 0.5)), belichtung=0.5)
+    werte = f.Einstellungen(masken=(m, maske(pinsel(strich(0.3, 0.3)), kontrast=10)))
+    gelesen = werteformat.aus_dict(werteformat.als_dict(werte))
+    assert gelesen.werte == werte and not gelesen.verworfen
+    uebrig = lokal.uebertragbar(werte.masken)
+    assert len(uebrig) == 1 and [t.art for t in uebrig[0].teile] == ["radial"]
+    auswahl = voreinstellungen.Auswahl(("lokal",))
+    daten = voreinstellungen.als_dict(werte, auswahl)
+    assert len(daten["werte"]["masken"]) == 1
+
+
+def _pinsel_roh(**strich_):
+    s = {"radius": 0.05, "weich": 0, "deckkraft": 100, "radieren": False,
+         "punkte": [0.1, 0.1]}
+    s.update(strich_)
+    return _roh(teile=[{"art": "pinsel", "daten": [], "striche": [s]}])
+
+
+@pytest.mark.parametrize("wert", [
+    _pinsel_roh(punkte=[]), _pinsel_roh(punkte=[0.1, 0.2, 0.3]), _pinsel_roh(punkte="0.1"),
+    _pinsel_roh(punkte=[0.1, float("inf")]), _pinsel_roh(radieren=0),
+    _pinsel_roh(radius=None), _pinsel_roh(farbe="rot"),
+    _pinsel_roh(punkte=[0.5] * (2 * lokal.MAX_PUNKTE + 2)),
+])
+def test_pinsel_verwirft_unpassendes(wert):
+    gelesen = werteformat.aus_dict({"masken": wert})
+    assert "masken" in gelesen.verworfen
+
+
+def test_pinsel_zu_viele_punkte_insgesamt():
+    roh = _pinsel_roh(punkte=[0.5] * (lokal.MAX_PUNKTE + 2))
+    roh[0]["teile"][0]["striche"] *= 2
+    assert "masken" in werteformat.aus_dict({"masken": roh}).verworfen
+
+
+def test_pinsel_cuda_wie_numpy():
+    cp = gpu_vorhanden()
+    m = maske(pinsel(strich(0.1, 0.2, 0.4, 0.8, 0.9, 0.3, radius=0.08, weich=60),
+                     strich(0.5, 0.1, 0.5, 0.9, radius=0.03, radieren=True, deckkraft=70),
+                     strich(0.7, 0.7)))
+    referenz = gewicht(m)
+    gpu = cp.asnumpy(lokal.gewicht(m, H, W, (H, W), xp=cp))
+    assert np.abs(referenz - gpu).max() < 1e-4

@@ -166,7 +166,7 @@ SW_REGLER = tuple(filter.Regler(f"sw_{i}", "schwarzweiss", -100, 100)
 
 
 def lokal_art_titel(art: str) -> str:
-    return {"verlauf": _("Verlauf"), "radial": _("Radial")}[art]
+    return {"verlauf": _("Verlauf"), "radial": _("Radial"), "pinsel": _("Pinsel")}[art]
 
 
 def lokal_modus_titel(modus: str) -> str:
@@ -189,6 +189,12 @@ LOKAL_REGLER = tuple(filter.Regler(f"lokal_{r.name}", "lokal", r.minimum, r.maxi
                      for r in lokal.REGLER)
 LOKAL_WEICH = filter.Regler("lokal_weich", "lokal", 0, 100, vorgabe=lokal.RADIAL_WEICH)
 LOKAL_LISTE_ZEILEN = 4          # so viele Masken zeigt die Liste ohne Rollen
+# Pinsel einer Maske: Groesse 100 % ist ein Radius von MALEN_GROESSTER der langen Kante
+MALEN_GROESSTER = 0.1
+MALEN_REGLER = (filter.Regler("malen_groesse", "malen", 1, 100, vorgabe=20),
+                filter.Regler("malen_weich", "malen", 0, 100, vorgabe=50),
+                filter.Regler("malen_deckkraft", "malen", 1, 100, vorgabe=100))
+MALEN_SCHRITT = 1.25            # [ und ] aendern die Groesse um diesen Faktor
 
 
 def sw_filter_titel(name: str) -> str:
@@ -252,6 +258,9 @@ def regler_titel(name: str) -> str:
         "ton_schatten_farbton": _("Schatten: Farbton"),
         "ton_schatten_saettigung": _("Schatten: Sättigung"),
         "ton_balance": _("Balance"),
+        "malen_groesse": _("Größe"),
+        "malen_weich": _("Weicher Rand"),
+        "malen_deckkraft": _("Deckkraft"),
         "korn": _("Stärke"),
         "korn_groesse": _("Größe"),
         "korn_rauheit": _("Rauheit"),
@@ -352,7 +361,8 @@ def wert_anzeige(regler: filter.Regler, wert: float) -> str:
         text += " %"
     elif regler.name in ("begradigen", "ton_lichter_farbton", "ton_schatten_farbton"):
         text += "°"
-    elif regler.name in ("ton_lichter_saettigung", "ton_schatten_saettigung", "lokal_weich"):
+    elif regler.name in ("ton_lichter_saettigung", "ton_schatten_saettigung", "lokal_weich",
+                         "malen_weich", "malen_deckkraft", "malen_groesse"):
         text += " %"
     return text
 
@@ -488,6 +498,7 @@ class BearbeitenSeite(QWidget):
         self.leinwand.pinsel_gezogen.connect(self._pinsel_gezogen)
         self.leinwand.lokal_gezogen.connect(self._lokal_gezogen)
         self.leinwand.lokal_loeschen.connect(self.lokal_teil_loeschen)
+        self.leinwand.lokal_gemalt.connect(self._lokal_gemalt)
         aufbau.addWidget(self.leinwand, 1, 0)
         aufbau.addWidget(self._reglerleiste(), 1, 1)
         self.kartenwahl = self._kartenwahl()
@@ -504,6 +515,10 @@ class BearbeitenSeite(QWidget):
         QShortcut(QKeySequence("Ctrl+Y"), self, self.wiederholen)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, self.wiederholen)
         QShortcut(QKeySequence(Qt.Key.Key_O), self, self._lokal_zeigen_taste)
+        QShortcut(QKeySequence(Qt.Key.Key_BracketLeft), self,
+                  lambda: self._malen_groesse_schritt(-1))
+        QShortcut(QKeySequence(Qt.Key.Key_BracketRight), self,
+                  lambda: self._malen_groesse_schritt(1))
         QShortcut(QKeySequence("Ctrl+Shift+C"), self, self.einstellungen_kopieren)
         QShortcut(QKeySequence("Ctrl+Shift+V"), self, self.einstellungen_einfuegen)
         self._knoepfe_freischalten()
@@ -3064,6 +3079,8 @@ class BearbeitenSeite(QWidget):
         self._lokal_start = None                  # Masken beim Beginn eines Zugs
         self._lokal_sitzung = None                # fuer welche Sitzung die Wahl gilt
         self._lokal_baut = False                  # Listen werden gerade neu gefuellt
+        self._lokal_pinsel_neu = False            # der naechste Strich beginnt einen Teil
+        self._malen = {r.name: r.vorgabe for r in MALEN_REGLER}
         hinweis = QLabel(objectName="nebentext")
         hinweis.setWordWrap(True)
         self.fenster.beschriften(hinweis.setText, _(
@@ -3084,6 +3101,8 @@ class BearbeitenSeite(QWidget):
             "Verlauf von voller zu keiner Wirkung – im Bild vom Anfang zum Ende ziehen."))
         self.fenster.beschriften(self.lokal_neu_knoepfe["radial"].setToolTip, _(
             "Ellipse, innen volle Wirkung – im Bild von der Mitte nach außen ziehen."))
+        self.fenster.beschriften(self.lokal_neu_knoepfe["pinsel"].setToolTip, _(
+            "Den Bereich frei ins Bild malen."))
         leiste.addStretch(1)
         innen.addLayout(leiste)
 
@@ -3158,6 +3177,23 @@ class BearbeitenSeite(QWidget):
         gitter.setColumnStretch(0, 1)
         bereich.addLayout(gitter)
         self.lokal_weich_zeile = ReglerZeile(self, LOKAL_WEICH, gitter, 0)
+        # Der Pinsel: Einstellungen fuer die naechsten Striche
+        self.lokal_malen_feld = QWidget()
+        malen = QVBoxLayout(self.lokal_malen_feld)
+        malen.setContentsMargins(0, 0, 0, 0)
+        hinweis = QLabel(objectName="nebentext")
+        hinweis.setWordWrap(True)
+        self.fenster.beschriften(hinweis.setText, _(
+            "Im Bild malen; mit der rechten Maustaste oder Alt radieren. [ und ] ändern die "
+            "Größe."))
+        malen.addWidget(hinweis)
+        gitter = QGridLayout()
+        gitter.setVerticalSpacing(2)
+        gitter.setColumnStretch(0, 1)
+        malen.addLayout(gitter)
+        self.malen_zeilen = {regler.name: ReglerZeile(self, regler, gitter, 2 * nummer)
+                             for nummer, regler in enumerate(MALEN_REGLER)}
+        bereich.addWidget(self.lokal_malen_feld)
         self.lokal_zeigen_box = QCheckBox()
         self.fenster.beschriften(self.lokal_zeigen_box.setText, _("Maske zeigen (O)"))
         self.fenster.beschriften(self.lokal_zeigen_box.setToolTip, _(
@@ -3212,6 +3248,8 @@ class BearbeitenSeite(QWidget):
         self.lokal_duplizieren_knopf.setEnabled(gewaehlt and platz)
         self.lokal_loeschen_knopf.setEnabled(gewaehlt)
         self.lokal_bereich.setVisible(gewaehlt)
+        if not gewaehlt:
+            self._lokal_pinsel_neu = False
         self.lokal_teile.clear()
         if gewaehlt:
             maske = masken[self._lokal_maske]
@@ -3234,6 +3272,12 @@ class BearbeitenSeite(QWidget):
             for widget in (self.lokal_weich_zeile.titel, self.lokal_weich_zeile.anzeige,
                            self.lokal_weich_zeile.schieber):
                 widget.setVisible(radial)
+            # Wartet ein anderes Werkzeug auf den Zug im Bild, ruht der Pinsel
+            pinsel = self._lokal_pinsel_neu or (teil is not None and teil.art == "pinsel"
+                                                and self.leinwand.lokal_neu is None)
+            self.lokal_malen_feld.setVisible(pinsel)
+            if self.leinwand.lokalmodus and self.leinwand.lokal_pinsel != pinsel:
+                self.leinwand.lokal_pinsel_setzen(pinsel)
             if radial:
                 self.lokal_weich_zeile.setzen(teil.daten[5])
             for knopf in self.lokal_teil_knoepfe.values():
@@ -3261,6 +3305,7 @@ class BearbeitenSeite(QWidget):
                            "griffe": dict(zip(griffe, map(tuple, stuecke[-1]), strict=True))})
         self.leinwand.lokal_formen = formen
         self.leinwand.lokal_gewaehlt = self._lokal_teil
+        self._malen_radius_zeigen()
         self.leinwand.update()
 
     def _lokal_modus_beginnen(self):
@@ -3308,7 +3353,17 @@ class BearbeitenSeite(QWidget):
         if self.sitzung is None or self._lokal_maske is None:
             return
         self._lokal_modus_beginnen()
+        if art == "pinsel":
+            # Der erste Strich legt den Teil an; „Maske zeigen“ zeigt, was gemalt ist
+            self.leinwand.lokal_werkzeug_setzen(None)
+            self._lokal_pinsel_neu = True
+            self.lokal_zeigen_box.setChecked(True)
+            self._lokal_anzeigen()
+            self.fenster.melden(_("Im Bild malen."))
+            return
+        self._lokal_pinsel_neu = False
         self.leinwand.lokal_werkzeug_setzen(art)
+        self._lokal_anzeigen()
         self.fenster.melden(_("Verlauf im Bild vom Anfang zum Ende ziehen.") if art == "verlauf"
                             else _("Radial im Bild von der Mitte nach außen ziehen."))
 
@@ -3321,6 +3376,7 @@ class BearbeitenSeite(QWidget):
         maske = self.sitzung.werte.masken[zeile]
         self._lokal_modus_beginnen()
         self.leinwand.lokal_werkzeug_setzen(None)
+        self._lokal_pinsel_neu = False
         self._lokal_maske, self._lokal_teil = zeile, (0 if maske.teile else None)
         self._lokal_anzeigen()
         self.zeichnen_anfordern()
@@ -3329,6 +3385,8 @@ class BearbeitenSeite(QWidget):
         if self._lokal_baut or self.sitzung is None or self._lokal_maske is None:
             return
         self._lokal_teil = zeile if zeile >= 0 else None
+        self._lokal_pinsel_neu = False
+        self.leinwand.lokal_werkzeug_setzen(None)
         self._lokal_anzeigen()
 
     def _lokal_an_geaendert(self, eintrag: QListWidgetItem):
@@ -3454,6 +3512,75 @@ class BearbeitenSeite(QWidget):
         masken[self._lokal_maske] = dataclasses.replace(maske, teile=tuple(teile))
         neu = len(teile) - 1 if art == "neu" else nummer
         self._lokal_setzen(masken, self._lokal_maske, neu, voll=fertig or neu != self._lokal_teil)
+
+    def _lokal_gemalt(self, x: float, y: float, radieren: bool, neu: bool):
+        """Ein Punkt des Pinsels: beginnt einen Strich oder setzt ihn fort - im Teil, der
+        gewaehlt ist, oder in einem neuen."""
+        if self.sitzung is None or self._vorher or self._lokal_maske is None:
+            return
+        hoehe, breite = self.sitzung.original.shape[:2]
+        lang = max(hoehe, breite)
+        px, py = self.sitzung.quelle_von(x, y, begrenzt=False)
+        unten, oben = lokal.PUNKT_BEREICH
+        punkt = (min(max(px / breite, unten), oben), min(max(py / hoehe, unten), oben))
+        masken = list(self.sitzung.werte.masken)
+        maske = masken[self._lokal_maske]
+        teile = list(maske.teile)
+        nummer = self._lokal_teil
+        if self._lokal_pinsel_neu or nummer is None or teile[nummer].art != "pinsel":
+            if not neu or len(teile) >= lokal.MAX_TEILE:
+                return
+            teile.append(lokal.Teil("pinsel", ()))
+            nummer = len(teile) - 1
+            self._lokal_pinsel_neu = False
+        teil = teile[nummer]
+        if teil.punkte() >= lokal.MAX_PUNKTE:
+            if neu:
+                self.fenster.melden(_("Dieser Pinsel-Teil ist voll – für mehr einen neuen "
+                                      "Teil anlegen."))
+            return
+        if neu:
+            if len(teil.striche) >= lokal.MAX_STRICHE:
+                return
+            radius = max(self._malen["malen_groesse"] / 100 * MALEN_GROESSTER,
+                         lokal.STRICH["radius"][0])
+            striche = (*teil.striche, lokal.Strich(radius, self._malen["malen_weich"],
+                                                   self._malen["malen_deckkraft"], radieren,
+                                                   punkt))
+        else:
+            if not teil.striche:
+                return
+            letzter = teil.striche[-1]
+            lx, ly = letzter.punkte[-2:]
+            abstand = math.hypot((punkt[0] - lx) * breite, (punkt[1] - ly) * hoehe)
+            if abstand < lokal.PINSEL_ABSTAND * letzter.radius * lang:
+                return                         # zu nah am letzten Punkt
+            striche = (*teil.striche[:-1],
+                       dataclasses.replace(letzter, punkte=letzter.punkte + punkt))
+        teile[nummer] = dataclasses.replace(teil, striche=striche)
+        masken[self._lokal_maske] = dataclasses.replace(maske, teile=tuple(teile))
+        self._lokal_setzen(masken, self._lokal_maske, nummer,
+                           voll=neu and nummer != self._lokal_teil)
+
+    def _malen_radius_zeigen(self):
+        """Der Kreis auf der Leinwand zeigt die Groesse des naechsten Strichs."""
+        if self.sitzung is None:
+            return
+        lang = max(self.sitzung.original.shape[:2])
+        radius = self._malen["malen_groesse"] / 100 * MALEN_GROESSTER * lang
+        self.leinwand.pinsel_radius = max(radius * self.leinwand.massstab(), 1.0)
+        self.leinwand.update()
+
+    def _malen_groesse_schritt(self, richtung: int):
+        if not (self.leinwand.lokalmodus and self.leinwand.lokal_pinsel):
+            return
+        zeile = self.malen_zeilen["malen_groesse"]
+        wert = zeile.wert() * (MALEN_SCHRITT if richtung > 0 else 1 / MALEN_SCHRITT)
+        wert = round(min(max(wert, zeile.regler.minimum), zeile.regler.maximum))
+        if wert == zeile.wert():
+            wert = min(max(wert + richtung, zeile.regler.minimum), zeile.regler.maximum)
+        zeile.setzen(wert)
+        zeile._bewegt()
 
     def _lokal_zeigen_taste(self):
         if self.leinwand.lokalmodus and self.lokal_zeigen_box.isEnabled():
@@ -3614,6 +3741,10 @@ class BearbeitenSeite(QWidget):
     # ------------------------------------------------------------------
 
     def wert_geaendert(self, name: str, wert):
+        if name.startswith("malen_"):
+            self._malen[name] = wert                 # gilt fuer den naechsten Strich
+            self._malen_radius_zeigen()
+            return
         if self.sitzung is None or name == "ki_entrauschen":
             return
         if name.startswith("hsl_") and name[4:].isdigit():

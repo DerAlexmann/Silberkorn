@@ -398,6 +398,14 @@ TRANSLATIONS = {
         "Schwarzweiß & Tönung": "Black & white & toning",
         "Filmkorn": "Film grain",
         "Lokale Anpassungen": "Local adjustments",
+        "Den Bereich frei ins Bild malen.": "Paint the area freely into the image.",
+        "Im Bild malen.": "Paint in the image.",
+        "Im Bild malen; mit der rechten Maustaste oder Alt radieren. [ und ] ändern die "
+        "Größe.":
+            "Paint in the image; erase with the right mouse button or Alt. [ and ] change "
+            "the size.",
+        "Dieser Pinsel-Teil ist voll – für mehr einen neuen Teil anlegen.":
+            "This brush part is full – add a new part for more.",
         "Regler nur für einen Bereich: eine neue Maske wählen und im Bild aufziehen.":
             "Adjustments for one area only: choose a new mask and drag it out in the image.",
         "Neue Maske:": "New mask:",
