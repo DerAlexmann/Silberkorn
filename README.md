@@ -80,6 +80,12 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   einem farbgeführten Filter, der Farbkanten erhält – auch zwischen Farben
   gleicher Helligkeit. Die verkleinerte Vorschau zeigt Rauschen schwächer als
   das gespeicherte Bild – zum Beurteilen gibt es die 100-%-Ansicht.
+- **Filmkorn**: einfarbiges Korn mit Stärke, Größe und Rauheit, in den
+  Mitteltönen am stärksten, Schwarz und Weiß bleiben rein. Die Rauheit lässt es
+  klumpen wie bei echtem Film. Die Größe gilt
+  relativ zum Bild – die 100-%-Ansicht zeigt genau das Korn des gespeicherten
+  Bildes, und beim KI-Hochskalieren kommt das Korn erst danach dazu, statt von
+  der KI geglättet zu werden.
 - **KI-Entrauschen** mit SCUNet, trainiert auf echtes Kamerarauschen und auf
   Treue statt auf erfundene Details: einmal über das ganze Bild gerechnet (ein
   18-MP-Foto braucht auf einer RTX 4060 rund 20 Sekunden, mit TensorRT 11),
@@ -243,7 +249,7 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   betrifft nur sein Bild, am Ende steht ein Bericht.
 - **Voreinstellungen**: Einstellungen unter einem Namen sichern und auf andere
   Bilder legen – mit Auswahl, was mitgeht: Grundregler, Kurven, Farbbereiche,
-  Schwarzweiß & Tönung, LUT, Rauschminderung und Film sind vorgewählt, Geometrie, Anonymisieren und
+  Schwarzweiß & Tönung, LUT, Rauschminderung, Filmkorn und Film sind vorgewählt, Geometrie, Anonymisieren und
   Metadaten gehören meist nur zu einem Bild. Beim Film wahlweise mit der
   gemessenen Filmmaske, für Bilder vom selben Streifen, sonst wird sie je Bild
   neu geschätzt. Mit `Strg`+`Umschalt`+`C` / `V` gehen Einstellungen direkt von

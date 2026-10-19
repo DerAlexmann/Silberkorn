@@ -75,6 +75,10 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   colour-guided filter that keeps colour edges – even between colours of equal
   brightness. The scaled-down preview shows less noise than the saved image – use the
   100 % view to judge it.
+- **Film grain**: monochrome grain with strength, size and roughness, strongest in the
+  midtones while black and white stay clean. Roughness makes it clump as real film does. The size is relative to the image – the
+  100 % view shows exactly the grain of the saved image, and with AI upscaling the grain
+  is added afterwards instead of being smoothed away by the AI.
 - **AI denoise** with SCUNet, trained on real camera noise and for fidelity rather than
   invented detail: computed once over the whole image (an 18 MP photo takes about 20
   seconds on an RTX 4060, 11 with TensorRT); after that a strength slider instantly blends
@@ -213,7 +217,7 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   the end.
 - **Presets**: save settings under a name and apply them to other images – choosing
   what to include: basic adjustments, curves, colour ranges, black & white & toning,
-  LUT, noise reduction and film are preselected; geometry, anonymisation and metadata usually belong to one image
+  LUT, noise reduction, film grain and film are preselected; geometry, anonymisation and metadata usually belong to one image
   only. For film, optionally with the measured film base for images from the same strip;
   otherwise it is estimated anew for each image. `Ctrl`+`Shift`+`C` / `V` copy settings
   straight from one image to the next. Presets are stored as JSON in the `voreinstellungen`

@@ -14,6 +14,12 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   warm, Schatten kalt“. Gerechnet in OkLab auf der Grafikkarte im selben
   Durchlauf wie Kurven und Farbbereiche; gilt für Rückgängig, Begleitdatei,
   Voreinstellungen und Stapel.
+- **Filmkorn** (neue Karte hinter der LUT): einfarbiges Korn mit Stärke, Größe
+  und Rauheit (lässt das Korn klumpen), in den Mitteltönen am stärksten. Die Größe gilt relativ zur
+  langen Bildkante, das Korn ist an jeder Stelle fest bestimmt: Die
+  100-%-Ansicht zeigt genau das gespeicherte Korn, beim KI-Hochskalieren kommt
+  es erst nach der Vergrößerung dazu. Die verkleinerte Vorschau zeigt es
+  schwächer, wie nach dem Verkleinern eines Bildes.
 
 ## [0.9.0] – 2026-10-17
 

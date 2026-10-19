@@ -109,6 +109,10 @@ REGLER = (
     Regler("ca_rot", "objektiv", -100, 100),
     Regler("ca_blau", "objektiv", -100, 100),
     Regler("lut_staerke", "lut", 0, 100, vorgabe=100),
+    # Filmkorn (korn.py): am Ende der Kette, nach Schaerfen, Hintergrund und Bokeh
+    Regler("korn", "korn", 0, 100),
+    Regler("korn_groesse", "korn", 0, 100, vorgabe=25),
+    Regler("korn_rauheit", "korn", 0, 100, vorgabe=50),
     # Teiltonung (Karte „Schwarzweiß & Tönung“): Farbton als Winkel in OkLCh
     Regler("ton_lichter_farbton", "tonung", 0, 360, vorgabe=70),
     Regler("ton_lichter_saettigung", "tonung", 0, 100),
@@ -205,6 +209,10 @@ class Einstellungen:
     ki_schaerfe: float = 0.0
     ki_farbe: float = 0.0
     lut_staerke: float = 100.0
+    # Filmkorn: Staerke, Groesse relativ zur langen Kante, Anteil feineren Korns
+    korn: float = 0.0
+    korn_groesse: float = 25.0
+    korn_rauheit: float = 50.0
     # Motiv & Hintergrund
     hg_belichtung: float = 0.0
     hg_kontrast: float = 0.0
