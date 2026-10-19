@@ -34,6 +34,7 @@ from cupyx.scipy import ndimage
 
 from . import filter as f
 from . import geometrie, kurven
+from . import lokal as lokal_
 from .cuda import cupy as cp
 
 
@@ -553,7 +554,7 @@ def _dunst_schaetzung(bild, werte: f.Einstellungen, speicher: dict | None):
 
 
 def anwenden_ausgabe(rgb_linear, werte: f.Einstellungen, massstab: float = 1.0,
-                     speicher: dict | None = None, bits: int = 8):
+                     speicher: dict | None = None, bits: int = 8, lokal=None):
     """Ganze Filterkette auf der Grafikkarte, Ergebnis als sRGB mit 8 oder 16 Bit (H, W, 3)."""
     hoehe, breite = rgb_linear.shape[:2]
     pixel = hoehe * breite
@@ -569,7 +570,8 @@ def anwenden_ausgabe(rgb_linear, werte: f.Einstellungen, massstab: float = 1.0,
     zwischen = cp.empty_like(bild)
     erst_dunst = werte.dunst != 0
     geo = geometrie.aus(werte)
-    vorstufe = erst_dunst or werte.rauschen_aktiv() or not geo.ist_neutral()
+    # Mit Masken gehoeren die Tonwerte hinter die lokalen Anpassungen
+    vorstufe = erst_dunst or werte.rauschen_aktiv() or not geo.ist_neutral() or bool(lokal)
     _licht(bild, cp.float32(gr), cp.float32(gg), cp.float32(gb),
            cp.int32(0 if vorstufe else ton), *tonwerte, zwischen, size=pixel)
     if werte.rauschen_aktiv():
@@ -589,6 +591,9 @@ def anwenden_ausgabe(rgb_linear, werte: f.Einstellungen, massstab: float = 1.0,
         zwischen = geometrie.anwenden(zwischen, geo)
         hoehe, breite = zwischen.shape[:2]
         pixel = hoehe * breite
+    if lokal:
+        zwischen = cp.ascontiguousarray(lokal_.anwenden(zwischen, lokal, massstab),
+                                        dtype=cp.float32)
     if vorstufe and ton:
         _licht(zwischen, cp.float32(1), cp.float32(1), cp.float32(1), cp.int32(1),
                *tonwerte, zwischen, size=pixel)

@@ -74,6 +74,13 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Balance – auf Schwarzweiß wie im Labor getönt (Vorlagen Sepia, Selen,
   Cyanotypie), auf Farbbildern als Farblook. Die Helligkeit bleibt dabei, Weiß
   und Schwarz bleiben neutral.
+- **Lokale Anpassungen**: Regler nur für einen Bereich – bis zu zehn Masken,
+  jede aus Verläufen und Radialfiltern, die sich hinzufügen, abziehen,
+  schneiden und umkehren lassen. Je Maske Temperatur, Tönung, Belichtung,
+  Kontrast, Lichter, Tiefen, Klarheit, Dunst, Sättigung und Schärfe (negativ
+  zeichnet weich). Linien und Griffe liegen direkt im Bild; die Masken folgen
+  Drehen, Begradigen und Zuschnitt, „Maske zeigen“ (`O`) färbt den Bereich
+  ein.
 - **LUTs**: Looks als `.cube`-Datei (3D und 1D) laden, tetraedrisch
   interpoliert, mit Stärkeregler.
 - **Rauschminderung**: Luminanzrauschen mit Non-Local Means, Farbrauschen mit

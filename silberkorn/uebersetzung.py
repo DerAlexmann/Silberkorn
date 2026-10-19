@@ -397,6 +397,54 @@ TRANSLATIONS = {
         "Farbbereiche": "Colour ranges",
         "Schwarzweiß & Tönung": "Black & white & toning",
         "Filmkorn": "Film grain",
+        "Lokale Anpassungen": "Local adjustments",
+        "Regler nur für einen Bereich: eine neue Maske wählen und im Bild aufziehen.":
+            "Adjustments for one area only: choose a new mask and drag it out in the image.",
+        "Neue Maske:": "New mask:",
+        "Verlauf": "Gradient",
+        "Radial": "Radial",
+        "Verlauf von voller zu keiner Wirkung – im Bild vom Anfang zum Ende ziehen.":
+            "Gradient from full to no effect – drag in the image from start to end.",
+        "Ellipse, innen volle Wirkung – im Bild von der Mitte nach außen ziehen.":
+            "Ellipse with full effect inside – drag in the image from the centre outwards.",
+        "Häkchen schaltet eine Maske ein und aus, Doppelklick benennt sie um.":
+            "The tick turns a mask on and off, double-click renames it.",
+        "Umbenennen …": "Rename …",
+        "Duplizieren": "Duplicate",
+        "Bereich": "Area",
+        "Teil dazu:": "Add part:",
+        "Der Maske einen weiteren Teil hinzufügen – im Bild aufziehen.":
+            "Add another part to the mask – drag it out in the image.",
+        "Hinzufügen": "Add",
+        "Abziehen": "Subtract",
+        "Schneiden": "Intersect",
+        "abgezogen": "subtracted",
+        "geschnitten": "intersected",
+        "umgekehrt": "inverted",
+        "Wie der gewählte Teil mit den Teilen davor zusammenwirkt.":
+            "How the selected part combines with the parts before it.",
+        "Den gewählten Teil löschen (Entf)": "Delete the selected part (Del)",
+        "Weicher Rand": "Feather",
+        "Schärfe": "Sharpness",
+        "Maske zeigen (O)": "Show mask (O)",
+        "Färbt den Bereich der gewählten Maske ein – je kräftiger, desto stärker wirkt sie.":
+            "Tints the area of the selected mask – the stronger the tint, the stronger "
+            "the effect.",
+        "Fertig": "Done",
+        "Das Bearbeiten der Maske beenden (Esc) – sie wirkt weiter.":
+            "Stop editing the mask (Esc) – it stays in effect.",
+        "Maske {n}": "Mask {n}",
+        "Maske umbenennen": "Rename mask",
+        "Name:": "Name:",
+        "{name} – Kopie": "{name} – copy",
+        "Verlauf im Bild vom Anfang zum Ende ziehen.":
+            "Drag the gradient in the image from start to end.",
+        "Radial im Bild von der Mitte nach außen ziehen.":
+            "Drag the radial in the image from the centre outwards.",
+        "Die Masken mit Verlauf und Radial und ihren Reglern – sie liegen "
+        "relativ zum Bild und passen meist nur zu ähnlichen Motiven":
+            "The masks with gradient and radial and their sliders – they sit relative to "
+            "the image and usually only suit similar subjects",
         "Rauheit": "Roughness",
         "Das Korn wächst mit dem Bild. Die verkleinerte Vorschau zeigt es "
         "schwächer – beurteilen lässt es sich in der 100-%-Ansicht.":

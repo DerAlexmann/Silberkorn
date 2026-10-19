@@ -41,6 +41,7 @@ def gruppen_titel(gruppe: str) -> str:
         "geometrie": _("Geometrie"),
         "anonym": _("Anonymisieren"),
         "metadaten": _("Metadaten"),
+        "lokal": _("Lokale Anpassungen"),
     }[gruppe]
 
 
@@ -57,6 +58,8 @@ def gruppen_tooltip(gruppe: str) -> str:
                        "ein bestimmtes Bild richtig"),
         "anonym": _("Die Flächen zum Anonymisieren – sie gehören zu einem bestimmten Bild"),
         "metadaten": _("Titel, Beschreibung, Urheber, Ort, Datum und Bewertung"),
+        "lokal": _("Die Masken mit Verlauf und Radial und ihren Reglern – sie liegen "
+                   "relativ zum Bild und passen meist nur zu ähnlichen Motiven"),
     }.get(gruppe, "")
 
 

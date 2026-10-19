@@ -25,6 +25,12 @@ einer Ecke der gewaehlten aendert es ihre Groesse (`flaeche_gezogen`); Entf loes
 die gewaehlte (`flaeche_loeschen`). Was das fuer die Flaechen heisst, rechnet die
 Seite - sie liegen im Original, die Leinwand kennt nur ihre Umrisse im Bild.
 
+Im Maskenmodus (lokale Anpassungen) zeigt sie die Teile einer Maske als Linien mit
+Griffen. Ziehen an einem Griff meldet `lokal_gezogen` mit dessen Namen; ist ein
+Werkzeug fuer einen neuen Teil gewaehlt (`lokal_neu`), legt Ziehen auf freiem Grund
+ihn an. Entf loescht den gewaehlten Teil (`lokal_loeschen`). Wie bei den Flaechen
+rechnet die Seite, was das im Original heisst.
+
 Licensed under MIT License
 Copyright 2026 Alexander Unverhau
 Created with assistance of Claude AI
@@ -42,6 +48,7 @@ from . import farben
 ZOOMSTUFEN = (None, 1.0, 2.0, 4.0)   # None = eingepasst
 RAND = 8
 GRIFF = 10                           # so nah muss die Maus an Kante oder Ecke sein
+GRIFF_PUNKT = 5                      # Radius eines Griffs im Maskenmodus, Fensterpunkte
 KLICK_WEG = 4                        # weiter bewegt ist es Ziehen, kein Klick
 MIN_ZUSCHNITT = 0.02
 
@@ -55,6 +62,9 @@ class Leinwand(QFrame):
     # Art ("neu", "innen", "ecke0".."ecke3"), Flaeche, Start x, y, jetzt x, y, losgelassen
     flaeche_gezogen = Signal(str, int, float, float, float, float, bool)
     flaeche_loeschen = Signal(int)
+    # Art ("neu", "griff"), Teil, Griff, Start x, y, jetzt x, y, losgelassen
+    lokal_gezogen = Signal(str, int, str, float, float, float, float, bool)
+    lokal_loeschen = Signal(int)
 
     def __init__(self):
         super().__init__(objectName="leinwand")
@@ -83,6 +93,12 @@ class Leinwand(QFrame):
         self.flaechen_ecken: list[np.ndarray] = []     # je Flaeche (4, 2): Griffe
         self.flaeche_gewaehlt: int | None = None
         self._flaeche_ziehen = None           # (Art, Flaeche, Startpunkt im Bild)
+        self.lokalmodus = False
+        # je Teil: {"linien": [(n, 2) Punkte im Bild], "griffe": {Name: (x, y)}}
+        self.lokal_formen: list[dict] = []
+        self.lokal_gewaehlt: int | None = None
+        self.lokal_neu: str | None = None     # Art eines neuen Teils, der aufgezogen wird
+        self._lokal_ziehen = None             # (Art, Teil, Griff, Startpunkt im Bild)
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
         aufbau = QVBoxLayout(self)
@@ -302,6 +318,39 @@ class Leinwand(QFrame):
         self._zeiger()
         self.update()
 
+    def lokalmodus_setzen(self, an: bool):
+        self.lokalmodus = an
+        self._lokal_ziehen = None
+        if not an:
+            self.lokal_formen = []
+            self.lokal_gewaehlt = None
+            self.lokal_neu = None
+        self._zeiger()
+        self.update()
+
+    def lokal_werkzeug_setzen(self, art: str | None):
+        """Art des naechsten Teils, der aufgezogen wird - oder None."""
+        self.lokal_neu = art
+        self._zeiger()
+
+    def _lokal_bei(self, punkt: QPointF) -> tuple[str, int, str] | None:
+        """Griff unter dem Fensterpunkt - die des gewaehlten Teils zuerst, von den anderen
+        nur die Mitte -, sonst ein neuer Teil, wenn ein Werkzeug gewaehlt ist."""
+        reihe = list(range(len(self.lokal_formen) - 1, -1, -1))
+        if self.lokal_gewaehlt in reihe:
+            reihe.remove(self.lokal_gewaehlt)
+            reihe.insert(0, self.lokal_gewaehlt)
+        for nummer in reihe:
+            for name, (x, y) in self.lokal_formen[nummer]["griffe"].items():
+                if nummer != self.lokal_gewaehlt and name != "mitte":
+                    continue
+                griff = self.zu_fenster(x, y)
+                if abs(griff.x() - punkt.x()) <= GRIFF and abs(griff.y() - punkt.y()) <= GRIFF:
+                    return "griff", nummer, name
+        if self.lokal_neu is not None:
+            return "neu", -1, self.lokal_neu
+        return None
+
     def _flaeche_bei(self, punkt: QPointF) -> tuple[str, int]:
         """Was unter dem Fensterpunkt liegt: Ecke der gewaehlten, eine Flaeche oder nichts."""
         gewaehlt = self.flaeche_gewaehlt
@@ -324,7 +373,8 @@ class Leinwand(QFrame):
         return self._massstab()
 
     def _zeiger(self):
-        if self.klickmodus or self.pinselmodus or self.flaechenmodus:
+        if self.klickmodus or self.pinselmodus or self.flaechenmodus or (
+                self.lokalmodus and self.lokal_neu is not None):
             self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.setCursor(Qt.CursorShape.OpenHandCursor if self.zoom
@@ -350,6 +400,14 @@ class Leinwand(QFrame):
             self._flaeche_ziehen = (art, nummer, start)
             self.flaeche_gezogen.emit(art, nummer, *start, *start, False)
             return
+        if self.lokalmodus and self.zuschnitt is None and knopf == Qt.MouseButton.LeftButton:
+            treffer = self._lokal_bei(punkt)
+            if treffer is not None:
+                art, nummer, griff = treffer
+                start = self.zu_bild(punkt)
+                self._lokal_ziehen = (art, nummer, griff, start)
+                self.lokal_gezogen.emit(art, nummer, griff, *start, *start, False)
+                return
         if self.klickmodus and self.zuschnitt is None and knopf in (
                 Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
             self._klick = (punkt, knopf == Qt.MouseButton.LeftButton)
@@ -370,6 +428,19 @@ class Leinwand(QFrame):
             self.update()
             if self._pinsel_dazu is not None:
                 self.pinsel_gezogen.emit(*self.zu_bild(punkt), self._pinsel_dazu, False)
+                return
+        if self.lokalmodus and self._ziehen is None:
+            if self._lokal_ziehen is not None:
+                art, nummer, griff, start = self._lokal_ziehen
+                self.lokal_gezogen.emit(art, nummer, griff, *start, *self.zu_bild(punkt), False)
+                return
+            if self.voll_form is not None:
+                treffer = self._lokal_bei(punkt)
+                if treffer is not None and treffer[0] == "griff":
+                    self.setCursor(Qt.CursorShape.SizeAllCursor)
+                else:
+                    self._zeiger()
+            if self.zoom is None:
                 return
         if self.flaechenmodus and self._ziehen is None:
             if self._flaeche_ziehen is not None:
@@ -416,6 +487,12 @@ class Leinwand(QFrame):
                 Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
             self._pinsel_dazu = None
             return
+        if self._lokal_ziehen is not None and ereignis.button() == Qt.MouseButton.LeftButton:
+            art, nummer, griff, start = self._lokal_ziehen
+            self._lokal_ziehen = None
+            self.lokal_gezogen.emit(art, nummer, griff, *start,
+                                    *self.zu_bild(ereignis.position()), True)
+            return
         if self._flaeche_ziehen is not None and ereignis.button() == Qt.MouseButton.LeftButton:
             art, nummer, start = self._flaeche_ziehen
             self._flaeche_ziehen = None
@@ -445,11 +522,15 @@ class Leinwand(QFrame):
                 Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.flaeche_loeschen.emit(self.flaeche_gewaehlt)
             return
+        if self.lokalmodus and self.lokal_gewaehlt is not None and ereignis.key() in (
+                Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.lokal_loeschen.emit(self.lokal_gewaehlt)
+            return
         super().keyPressEvent(ereignis)
 
     def mouseDoubleClickEvent(self, ereignis):        # noqa: N802 - Qt-Name
         if self._bild is None or self.zuschnitt is not None or self.klickmodus \
-                or self.flaechenmodus:
+                or self.flaechenmodus or self.lokalmodus:
             return
         self.zoom_setzen(None if self.zoom else 1.0, ereignis.position())
 
@@ -478,6 +559,8 @@ class Leinwand(QFrame):
             self._klicks_zeichnen(maler)
         elif self.flaechenmodus:
             self._flaechen_zeichnen(maler)
+        elif self.lokalmodus:
+            self._lokal_zeichnen(maler)
         if self.pinselmodus and self._maus is not None and self.zuschnitt is None:
             maler.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             maler.setBrush(Qt.BrushStyle.NoBrush)
@@ -540,6 +623,30 @@ class Leinwand(QFrame):
             for x, y in self.flaechen_ecken[gewaehlt]:
                 ecke = self.zu_fenster(x, y)
                 maler.drawRect(QRectF(ecke.x() - 5, ecke.y() - 5, 10, 10))
+
+    def _lokal_zeichnen(self, maler: QPainter):
+        """Linien der Teile - hell mit dunklem Rand, der gewaehlte in der Akzentfarbe mit
+        allen Griffen, die anderen nur mit ihrer Mitte."""
+        rollen = farben.THEMES[farben.CURRENT_THEME]
+        akzent = QColor(rollen["ACCENT"])
+        maler.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for nummer, form in enumerate(self.lokal_formen):
+            gewaehlt = nummer == self.lokal_gewaehlt
+            maler.setBrush(Qt.BrushStyle.NoBrush)
+            for linie in form["linien"]:
+                zug = QPolygonF([self.zu_fenster(x, y) for x, y in linie])
+                maler.setPen(QPen(QColor(0, 0, 0, 170), 3.5))
+                maler.drawPolyline(zug)
+                maler.setPen(QPen(akzent if gewaehlt else QColor(255, 255, 255),
+                                  2 if gewaehlt else 1.5))
+                maler.drawPolyline(zug)
+            for name, (x, y) in form["griffe"].items():
+                if not gewaehlt and name != "mitte":
+                    continue
+                maler.setPen(QPen(QColor(0, 0, 0, 200), 1.5))
+                maler.setBrush(akzent if gewaehlt else QColor(255, 255, 255))
+                radius = GRIFF_PUNKT + (1 if name == "mitte" else 0)
+                maler.drawEllipse(self.zu_fenster(x, y), radius, radius)
 
     def _rahmen_zeichnen(self, maler: QPainter, bild: QRectF):
         rollen = farben.THEMES[farben.CURRENT_THEME]

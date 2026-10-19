@@ -85,6 +85,7 @@ from . import (
     geometrie,
     ki,
     korn,
+    lokal,
     metadaten,
     objektivprofile,
     staub,
@@ -100,6 +101,7 @@ MASKE_KANTE = 20.0             # Kante weicher: Sigma bei 100 % in Pixeln des Or
 MASKE_VERSCHIEBEN = 20.0       # Kante verschieben: Pixel des Originals bei +-100 %
 HG_UNSCHAERFE = 40.0           # Hintergrund weichzeichnen: Sigma bei 100 % in Pixeln
 MASKE_FARBE = (1.0, 0.25, 0.2)  # Maskenansicht: so wird der Hintergrund eingefaerbt
+LOKAL_DECKUNG = 0.5            # so deckt die Farbe dort, wo eine lokale Maske voll wirkt
 MARKIERUNG_FARBE = (0.2, 0.55, 1.0)   # was entfernt werden soll
 MARKIERUNG_DECKUNG = 0.55
 BOKEH_MAX = 0.012              # Bokeh 100 %: Sigma als Anteil der laengsten Bildkante
@@ -172,6 +174,8 @@ class Sitzung:
         self._ki_schaerfe = None              # (voll, Vorschau): Korrektur des KI-Schaerfens
         self._ki_maske = None                 # (voll, Vorschau): Maske des Motivs, 0..1
         self.maske_zeigen = False             # Vorschau faerbt den Hintergrund ein
+        self.lokal_zeigen: int | None = None  # Vorschau faerbt den Bereich dieser Maske ein
+        self._lokal_raster: dict = {}         # (Teile, voll, Geometrie, ...) -> Gewicht
         self.maske_per_klick = False          # Maske stammt aus der Auswahl per Klick
         self._klickstand = {"maske": _Klicks(), "entfernen": _Klicks()}
         self._entfern_klick = None            # (voll, Vorschau): per Klick markiert
@@ -946,6 +950,49 @@ class Sitzung:
             maske = geometrie.anwenden(cp.repeat(maske[..., None], 3, axis=2), nur_form)[..., 0]
         return cp.ascontiguousarray(cp.clip(maske, 0, 1), dtype=cp.float32)
 
+    def _lokal_gewicht(self, maske: lokal.Maske, werte: Einstellungen, voll: bool):
+        """Wirkung einer lokalen Maske (H, W) in der Geometrie des fertigen Bildes. Bleibt
+        gespeichert, solange sich Teile, Geometrie und Leinwand nicht aendern."""
+        stelle = 0 if voll else 1
+        original = self.original.shape[:2]
+        if self._erweiterung is not None:
+            gitter = (self._erweiterung.voll if voll else self._erweiterung.vorschau)[0]
+            versatz = self._lage(stelle)
+        else:
+            gitter = self.original if voll else self.vorschau_original
+            versatz = (0, 0)
+        hoehe, breite = gitter.shape[:2]
+        quelle = (self.original if voll else self.vorschau_original).shape[:2]
+        faktor = (original[0] / quelle[0], original[1] / quelle[1])
+        schluessel = (maske.teile, voll, geometrie.aus(werte), (hoehe, breite), versatz)
+        if schluessel not in self._lokal_raster:
+            raster = lokal.gewicht(maske, hoehe, breite, original, versatz, faktor, cp)
+            self._lokal_raster[schluessel] = self._in_geometrie(raster, werte)
+        return self._lokal_raster[schluessel]
+
+    def _lokal_karten(self, werte: Einstellungen, voll: bool):
+        """Die wirkenden Masken als [(Gewicht, Werte)] fuer filter.anwenden_ausgabe - oder
+        None. Was keine Maske mehr braucht, faellt aus dem Speicher."""
+        karten = []
+        for maske in werte.masken:
+            if maske.wirkt():
+                karten.append((self._lokal_gewicht(maske, werte, voll), maske.werte))
+        gebraucht = {(m.teile, voll) for m in werte.masken}
+        zeigen = self._lokal_zeige_maske(werte)
+        if zeigen is not None:
+            gebraucht.add((zeigen.teile, voll))
+        for schluessel in [k for k in self._lokal_raster
+                           if k[1] == voll and (k[0], k[1]) not in gebraucht]:
+            del self._lokal_raster[schluessel]
+        return karten or None
+
+    def _lokal_zeige_maske(self, werte: Einstellungen) -> lokal.Maske | None:
+        nummer = self.lokal_zeigen
+        if nummer is None or not 0 <= nummer < len(werte.masken):
+            return None
+        maske = werte.masken[nummer]
+        return maske if maske.teile else None
+
     def _maske_fuer(self, werte: Einstellungen, voll: bool):
         """Gewicht des Motivs (H, W) in der Geometrie des fertigen Bildes: Kante
         verschoben und weich, wenn gewuenscht umgekehrt. 1 heisst: Werte des ganzen
@@ -976,7 +1023,9 @@ class Sitzung:
             speicher = {}       # die Zwischenstufen im Speicher enthalten die Flicken
         eingang = self._anonymisieren(self._ausgang(werte, voll, leinwand=leinwand,
                                                     flicken=flicken), werte, voll, leinwand)
-        bild = filter.anwenden_ausgabe(eingang, werte, massstab, speicher, bits=bits)
+        karten = self._lokal_karten(werte, voll)
+        bild = filter.anwenden_ausgabe(eingang, werte, massstab, speicher, bits=bits,
+                                       lokal=karten)
         if not leinwand and self._erweiterung is not None:
             # Masken, Tiefe und Markierung liegen auf der Leinwand
             return korn.auflegen(bild, werte) if mit_korn else bild
@@ -985,10 +1034,12 @@ class Sitzung:
             fund = self._staub_fund[1].astype(cp.float32) if voll else self._staub_fund[2]
             markierung = fund if markierung is None else cp.maximum(markierung, fund)
         tiefe_zeigen = zeigen and self.tiefe_zeigen and self._ki_tiefe is not None
+        lokal_zeigen = self._lokal_zeige_maske(werte) if zeigen else None
         zeigen = zeigen and self.maske_zeigen
         hintergrund = self._ki_maske is not None and (werte.hintergrund_aktiv() or zeigen)
         bokeh = self._ki_tiefe is not None and werte.bokeh > 0
-        if not (hintergrund or bokeh or tiefe_zeigen or markierung is not None):
+        if not (hintergrund or bokeh or tiefe_zeigen or markierung is not None
+                or lokal_zeigen is not None):
             return korn.auflegen(bild, werte) if mit_korn else bild
         hoechst = 65535.0 if bits == 16 else 255.0
         typ = cp.uint16 if bits == 16 else cp.uint8
@@ -996,7 +1047,7 @@ class Sitzung:
         maske = self._maske_fuer(werte, voll)[..., None] if hintergrund else None
         if hintergrund and werte.hintergrund_aktiv():
             hg = filter.anwenden_ausgabe(eingang, werte.fuer_hintergrund(), massstab, speicher,
-                                         bits=bits).astype(cp.float32)
+                                         bits=bits, lokal=karten).astype(cp.float32)
             if werte.hg_unschaerfe:
                 # Nur der Hintergrund wird verwischt: das Motiv darf nicht als Schein
                 # in ihn hineinlaufen (normierte Faltung mit dem Hintergrund als Gewicht)
@@ -1015,6 +1066,10 @@ class Sitzung:
         if zeigen and maske is not None:
             farbe = cp.asarray(MASKE_FARBE, dtype=cp.float32) * hoechst
             ergebnis = maske * ergebnis + (1 - maske) * (0.4 * ergebnis + 0.6 * farbe)
+        if lokal_zeigen is not None:
+            m = self._lokal_gewicht(lokal_zeigen, werte, voll)[..., None] * LOKAL_DECKUNG
+            farbe = cp.asarray(MASKE_FARBE, dtype=cp.float32) * hoechst
+            ergebnis = ergebnis * (1 - m) + m * farbe
         if markierung is not None:
             m = self._in_geometrie(self._ebene_auf_leinwand(markierung, fortsetzen=False),
                                    werte)[..., None] * MARKIERUNG_DECKUNG
@@ -1278,7 +1333,8 @@ class Sitzung:
         werte = self.werte if werte is None else werte
         # Metadaten aendern das Bild nicht - ihretwegen nicht neu rechnen
         schluessel = (dataclasses.replace(werte, angaben=(), metadaten_entfernen=False),
-                      self.maske_zeigen, self.tiefe_zeigen, self.staub_zeigen, ohne_flicken)
+                      self.maske_zeigen, self.tiefe_zeigen, self.staub_zeigen, ohne_flicken,
+                      self.lokal_zeigen)
         if self._vollbild is None or self._vollbild[0] != schluessel:
             self._vollbild = None                 # das alte Vollbild zuerst freigeben
             bild = self._rendern(werte, True, self._speicher, zeigen=True,
