@@ -3,6 +3,14 @@
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Behoben
+
+- Wer das Herunterladen der NVIDIA-Bibliotheken, eines KI-Modells oder der
+  Objektivdatenbank ablehnt, findet danach keinen leeren Ordner mehr: Silberkorn
+  legt `nvidia` und `modelle` erst beim Herunterladen an.
+
 ## [0.10.0] – 2026-10-19
 
 ### Neu
@@ -529,6 +537,7 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Rechengenauigkeit (FP16, FP8 ab Ada, FP4 ab Blackwell).
 - Programmsymbol, Marken- und Lizenzhinweise (NOTICE).
 
+[Unveröffentlicht]: https://github.com/DerAlexmann/Silberkorn/compare/v0.10.0...HEAD
 [0.10.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.10.0
 [0.9.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.9.0
 [0.8.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.8.0

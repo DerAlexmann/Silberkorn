@@ -368,22 +368,10 @@ def ordner_kandidaten() -> list[str]:
             os.path.join(benutzer, "Silberkorn", "modelle")]
 
 
-def _beschreibbar(ordner: str) -> bool:
-    try:
-        os.makedirs(ordner, exist_ok=True)
-        probe = os.path.join(ordner, ".schreibprobe")
-        with open(probe, "w", encoding="ascii") as datei:
-            datei.write("x")
-        os.remove(probe)
-        return True
-    except OSError:
-        return False
-
-
 def modell_ordner() -> str:
     """Ordner fuer neue Modelle: der erste beschreibbare Kandidat."""
     for ordner in ordner_kandidaten():
-        if _beschreibbar(ordner):
+        if einstellungen.beschreibbar(ordner):
             return ordner
     return ordner_kandidaten()[-1]
 

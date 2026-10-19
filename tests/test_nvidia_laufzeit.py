@@ -150,3 +150,11 @@ def test_pakete_passen_zu_requirements():
         assert paket.url.startswith("https://files.pythonhosted.org/packages/")
         assert paket.url.endswith("-win_amd64.whl")
         assert len(paket.sha256) == 64
+
+
+def test_ziel_ordner_legt_vor_der_zustimmung_nichts_an(tmp_path, pakete, monkeypatch):
+    ziel = tmp_path / "programm" / "nvidia"
+    monkeypatch.setattr(nl, "ordner_kandidaten", lambda: [str(ziel)])
+    assert nl.ziel_ordner() == str(ziel)
+    assert not (tmp_path / "programm").exists()
+    assert nl.einrichten() == str(ziel) and nl.vollstaendig(str(ziel))

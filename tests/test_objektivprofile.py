@@ -409,3 +409,11 @@ def test_ohne_objektiv_keine_aufnahme(tmp_path):
     pfad = str(tmp_path / "foto.png")
     Image.new("RGB", (16, 12)).save(pfad)
     assert bilddatei.laden(pfad).aufnahme is None
+
+
+def test_ziel_ordner_legt_vor_der_zustimmung_nichts_an(server):
+    _antworten, ablage, _aufrufe = server
+    assert op.ziel_ordner() == str(ablage)
+    assert not ablage.parent.exists()
+    op.herunterladen()
+    assert op.ordner() == str(ablage)
