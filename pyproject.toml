@@ -50,6 +50,9 @@ Issues = "https://github.com/DerAlexmann/Silberkorn/issues"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = ["tensorrt: vergleicht TensorRT mit CUDA; laeuft nur mit --tensorrt"]
+# Haengt ein Test laenger, schreibt pytest die Stacks aller Threads (bricht nicht ab)
+faulthandler_timeout = 600
 
 [tool.ruff]
 line-length = 100

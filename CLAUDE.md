@@ -14,6 +14,7 @@ die Regeln dort gelten, hier steht nur, was darüber hinausgeht.
 ## Prüfen
 
 - Tests: `python -m pytest -q` (ohne Grafikkarte werden die GPU-Tests übersprungen).
+  TensorRT-Tests nur mit `--tensorrt` – kalt baut TensorRT rund 20 Minuten Engines.
 - Stil: `ruff check .` – Ruff ist der einzige Linter/Formatierer, kein black/isort.
 - Neue Formeln immer zweifach: Referenz in `filter.py` (NumPy/CuPy über `xp_von()`)
   und Kernel in `filter_gpu.py`, dazu ein Gleichheitstest.

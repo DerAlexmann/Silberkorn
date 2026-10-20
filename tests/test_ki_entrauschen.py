@@ -160,6 +160,7 @@ def test_scunet_abbruch(scunet, verrauscht):
         scunet.rechnen(cp.asarray(laut), 64, fortschritt=lambda i, n: i < 2)
 
 
+@pytest.mark.tensorrt
 def test_scunet_mit_tensorrt(verrauscht, monkeypatch, pytestconfig):
     """Nur wo TensorRT installiert ist; der erste Lauf baut die Engine."""
     grafikkarte()

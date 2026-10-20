@@ -165,6 +165,7 @@ def test_tensorrt_scheitert_beim_rechnen(bild):
     assert np.array_equal(aus, erwartet)
 
 
+@pytest.mark.tensorrt
 @pytest.mark.parametrize("schluessel", ["schnell", "qualitaet"])
 def test_tensorrt_wie_cuda(bild, schluessel, monkeypatch, pytestconfig):
     """Nur wo TensorRT installiert ist. Der erste Lauf baut die Engines (Minuten)."""
@@ -182,6 +183,7 @@ def test_tensorrt_wie_cuda(bild, schluessel, monkeypatch, pytestconfig):
     assert np.abs(a - b).mean() < 0.002 and np.abs(a - b).max() < 0.05
 
 
+@pytest.mark.tensorrt
 def test_tensorrt_baut_in_eigenem_prozess(tmp_path, monkeypatch):
     """Der Bau laeuft in einem eigenen Prozess; danach liegt die Engine bereit."""
     bereit("schnell")
