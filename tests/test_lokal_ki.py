@@ -174,6 +174,32 @@ def test_begleitdatei_bringt_motiv_und_objekt_zurueck(bild):
     b.schliessen()
 
 
+_K1, _K2 = (0.25, 0.5, 1.0), (0.75, 0.5, 1.0)
+_MOTIV, _TIEFE = lokal.Teil("motiv", ()), lokal.Teil("tiefe", (60.0, 100.0, 0.0))
+
+
+@pytest.mark.parametrize(("masken", "erwartet"), [
+    ([[_MOTIV, lokal.Teil("objekt", _K1)]], [("motiv",), ("objekt", _K1)]),
+    ([[lokal.Teil("objekt", _K1), _MOTIV]], [("objekt", _K1), ("motiv",)]),
+    ([[lokal.Teil("objekt", _K1), _MOTIV], [_MOTIV, lokal.Teil("objekt", _K1),
+                                            lokal.Teil("objekt", _K2)]],
+     [("objekt", _K1), ("motiv",), ("objekt", _K2)]),
+    ([[_TIEFE, lokal.Teil("helligkeit", (0.0, 20.0, 0.0))], [_MOTIV]], [("motiv",)]),
+    ([], []),
+])
+def test_lokal_ki_gebraucht_in_reihenfolge_der_teile(bild, masken, erwartet):
+    """Die Reihenfolge der Teile, nicht die eines sets - sonst haengt sie (und die
+    Begleitdatei) vom Hash-Zufall ab. Dieselben Schluessel wie quellen_von."""
+    s = _sitzung(bild)
+    s.werte.masken = tuple(heller(*teile) for teile in masken)
+    gebraucht = s._lokal_ki_gebraucht()
+    assert gebraucht == erwartet
+    aus_quellen = {("motiv",) if q == "motiv" else q
+                   for m in s.werte.masken for q in lokal.quellen_von(m)}
+    assert set(gebraucht) == {q for q in aus_quellen if isinstance(q, tuple)}
+    s.schliessen()
+
+
 @pytest.mark.parametrize("kopf", [
     [{"art": "pinsel"}], [{"art": "motiv", "pfad": "C:/x"}], [{"art": "objekt"}],
     [{"art": "objekt", "klicks": [0.1, 0.2]}], "motiv", [{"art": "motiv"}] * 21,

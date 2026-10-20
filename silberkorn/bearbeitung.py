@@ -988,12 +988,19 @@ class Sitzung:
         self._lokal_quellen_neu()
 
     def _lokal_ki_gebraucht(self) -> list[tuple]:
-        """Die KI-Ergebnisse, die die Masken der jetzigen Werte brauchen."""
+        """Die KI-Ergebnisse, die die Masken der jetzigen Werte brauchen - in der Reihenfolge
+        der Teile, nicht der eines sets: Die haengt bei "motiv" vom Hash-Zufall ab, und die
+        Begleitdatei waere bei gleicher Bearbeitung nicht gleich."""
         gebraucht = []
         for maske in self.werte.masken:
-            for quelle in lokal.quellen_von(maske):
-                schluessel = ("motiv",) if quelle == "motiv" else quelle
-                if isinstance(schluessel, tuple) and schluessel not in gebraucht:
+            for teil in maske.teile:
+                if teil.art == "motiv":
+                    schluessel = ("motiv",)
+                elif teil.art == "objekt":
+                    schluessel = ("objekt", teil.daten)
+                else:
+                    continue
+                if schluessel not in gebraucht:
                     gebraucht.append(schluessel)
         return gebraucht
 
