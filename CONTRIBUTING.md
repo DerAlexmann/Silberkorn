@@ -59,8 +59,9 @@ python -m ruff check .
 Die Tests brauchen weder eine Grafikkarte noch Qt; die Filter rechnen dort mit
 NumPy. Mit Grafikkarte vergleichen zusätzliche Tests die CUDA-Kernel Pixel für
 Pixel mit dieser Referenz. Ist TensorRT installiert, vergleichen weitere Tests
-dessen Ergebnis mit CUDA; der erste Lauf baut dafür Engines und dauert einige
-Minuten. Die Startmeldungen lassen
+dessen Ergebnis mit CUDA – nur mit `python -m pytest tests -q --tensorrt`. Der erste
+Lauf baut dafür Engines und dauert rund 20 Minuten, danach liegen sie in
+`.pytest_cache`. Die Startmeldungen lassen
 sich ohne passende Hardware ansehen:
 
 ```bash

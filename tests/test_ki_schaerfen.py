@@ -200,6 +200,7 @@ def test_restormer_fp16_wie_fp32(unscharf):
     assert np.abs(a - b).mean() < 0.002
 
 
+@pytest.mark.tensorrt
 def test_restormer_mit_tensorrt(unscharf, monkeypatch, pytestconfig):
     """Nur wo TensorRT installiert ist; der erste Lauf baut die Engine."""
     grafikkarte()

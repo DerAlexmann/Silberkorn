@@ -175,6 +175,7 @@ def test_birefnet_findet_das_motiv(freisteller, form):
     assert maske[kreis].mean() > 0.8 and maske[~kreis].mean() < 0.2
 
 
+@pytest.mark.tensorrt
 def test_birefnet_mit_tensorrt(monkeypatch, pytestconfig):
     """Nur wo TensorRT installiert ist; der erste Lauf baut die Engine."""
     grafikkarte()
