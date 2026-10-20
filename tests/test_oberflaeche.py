@@ -784,3 +784,61 @@ def test_stapel(fenster, tmp_path, monkeypatch):
             assert inhalt.werte.kontrast == 30.0 and inhalt.vorschau is not None
     finally:
         seite.ordner_zeigen("")
+
+
+def test_vergleich_knopf_taste_und_pausen(fenster, tmp_path):
+    """◧ rastet ein, Y schaltet ihn um, der Zuschnitt pausiert die Trennlinie; ohne Bild ist
+    der Knopf aus, und „Vorher“ bleibt davon unberuehrt."""
+    from PIL import Image
+    from PySide6.QtGui import QShortcut
+    from PySide6.QtWidgets import QApplication
+    seite = fenster.bearbeiten
+    knopf, leinwand = seite.vergleich_knopf, seite.leinwand
+    taste_y = next(k for k in seite.findChildren(QShortcut) if k.key().toString() == "Y")
+    assert knopf.text() == "◧" and knopf.isCheckable() and not knopf.isEnabled()
+    pfad = str(tmp_path / "bild.png")
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(pfad)
+    seite.oeffnen(pfad)
+    try:
+        QApplication.processEvents()
+        assert knopf.isEnabled() and not knopf.isChecked() and not leinwand.vergleich
+        taste_y.activated.emit()                              # die Taste Y
+        assert knopf.isChecked() and leinwand.vergleich and leinwand.vergleich_gilt()
+        QApplication.processEvents()
+        assert leinwand._bild_vorher is not None              # die linke Haelfte ist da
+        assert not seite._vorher                              # „Vorher“-Sperren bleiben offen
+        seite.zuschneiden(True)                               # Zuschnittmodus
+        assert leinwand.zuschnitt is not None
+        assert knopf.isChecked() and not leinwand.vergleich_gilt()
+        seite.zuschnitt_abbrechen()
+        QApplication.processEvents()
+        assert leinwand.vergleich_gilt() and leinwand._bild_vorher is not None
+        seite.vorher_knopf.pressed.emit()                     # „Vorher“ gedrueckt halten
+        assert seite._vorher and not leinwand.vergleich_gilt() and knopf.isChecked()
+        seite.vorher_knopf.released.emit()
+        QApplication.processEvents()
+        assert not seite._vorher and leinwand.vergleich_gilt()
+        taste_y.activated.emit()
+        assert not knopf.isChecked() and not leinwand.vergleich
+    finally:
+        seite.vergleich_knopf.setChecked(False)
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+    assert not knopf.isEnabled()
+
+
+def test_vergleich_knopf_bleibt_beim_bildwechsel_an(fenster, tmp_path):
+    from PIL import Image
+    seite = fenster.bearbeiten
+    erstes, zweites = str(tmp_path / "a.png"), str(tmp_path / "b.png")
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(erstes)
+    Image.new("RGB", (48, 64), (150, 120, 90)).save(zweites)
+    seite.oeffnen(erstes)
+    try:
+        seite.vergleich_knopf.setChecked(True)
+        seite.oeffnen(zweites)
+        assert seite.vergleich_knopf.isChecked() and seite.leinwand.vergleich
+    finally:
+        seite.vergleich_knopf.setChecked(False)
+        seite.schliessen()
+        seite._knoepfe_freischalten()

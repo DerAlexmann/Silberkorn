@@ -105,6 +105,7 @@ LOKAL_DECKUNG = 0.5            # so deckt die Farbe dort, wo eine lokale Maske v
 LOKAL_KI_AUFHEBEN = 4          # so viele nicht mehr gebrauchte Objektauswahlen bleiben
 MARKIERUNG_FARBE = (0.2, 0.55, 1.0)   # was entfernt werden soll
 MARKIERUNG_DECKUNG = 0.55
+GRAU_LINEAR = 0.2158           # sRGB 128 in linearem Licht: Raender im Vergleich
 BOKEH_MAX = 0.012              # Bokeh 100 %: Sigma als Anteil der laengsten Bildkante
 BOKEH_STUFEN = (0.125, 0.25, 0.5, 1.0)   # weichgezeichnete Fassungen, Anteile davon
 TIEFE_BEREICH = 0.35           # Schaerfentiefe 100 %: so viel der Tiefe bleibt scharf
@@ -171,6 +172,11 @@ class Sitzung:
         self.gespeicherte_werte = Einstellungen()
         self._speicher: dict = {}            # Zwischenergebnisse der Filter, je Bildgroesse
         self._vollbild = None                 # (Einstellungen, fertiges Bild auf der GPU)
+        # Vorher-Haelfte des Vergleichs: (Schluessel, uint8-Bild), Vorschau auf der CPU,
+        # Vollbild auf der GPU. Der Schluessel kennt nur, was das Bild ohne Bearbeitung
+        # bestimmt - Reglerbewegungen rechnen es nicht neu.
+        self._vorher_klein = None
+        self._vorher_voll = None
         self._ki_rauschfrei = None            # (voll, Vorschau): Korrektur des KI-Entrauschens
         self._ki_schaerfe = None              # (voll, Vorschau): Korrektur des KI-Schaerfens
         self._ki_maske = None                 # (voll, Vorschau): Maske des Motivs, 0..1
@@ -869,6 +875,16 @@ class Sitzung:
         x, y = self._lage(stelle)
         return ki.einsetzen(rand, bild, x, y, deckkraft)
 
+    def _auf_grau(self, bild, stelle: int):
+        """Wie `_auf_leinwand`, aber die Raender sind neutral grau (sRGB 128) und das
+        Original sitzt unverwischt an seinem Platz."""
+        rand = (self._erweiterung.voll if stelle == 0 else self._erweiterung.vorschau)[0]
+        x, y = self._lage(stelle)
+        hoehe, breite = bild.shape[:2]
+        ergebnis = cp.full(rand.shape, GRAU_LINEAR, dtype=bild.dtype)
+        ergebnis[y:y + hoehe, x:x + breite] = bild
+        return ergebnis
+
     def _ebene_auf_leinwand(self, ebene, fortsetzen: bool = True):
         """Eine Ebene (h, w) im Original oder in der Vorschau auf die Leinwand bringen -
         mit dem Wert am Rand fortgesetzt oder mit 0 aufgefuellt."""
@@ -1180,16 +1196,18 @@ class Sitzung:
 
     def _rendern(self, werte: Einstellungen, voll: bool, speicher, bits: int = 8,
                  zeigen: bool = False, leinwand: bool = True, flicken: bool = True,
-                 mit_korn: bool = True):
+                 mit_korn: bool = True, grau: bool = False):
         """Die ganze Kette bis zum sRGB-Bild - mit eigenem Hintergrund, falls eingestellt.
         leinwand=False: ohne die Raender einer KI-Erweiterung, flicken=False: ohne
         entfernte Objekte (beides fuer „Vorher“), mit_korn=False: ohne Filmkorn (das
-        kommt beim KI-Hochskalieren erst danach)."""
+        kommt beim KI-Hochskalieren erst danach), grau=True: die Raender einer KI-Erweiterung
+        neutral grau statt erfunden (Vorher-Haelfte des Vergleichs)."""
         massstab = 1.0 if voll else self.vorschau_massstab
         if not flicken and (self._flicken or self._staub is not None):
             speicher = {}       # die Zwischenstufen im Speicher enthalten die Flicken
         eingang = self._anonymisieren(self._ausgang(werte, voll, leinwand=leinwand,
-                                                    flicken=flicken), werte, voll, leinwand)
+                                                    flicken=flicken, grau=grau),
+                                      werte, voll, leinwand)
         karten = self._lokal_karten(werte, voll)
         bild = filter.anwenden_ausgabe(eingang, werte, massstab, speicher, bits=bits,
                                        lokal=karten)
@@ -1444,7 +1462,8 @@ class Sitzung:
         cp.get_default_memory_pool().free_all_blocks()
 
     def _ausgang(self, werte: Einstellungen, voll: bool, schaerfen: bool = True,
-                 leinwand: bool = True, farbe: bool = True, flicken: bool = True):
+                 leinwand: bool = True, farbe: bool = True, flicken: bool = True,
+                 grau: bool = False):
         """Original - als Negativ umgewandelt, je nach Staerke KI-entrauscht und KI-geschaerft,
         mit den Flicken, KI-koloriert und, wenn erweitert und leinwand gesetzt, auf der
         Leinwand."""
@@ -1460,7 +1479,7 @@ class Sitzung:
         if farbe and self._ki_farbe is not None and werte.ki_farbe > 0:
             bild = ki.farbe_einsetzen(bild, self._ki_farbe[stelle], werte.ki_farbe / 100)
         if leinwand and self._erweiterung is not None:
-            bild = self._auf_leinwand(bild, stelle)
+            bild = self._auf_grau(bild, stelle) if grau else self._auf_leinwand(bild, stelle)
         return bild
 
     def vorschau(self, unbearbeitet: bool = False, werte: Einstellungen | None = None,
@@ -1515,6 +1534,43 @@ class Sitzung:
     def vollbild_vergessen(self):
         """Das zwischengespeicherte Vollbild freigeben (etwa beim Wechsel zur Einpassung)."""
         self._vollbild = None
+        self._vorher_voll = None
+
+    def _vorher_schluessel(self, werte: Einstellungen):
+        """Was die Vorher-Haelfte bestimmt: die Geometrie und, nach einem KI-Erweitern,
+        Lage und Groesse der Leinwand (die Raender sind grau, ihr Inhalt zaehlt nicht)."""
+        erweiterung = self._erweiterung
+        leinwand = None if erweiterung is None else (erweiterung.x, erweiterung.y,
+                                                     erweiterung.voll[0].shape[:2])
+        return geometrie.aus(werte), leinwand
+
+    def _vorher_rendern(self, werte: Einstellungen, voll: bool):
+        # Eigener Zwischenspeicher: der der Sitzung gehoert dem bearbeiteten Bild
+        return self._rendern(geometrie.nur_geometrie(werte), voll, {}, zeigen=False,
+                             flicken=False, grau=True)
+
+    def vorher_vorschau(self, werte: Einstellungen | None = None) -> np.ndarray:
+        """Vorschau des unbearbeiteten Bildes in der Geometrie von `werte` (sonst der der
+        Sitzung) - gleiche Form wie die bearbeitete. Entfernte Objekte fehlen, ein Negativ
+        bleibt ein Negativ, KI-Raender sind grau. Wird nur neu gerechnet, wenn sich die
+        Geometrie oder die Leinwand aendert."""
+        werte = self.werte if werte is None else werte
+        schluessel = self._vorher_schluessel(werte)
+        if self._vorher_klein is None or self._vorher_klein[0] != schluessel:
+            bild = cp.asnumpy(self._vorher_rendern(werte, False))
+            self._vorher_klein = (schluessel, bild)
+        return self._vorher_klein[1]
+
+    def vorher_ausschnitt(self, x0: int, y0: int, breite: int, hoehe: int,
+                          werte: Einstellungen | None = None) -> np.ndarray:
+        """Ausschnitt der Vorher-Haelfte in voller Aufloesung (100-%-Ansicht); wie beim
+        Vollbild bleibt das ganze Bild auf der GPU, bis sich die Geometrie aendert."""
+        werte = self.werte if werte is None else werte
+        schluessel = self._vorher_schluessel(werte)
+        if self._vorher_voll is None or self._vorher_voll[0] != schluessel:
+            self._vorher_voll = None              # das alte zuerst freigeben
+            self._vorher_voll = (schluessel, self._vorher_rendern(werte, True))
+        return cp.asnumpy(self._vorher_voll[1][y0:y0 + hoehe, x0:x0 + breite])
 
     def _alpha(self, faktor: int = 1):
         """Alphakanal mit derselben Geometrie wie das Bild - ohne Vignette und Farbsaeume."""
@@ -1641,6 +1697,7 @@ class Sitzung:
         self.original = None
         self.vorschau_original = None
         self._vollbild = None
+        self._vorher_klein = self._vorher_voll = None
         self._ki_rauschfrei = None
         self._ki_schaerfe = None
         self._ki_maske = None

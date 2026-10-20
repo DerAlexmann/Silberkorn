@@ -196,6 +196,9 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   the image.
 - **Non-destructive**: every change is recomputed from the untouched original.
   Double-click resets a slider, "Before" shows the original while the button is held.
+  The ◧ button (key `Y`) puts a movable divider over the image: the original on the
+  left, the edited image on the right – with the same rotation and crop. The divider
+  stays put in the window while you zoom and pan; double-click the handle to centre it.
 - **Card picker**: a drop-down above the cards jumps straight to any card and shows,
   while scrolling, which one is at the top.
 - **Undo and redo** with ↶ ↷ or `Ctrl`+`Z` / `Ctrl`+`Y`: for sliders, curves, crop,
@@ -288,6 +291,7 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 | `Ctrl`+`Z` / `Ctrl`+`Y` | undo / redo (also `Ctrl`+`Shift`+`Z`); while selecting by click, `Ctrl`+`Z` first undoes the clicks |
 | `Ctrl`+`Shift`+`C` / `V` | copy settings / paste them onto another image |
 | `Ctrl`+`0` / `Ctrl`+`1` | fit / 100 % |
+| `Y` | turn the before/after comparison with a movable divider on / off |
 | mouse wheel, drag, double-click | zoom, pan, toggle between fit and 100 % |
 | `Enter` / `Esc` | apply / cancel crop |
 

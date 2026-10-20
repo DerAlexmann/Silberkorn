@@ -224,7 +224,10 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Die Zoomstufe steht dabei oben rechts im Bild.
 - **Nicht-destruktiv**: Jede Änderung wird aus dem unveränderten Original neu
   gerechnet. Doppelklick setzt einen Regler zurück, „Vorher“ zeigt das Original,
-  solange der Knopf gedrückt ist.
+  solange der Knopf gedrückt ist. Der Knopf ◧ (Taste `Y`) legt eine verschiebbare
+  Trennlinie über das Bild: links das Original, rechts das bearbeitete Bild – in
+  derselben Drehung und demselben Zuschnitt. Die Linie bleibt beim Zoomen und
+  Verschieben im Fenster stehen; Doppelklick auf den Griff setzt sie in die Mitte.
 - **Kartenauswahl**: Ein Auswahlfeld über den Karten springt direkt zu jeder
   Karte und zeigt beim Rollen, welche gerade oben steht.
 - **Rückgängig und Wiederholen** mit ↶ ↷ oder `Strg`+`Z` / `Strg`+`Y`: für
@@ -330,6 +333,7 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 | `Strg`+`Z` / `Strg`+`Y` | Rückgängig / Wiederholen (auch `Strg`+`Umschalt`+`Z`); bei der Auswahl per Klick nimmt `Strg`+`Z` zuerst die Klicks zurück |
 | `Strg`+`Umschalt`+`C` / `V` | Einstellungen kopieren / auf ein anderes Bild einfügen |
 | `Strg`+`0` / `Strg`+`1` | eingepasst / 100 % |
+| `Y` | Vergleich Vorher/Nachher mit verschiebbarer Trennlinie ein- / ausschalten |
 | Mausrad, Ziehen, Doppelklick | zoomen, verschieben, zwischen eingepasst und 100 % wechseln |
 | `Eingabe` / `Esc` | Zuschnitt übernehmen / abbrechen |
 

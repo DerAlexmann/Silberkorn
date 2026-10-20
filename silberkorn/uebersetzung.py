@@ -102,6 +102,11 @@ TRANSLATIONS = {
         "Vorher": "Before",
         "Gedrückt halten, um das unbearbeitete Bild zu sehen.":
             "Hold down to see the unedited image.",
+        "Nachher": "After",
+        "Vergleich: Vorher und Nachher mit verschiebbarer Trennlinie (Y). Doppelklick "
+        "auf den Griff setzt sie in die Mitte.":
+            "Compare: before and after with a movable divider (Y). Double-click the handle "
+            "to centre it.",
         "Zurücksetzen": "Reset",
         # Anonymisieren
         "Anonymisieren": "Anonymise",

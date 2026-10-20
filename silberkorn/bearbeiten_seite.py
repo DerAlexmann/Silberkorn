@@ -529,6 +529,7 @@ class BearbeitenSeite(QWidget):
         self.leinwand.lokal_gezogen.connect(self._lokal_gezogen)
         self.leinwand.lokal_loeschen.connect(self.lokal_teil_loeschen)
         self.leinwand.lokal_gemalt.connect(self._lokal_gemalt)
+        self.leinwand.vergleich_gebraucht.connect(self.zeichnen_anfordern)
         aufbau.addWidget(self.leinwand, 1, 0)
         aufbau.addWidget(self._reglerleiste(), 1, 1)
         self.kartenwahl = self._kartenwahl()
@@ -545,6 +546,7 @@ class BearbeitenSeite(QWidget):
         QShortcut(QKeySequence("Ctrl+Y"), self, self.wiederholen)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, self.wiederholen)
         QShortcut(QKeySequence(Qt.Key.Key_O), self, self._lokal_zeigen_taste)
+        QShortcut(QKeySequence(Qt.Key.Key_Y), self, self._vergleich_taste)
         QShortcut(QKeySequence(Qt.Key.Key_BracketLeft), self,
                   lambda: self._malen_groesse_schritt(-1))
         QShortcut(QKeySequence(Qt.Key.Key_BracketRight), self,
@@ -585,7 +587,7 @@ class BearbeitenSeite(QWidget):
 
     def _werkzeugleiste(self) -> QHBoxLayout:
         leiste = QHBoxLayout()
-        leiste.setSpacing(8)
+        leiste.setSpacing(6)
         leiste.addWidget(self._knopf(_("Öffnen …"), self.oeffnen_dialog, "hauptschalter"))
         self.speichern_knopf = self._knopf(_("Speichern …"), self.speichern_dialog)
         self.fenster.beschriften(self.speichern_knopf.setToolTip, _(
@@ -622,6 +624,13 @@ class BearbeitenSeite(QWidget):
         self.vorher_knopf.pressed.connect(lambda: self._vorher_zeigen(True))
         self.vorher_knopf.released.connect(lambda: self._vorher_zeigen(False))
         leiste.addWidget(self.vorher_knopf)
+        self.vergleich_knopf = self._knopf("◧", None, "zoomsymbol")
+        self.vergleich_knopf.setCheckable(True)
+        self.fenster.beschriften(self.vergleich_knopf.setToolTip, _(
+            "Vergleich: Vorher und Nachher mit verschiebbarer Trennlinie (Y). Doppelklick "
+            "auf den Griff setzt sie in die Mitte."))
+        self.vergleich_knopf.toggled.connect(self._vergleich_umschalten)
+        leiste.addWidget(self.vergleich_knopf)
         self.zuruecksetzen_knopf = self._knopf(_("Zurücksetzen"), self.alles_zuruecksetzen)
         self.fenster.beschriften(self.zuruecksetzen_knopf.setToolTip, _(
             "Setzt alle Regler, Drehung, Zuschnitt und geänderte Metadaten zurück, holt "
@@ -4047,7 +4056,7 @@ class BearbeitenSeite(QWidget):
     def _knoepfe_freischalten(self):
         offen = self.sitzung is not None
         for widget in (self.speichern_knopf, self.veroeffentlichen_knopf, self.drucken_knopf,
-                       self.vorher_knopf, self.zuruecksetzen_knopf):
+                       self.vorher_knopf, self.vergleich_knopf, self.zuruecksetzen_knopf):
             widget.setEnabled(offen)
         self._voreinstellungen_freischalten()
         for zeile in [*self.zeilen.values(), *self.hsl_zeilen]:
@@ -4138,11 +4147,14 @@ class BearbeitenSeite(QWidget):
             self.leinwand.klickpunkte = list(self._klick_marken.get(ziel, [])) if gleich else []
         self.sitzung.tiefe_zeigen = self.tiefe_zeigen_box.isChecked() and not self._vorher
         self.sitzung.staub_zeigen = self.staub_zeigen_box.isChecked() and not self._vorher
+        # Die linke Haelfte des Vergleichs: das Original in der Geometrie des bearbeiteten
+        # Bildes. Die Sitzung rechnet sie nur neu, wenn sich die Geometrie aendert.
+        vergleich = self.leinwand.vergleich_gilt()
         if self.leinwand.zoom is None:
             bild, ms, histogramm = self.sitzung.vorschau(werte=werte,
                                                          ohne_erweiterung=ohne_raender,
                                                          ohne_flicken=self._vorher)
-            self.leinwand.zeigen(bild)
+            self.leinwand.zeigen(bild, self.sitzung.vorher_vorschau(werte) if vergleich else None)
         else:
             bereich = self.leinwand.sichtbarer_bereich()
             if bereich is None:
@@ -4150,7 +4162,9 @@ class BearbeitenSeite(QWidget):
             x0, y0, breite, hoehe = bereich
             bild, ms, histogramm = self.sitzung.ausschnitt(x0, y0, breite, hoehe, werte,
                                                            ohne_flicken=self._vorher)
-            self.leinwand.zeigen_ausschnitt(bild, x0, y0)
+            vorher = self.sitzung.vorher_ausschnitt(x0, y0, breite, hoehe, werte) \
+                if vergleich else None
+            self.leinwand.zeigen_ausschnitt(bild, x0, y0, vorher)
         self.kurven.histogramm_zeigen(histogramm)
         self.fenster.rechenzeit_zeigen(ms)
         self._ki_anzeigen()
@@ -4159,7 +4173,18 @@ class BearbeitenSeite(QWidget):
 
     def _vorher_zeigen(self, an: bool):
         self._vorher = an
+        self.leinwand.vergleich_aussetzen = an     # solange das ganze Original da ist
+        self.leinwand.update()
         self.zeichnen_anfordern()
+
+    def _vergleich_umschalten(self, an: bool):
+        self.leinwand.vergleich = an
+        self.leinwand.update()
+        self.zeichnen_anfordern()
+
+    def _vergleich_taste(self):
+        if self.vergleich_knopf.isEnabled():
+            self.vergleich_knopf.toggle()
 
     def alles_zuruecksetzen(self):
         self.zuschnitt_abbrechen()

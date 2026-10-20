@@ -82,6 +82,19 @@ def aus(werte) -> Geometrie:
                      tuple(werte.objektivprofil))
 
 
+# Die Felder von Einstellungen, die `aus()` liest. Der Test in test_geometrie.py bricht, wenn
+# Geometrie ein Feld bekommt, das hier fehlt.
+GEOMETRIE_FELDER = ("drehung90", "spiegeln", "zuschnitt", "begradigen", "perspektive_v",
+                    "perspektive_h", "verzeichnung", "vignette", "ca_rot", "ca_blau",
+                    "objektivprofil")
+
+
+def nur_geometrie(werte):
+    """Neutrale Einstellungen mit der Geometrie von `werte` - fuer die Vorher-Haelfte des
+    Vergleichs: dasselbe Format und derselbe Ausschnitt, aber ohne jede Bearbeitung."""
+    return f.Einstellungen(**{feld: getattr(werte, feld) for feld in GEOMETRIE_FELDER})
+
+
 def rahmen(form_quelle, g: Geometrie) -> tuple[int, int]:
     """Hoehe und Breite des gedrehten, noch nicht zugeschnittenen Bildes."""
     hoehe, breite = form_quelle[:2]

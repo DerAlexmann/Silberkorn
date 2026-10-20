@@ -33,6 +33,12 @@ rechnet die Seite, was das im Original heisst. Malt der Pinsel einer Maske
 (`lokal_pinsel`), zeigt ein Kreis seine Groesse, und Ziehen meldet Punkte
 (`lokal_gemalt`) - mit der rechten Taste oder Alt zum Radieren.
 
+Im Vergleich (`vergleich`) liegt eine senkrechte Trennlinie ueber dem Bild: links das
+unbearbeitete Bild (`zeigen(..., vorher=...)`), rechts das bearbeitete. Die Linie gehoert
+zum Fenster, nicht zum Bild - ihre Lage `trenner` ist ein Bruchteil der Bildflaeche und
+bleibt beim Zoomen und Verschieben, wo sie ist. In allen Modi, die selbst auf das Bild
+klicken oder malen, ruht der Vergleich (`vergleich_gilt`).
+
 Licensed under MIT License
 Copyright 2026 Alexander Unverhau
 Created with assistance of Claude AI
@@ -41,11 +47,12 @@ Created with assistance of Claude AI
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
 from . import farben
+from .uebersetzung import _
 
 ZOOMSTUFEN = (None, 1.0, 2.0, 4.0)   # None = eingepasst
 RAND = 8
@@ -53,6 +60,8 @@ GRIFF = 10                           # so nah muss die Maus an Kante oder Ecke s
 GRIFF_PUNKT = 5                      # Radius eines Griffs im Maskenmodus, Fensterpunkte
 KLICK_WEG = 4                        # weiter bewegt ist es Ziehen, kein Klick
 MIN_ZUSCHNITT = 0.02
+TRENNER_TREFFER = 9                  # so nah muss die Maus an der Trennlinie sein
+TRENNER_GRIFF = 13                   # Radius des Griffs in der Mitte der Linie
 
 
 class Leinwand(QFrame):
@@ -68,6 +77,7 @@ class Leinwand(QFrame):
     lokal_gezogen = Signal(str, int, str, float, float, float, float, bool)
     lokal_loeschen = Signal(int)
     lokal_gemalt = Signal(float, float, bool, bool)     # x, y, radieren, neuer Strich
+    vergleich_gebraucht = Signal()        # der Vergleich gilt, aber die Vorher-Haelfte fehlt
 
     def __init__(self):
         super().__init__(objectName="leinwand")
@@ -77,6 +87,14 @@ class Leinwand(QFrame):
         self._bild: QImage | None = None
         self._puffer = None                   # haelt die Pixel fest, auf die QImage zeigt
         self._ausschnitt_ort = (0, 0)         # Lage des gezeigten Ausschnitts im Vollbild
+        self._bild_vorher: QImage | None = None   # linke Haelfte des Vergleichs
+        self._puffer_vorher = None
+        self.vergleich = False                # Knopf eingerastet
+        self.vergleich_aussetzen = False      # "Vorher" gedrueckt: das ganze Original
+        self.trenner = 0.5                    # Lage der Trennlinie in der Bildflaeche, 0..1
+        self._trenner_ziehen: float | None = None   # beim Ziehen: Abstand Maus - Linie
+        self._trenner_hover = False
+        self._vergleich_angefordert = False
 
         self.zoom: float | None = None
         self.voll_form: tuple[int, int] | None = None   # Hoehe, Breite des Ergebnisses
@@ -120,27 +138,83 @@ class Leinwand(QFrame):
     # Bild setzen
     # ------------------------------------------------------------------
 
-    def _setzen(self, rgb: np.ndarray | None):
+    @staticmethod
+    def _qimage(rgb: np.ndarray):
+        puffer = np.ascontiguousarray(rgb)
+        hoehe, breite = puffer.shape[:2]
+        return puffer, QImage(puffer.data, breite, hoehe, breite * 3,
+                              QImage.Format.Format_RGB888)
+
+    def _setzen(self, rgb: np.ndarray | None, vorher: np.ndarray | None = None):
         if rgb is None:
             self._bild = self._puffer = None
         else:
-            self._puffer = np.ascontiguousarray(rgb)
-            hoehe, breite = self._puffer.shape[:2]
-            self._bild = QImage(self._puffer.data, breite, hoehe, breite * 3,
-                                QImage.Format.Format_RGB888)
+            self._puffer, self._bild = self._qimage(rgb)
+        if rgb is None or vorher is None:
+            self._bild_vorher = self._puffer_vorher = None
+        else:
+            self._puffer_vorher, self._bild_vorher = self._qimage(vorher)
+        self._vergleich_angefordert = False
         self.leer.setVisible(self._bild is None)
         self.hinweis.setVisible(self._bild is None)
         self.update()
 
-    def zeigen(self, rgb: np.ndarray | None):
-        """Vorschau des ganzen Bildes (eingepasste Ansicht)."""
+    def zeigen(self, rgb: np.ndarray | None, vorher: np.ndarray | None = None):
+        """Vorschau des ganzen Bildes (eingepasste Ansicht). `vorher`: die linke Haelfte
+        des Vergleichs, gleich gross."""
         self._ausschnitt_ort = (0, 0)
-        self._setzen(rgb)
+        self._setzen(rgb, vorher)
 
-    def zeigen_ausschnitt(self, rgb: np.ndarray, x0: int, y0: int):
+    def zeigen_ausschnitt(self, rgb: np.ndarray, x0: int, y0: int,
+                          vorher: np.ndarray | None = None):
         """Ausschnitt in voller Aufloesung, dessen linke obere Ecke bei (x0, y0) liegt."""
         self._ausschnitt_ort = (x0, y0)
-        self._setzen(rgb)
+        self._setzen(rgb, vorher)
+
+    # ------------------------------------------------------------------
+    # Vergleich: Trennlinie
+    # ------------------------------------------------------------------
+
+    def vergleich_gilt(self) -> bool:
+        """Zeigt die Leinwand gerade Vorher und Nachher? Nicht im Zuschnitt und nicht,
+        wo ein Klick oder Strich das Bild bearbeitet; nicht, solange "Vorher" gedrueckt ist."""
+        return (self.vergleich and not self.vergleich_aussetzen and self.zuschnitt is None
+                and not (self.klickmodus or self.pinselmodus or self.flaechenmodus
+                         or self.lokalmodus or self.lokal_pinsel))
+
+    def _bildflaeche(self) -> QRectF | None:
+        """Der sichtbare Teil des Bildes im Fenster."""
+        if self.voll_form is None:
+            return None
+        hoehe, breite = self.voll_form
+        flaeche = QRectF(self.zu_fenster(0, 0), self.zu_fenster(breite, hoehe)).intersected(
+            self._flaeche())
+        return None if flaeche.width() <= 0 or flaeche.height() <= 0 else flaeche
+
+    def _trenner_x(self) -> float | None:
+        bild = self._bildflaeche()
+        if bild is None:
+            return None
+        flaeche = self._flaeche()
+        x = flaeche.left() + self.trenner * flaeche.width()
+        return min(max(x, bild.left()), bild.right())
+
+    def _trenner_setzen(self, x: float):
+        bild = self._bildflaeche()
+        if bild is None:
+            return
+        flaeche = self._flaeche()
+        x = min(max(x, bild.left()), bild.right())
+        self.trenner = min(max((x - flaeche.left()) / flaeche.width(), 0.0), 1.0)
+        self.update()
+
+    def _trenner_bei(self, punkt: QPointF) -> bool:
+        """Liegt der Punkt auf dem Streifen um die Trennlinie?"""
+        if not self.vergleich_gilt():
+            return False
+        bild, x = self._bildflaeche(), self._trenner_x()
+        return (bild is not None and bild.top() <= punkt.y() <= bild.bottom()
+                and abs(punkt.x() - x) <= TRENNER_TREFFER)
 
     # ------------------------------------------------------------------
     # Abbildung Bild <-> Fenster
@@ -402,6 +476,10 @@ class Leinwand(QFrame):
             self._ziehen = ("schieben", (punkt.x(), punkt.y()), self.mitte)
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
+        if knopf == Qt.MouseButton.LeftButton and self._trenner_bei(punkt):
+            self._trenner_ziehen = punkt.x() - self._trenner_x()
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+            return
         if self.pinselmodus and self.zuschnitt is None and knopf in (
                 Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
             self._pinsel_dazu = knopf == Qt.MouseButton.LeftButton
@@ -442,6 +520,16 @@ class Leinwand(QFrame):
 
     def mouseMoveEvent(self, ereignis):               # noqa: N802 - Qt-Name
         punkt = ereignis.position()
+        if self._trenner_ziehen is not None:
+            self._trenner_setzen(punkt.x() - self._trenner_ziehen)
+            return
+        if self._ziehen is None and self._trenner_bei(punkt):
+            self._trenner_hover = True
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+            return
+        if self._trenner_hover:
+            self._trenner_hover = False
+            self._zeiger()
         if self.lokalmodus and self.lokal_pinsel:
             self._maus = punkt
             self.update()
@@ -508,6 +596,10 @@ class Leinwand(QFrame):
             self.update()
 
     def mouseReleaseEvent(self, ereignis):            # noqa: N802 - Qt-Name
+        if self._trenner_ziehen is not None and ereignis.button() == Qt.MouseButton.LeftButton:
+            self._trenner_ziehen = None
+            self._zeiger()
+            return
         if self._pinsel_dazu is not None and ereignis.button() in (
                 Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
             self._pinsel_dazu = None
@@ -558,6 +650,11 @@ class Leinwand(QFrame):
         super().keyPressEvent(ereignis)
 
     def mouseDoubleClickEvent(self, ereignis):        # noqa: N802 - Qt-Name
+        if ereignis.button() == Qt.MouseButton.LeftButton and self._trenner_bei(
+                ereignis.position()):
+            self.trenner = 0.5                    # Doppelklick auf die Linie: in die Mitte
+            self.update()
+            return
         if self._bild is None or self.zuschnitt is not None or self.klickmodus \
                 or self.flaechenmodus or self.lokalmodus:
             return
@@ -582,6 +679,13 @@ class Leinwand(QFrame):
             ziel = QRectF(self.zu_fenster(x0, y0),
                           self.zu_fenster(x0 + self._bild.width(), y0 + self._bild.height()))
         maler.drawImage(ziel, self._bild)
+        if self.vergleich_gilt():
+            if self._bild_vorher is not None:
+                self._vergleich_zeichnen(maler, ziel)
+            elif not self._vergleich_angefordert:
+                # Die Seite hat die linke Haelfte nicht geliefert (der Vergleich ruhte)
+                self._vergleich_angefordert = True
+                QTimer.singleShot(0, self.vergleich_gebraucht.emit)
         if self.zuschnitt is not None:
             self._rahmen_zeichnen(maler, ziel)
         elif self.klickmodus:
@@ -600,10 +704,65 @@ class Leinwand(QFrame):
         if self.zoom is not None:
             self._zoom_zeichnen(maler)
 
+    def _vergleich_zeichnen(self, maler: QPainter, ziel: QRectF):
+        """Links der Linie das unbearbeitete Bild (an derselben Stelle wie das bearbeitete),
+        dazu die Linie mit Griff und die Beschriftungen der beiden Seiten."""
+        bild, x = self._bildflaeche(), self._trenner_x()
+        if bild is None:
+            return
+        flaeche = self._flaeche()
+        maler.save()
+        maler.setClipRect(QRectF(flaeche.left(), flaeche.top(), x - flaeche.left(),
+                                 flaeche.height()), Qt.ClipOperation.IntersectClip)
+        maler.drawImage(ziel, self._bild_vorher)
+        maler.restore()
+        maler.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for farbe, breite in ((QColor(0, 0, 0, 170), 3.5), (QColor(255, 255, 255), 1.5)):
+            maler.setPen(QPen(farbe, breite))
+            maler.drawLine(QPointF(x, bild.top()), QPointF(x, bild.bottom()))
+        mitte = QPointF(x, bild.center().y())
+        maler.setPen(QPen(QColor(255, 255, 255), 1.5))
+        maler.setBrush(QColor(0, 0, 0, 150))
+        maler.drawEllipse(mitte, TRENNER_GRIFF, TRENNER_GRIFF)
+        maler.setPen(Qt.PenStyle.NoPen)
+        maler.setBrush(QColor(255, 255, 255))
+        for richtung in (-1, 1):
+            maler.drawPolygon(QPolygonF([mitte + QPointF(richtung * 3, -5),
+                                         mitte + QPointF(richtung * 3, 5),
+                                         mitte + QPointF(richtung * 8, 0)]))
+        # Die Beschriftungen sitzen oben in den Ecken des sichtbaren Bildes; rechts bleibt
+        # das Feld der Vergroesserung frei
+        frei = flaeche.right() - (self._zoom_breite(maler) + 8 if self.zoom else 0)
+        self._etikett_zeichnen(maler, _("Vorher"), bild.left() + 8, bild.top() + 8,
+                               x - bild.left())
+        text = _("Nachher")
+        rechts = min(bild.right(), frei) - 8 - self._etikett_breite(maler, text)
+        self._etikett_zeichnen(maler, text, rechts, bild.top() + 8, bild.right() - x)
+
+    @staticmethod
+    def _etikett_breite(maler: QPainter, text: str) -> float:
+        return maler.fontMetrics().horizontalAdvance(text) + 14
+
+    def _etikett_zeichnen(self, maler: QPainter, text: str, links: float, oben: float,
+                          platz: float):
+        """Dezente Beschriftung einer Seite - nur, wenn die Seite breit genug dafuer ist."""
+        breite = self._etikett_breite(maler, text)
+        if platz < breite + 16:
+            return
+        feld = QRectF(links, oben, breite, maler.fontMetrics().height() + 6)
+        maler.setPen(Qt.PenStyle.NoPen)
+        maler.setBrush(QColor(0, 0, 0, 110))
+        maler.drawRoundedRect(feld, 6, 6)
+        maler.setPen(QColor(255, 255, 255, 220))
+        maler.drawText(feld, Qt.AlignmentFlag.AlignCenter, text)
+
+    def _zoom_breite(self, maler: QPainter) -> float:
+        return self._etikett_breite(maler, f"{self.zoom * 100:.0f} %")
+
     def _zoom_zeichnen(self, maler: QPainter):
         """Die Vergroesserung oben rechts im Bild - nur, solange gezoomt ist."""
         text = f"{self.zoom * 100:.0f} %"
-        breite = maler.fontMetrics().horizontalAdvance(text) + 14
+        breite = self._zoom_breite(maler)
         hoehe = maler.fontMetrics().height() + 6
         flaeche = self._flaeche()
         feld = QRectF(flaeche.right() - breite - 8, flaeche.top() + 8, breite, hoehe)
