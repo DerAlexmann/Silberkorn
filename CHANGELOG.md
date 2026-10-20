@@ -5,6 +5,23 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 
 ## [Unveröffentlicht]
 
+### Neu
+
+- **Vergleich Vorher/Nachher** mit verschiebbarer Trennlinie: Der Knopf ◧ neben
+  „Vorher“ (Taste `Y`) zeigt links das Original und rechts das bearbeitete Bild,
+  deckungsgleich in Drehung, Zuschnitt, Perspektive und Objektivkorrektur; nach einem
+  KI-Erweitern sind die erfundenen Ränder links neutral grau. Die Linie gehört zum
+  Fenster und bleibt beim Zoomen und Verschieben stehen; Doppelklick auf den Griff
+  setzt sie in die Mitte. Zuschnitt, Pinsel, Klick-, Flächen- und Maskenmodus
+  pausieren den Vergleich. Das Originalbild wird nur neu gerechnet, wenn sich die
+  Geometrie ändert, nicht bei jedem Reglerschritt.
+
+### Geändert
+
+- Die Symbolknöpfe der Werkzeugleiste (🖶, ⤢, ◧) und deren Abstände sind etwas
+  schmaler, damit das Fenster mit dem neuen Knopf weiterhin auf 1366 × 768 bei 125 %
+  Skalierung passt.
+
 ### Behoben
 
 - Wer das Herunterladen der NVIDIA-Bibliotheken, eines KI-Modells oder der

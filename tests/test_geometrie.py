@@ -150,3 +150,30 @@ def test_klick_findet_den_punkt_im_original(geo):
     y, x = punkt_finden(ergebnis)
     sx, sy = g.zur_quelle(quelle.shape, geo, x + 0.5, y + 0.5)
     assert abs(sx - 51.5) < 1.0 and abs(sy - 34.5) < 1.0
+
+
+# Werte, die vom Neutralen abweichen - je Geometriefeld einer
+ANDERS = {
+    "drehung90": 1, "spiegeln": True, "zuschnitt": (0.1, 0.2, 0.8, 0.9), "begradigen": 3.0,
+    "perspektive_v": 10.0, "perspektive_h": -10.0, "verzeichnung": 5.0, "vignette": 20.0,
+    "ca_rot": 4.0, "ca_blau": -4.0, "objektivprofil": g.PROFIL_NEUTRAL + g.BEZUG_NEUTRAL,
+}
+
+
+def test_nur_geometrie_uebernimmt_jedes_geometriefeld():
+    """Bricht, sobald `aus()` ein Feld liest, das `GEOMETRIE_FELDER` nicht kennt - dann
+    wuerde die Vorher-Haelfte des Vergleichs es verlieren."""
+    import dataclasses
+    assert set(ANDERS) == set(g.GEOMETRIE_FELDER)
+    assert len(dataclasses.fields(Geometrie)) == len(g.GEOMETRIE_FELDER)
+    neutral = f.Einstellungen()
+    for feld, wert in ANDERS.items():
+        werte = dataclasses.replace(neutral, **{feld: wert})
+        assert g.aus(werte) != g.aus(neutral), feld        # das Feld zaehlt zur Geometrie
+        assert g.aus(g.nur_geometrie(werte)) == g.aus(werte), feld
+    # Zusammen: alle Geometriefelder uebernommen, alles andere neutral
+    alle = dataclasses.replace(neutral, **ANDERS, belichtung=40.0, korn=30.0, sw=True,
+                               anonym_flaechen=(("rechteck", 0.0, 0.0, 0.5, 0.5),))
+    ergebnis = g.nur_geometrie(alle)
+    assert g.aus(ergebnis) == g.aus(alle)
+    assert dataclasses.replace(ergebnis, **ANDERS) == dataclasses.replace(neutral, **ANDERS)
