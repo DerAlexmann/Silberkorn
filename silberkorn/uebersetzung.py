@@ -1305,5 +1305,57 @@ TRANSLATIONS = {
         "anklicken.":
             "Nothing to measure there – too dark or clipped. Click another spot.",
         "Weißabgleich: {werte}": "White balance: {werte}",
+        # Bewertung in der Ordneransicht und im Feld „Bewertung“
+        "Die Bewertungen ließen sich nicht lesen: {grund}":
+            "The ratings could not be read: {grund}",
+        "Nach Name": "By name",
+        "Nach Datum": "By date",
+        "Nach Sternen": "By stars",
+        "Reihenfolge der Bilder: nach Name, nach Änderungsdatum (neueste zuerst) oder nach "
+        "Sternen (meiste zuerst). Ausschuss steht immer am Ende, Unterordner vorn.":
+            "Order of the images: by name, by modification date (newest first) or by stars "
+            "(most first). Rejects always come last, subfolders first.",
+        "Bewertung stammt aus einer fremden XMP-Datei und wird nicht verändert":
+            "The rating comes from a foreign XMP file and is not changed",
+        "Ausschuss aufheben": "Remove reject mark",
+        "Als Ausschuss markieren – löscht nichts": "Mark as reject – deletes nothing",
+        "Bewertung entfernen": "Remove rating",
+        "1 Stern": "1 star",
+        "{n} Sterne": "{n} stars",
+        "{name}: {sterne}": "{name}: {sterne}",
+        "{name}: Bewertung entfernt": "{name}: rating removed",
+        "{name} als Ausschuss markiert – die Datei bleibt unverändert":
+            "{name} marked as reject – the file is left unchanged",
+        "Mit ↻ lässt sich neu einsortieren.": "↻ sorts the list again.",
+        "Ohne Erlaubnis für Begleitdateien werden Bewertungen nicht gespeichert.":
+            "Without permission for sidecar files, ratings are not saved.",
+        "Die Bewertung ließ sich nicht neben dem Bild sichern: {grund}":
+            "The rating could not be saved next to the image: {grund}",
+        "Die Bewertungsdatei neben dem Bild lässt sich nicht lesen und bleibt unverändert.":
+            "The rating file next to the image cannot be read and is left unchanged.",
+        "1 Bewertungsdatei ließ sich nicht lesen und bleibt unverändert.":
+            "1 rating file could not be read and is left unchanged.",
+        "{anzahl} Bewertungsdateien ließen sich nicht lesen und bleiben unverändert.":
+            "{anzahl} rating files could not be read and are left unchanged.",
+        "Die Sterne gehen mit „Speichern unter“ ins Bild und, wenn Begleitdateien erlaubt "
+        "sind, auch in die kleine XMP-Datei neben dem Bild, die die Ordneransicht zeigt. "
+        "Eine solche Datei von Silberkorn geht vor den Sternen im Bild – auch mit „–“.":
+            "The stars go into the image with “Save as” and, if sidecar files are allowed, "
+            "also into the small XMP file next to the image that the folder view shows. Such "
+            "a file from Silberkorn takes precedence over the stars in the image – also with "
+            "“–”.",
+        "Bewertung neben dem Bild sichern?": "Save the rating next to the image?",
+        "Silberkorn kann Sterne und Ausschuss in einer kleinen Begleitdatei neben dem "
+        "Bild sichern – „{name}“. Sie enthält nur die Bewertung; das Bild bleibt "
+        "unverändert, und der Papierkorb löscht nichts. Fremde XMP-Dateien – etwa von "
+        "darktable – fasst Silberkorn nicht an.\n\nDieselbe Erlaubnis gilt für die "
+        "Begleitdateien mit der Bearbeitung. Begleitdateien anlegen? Das lässt sich oben "
+        "über „Begleitdateien“ jederzeit ändern.":
+            "Silberkorn can save stars and rejects in a small sidecar file next to the image – "
+            "“{name}”. It contains only the rating; the image stays unchanged, and the "
+            "wastebasket deletes nothing. Foreign XMP files – from darktable, for example – "
+            "are never touched by Silberkorn.\n\nThe same permission applies to the sidecar "
+            "files with the edit. Create sidecar files? You can change this at any time "
+            "with “Sidecar files” at the top.",
     },
 }

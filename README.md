@@ -268,6 +268,16 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Jedes Vorschaubild und jeder Pfad darin ist mit der Windows-Datenschutz-API für
   die eigene Anmeldung verschlüsselt; Gelöschtes wird überschrieben, Ordner lassen
   sich ganz ausnehmen.
+- **Bewertung** (Reiter „Ordner“): Fährt die Maus über ein Bild, erscheinen fünf Sterne
+  und ein Papierkorb; ein Klick auf Stern *n* vergibt *n* Sterne, derselbe Stern nimmt sie
+  zurück. Der Papierkorb markiert das Bild als **Ausschuss** (abgeblendet, in jeder
+  Sortierung am Ende) – er **löscht nichts** und verändert die Datei nicht. Eine Liste
+  sortiert nach Name, Datum (neueste zuerst) oder Sternen. Gespeichert wird in einer
+  kleinen XMP-Datei neben dem Bild (`foto.jpg.xmp`, nur die Bewertung), wenn
+  Begleitdateien erlaubt sind. **Fremde XMP-Dateien gleichen Namens** (etwa von
+  darktable) bleiben unberührt: Ihre Bewertung wird nur gezeigt. Das Feld „Bewertung“
+  im Reiter Bearbeiten und die Sterne in „Speichern unter“ gehören dazu; Ausschuss
+  wird dort nicht mitgespeichert.
 - **Stapel**: In der Ordneransicht mehrere Bilder wählen (`Strg`/`Umschalt`) und
   mit „Stapel …“ auf einmal bearbeiten – eine Voreinstellung oder kopierte
   Einstellungen darauflegen, Staub über den Infrarotkanal entfernen, die

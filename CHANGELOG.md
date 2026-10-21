@@ -42,6 +42,33 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   „Rückgängig“; es gibt keine neuen Einstellungen, Begleitdatei und Voreinstellungen
   kennen nur die Reglerwerte. Bei Schwarzweiß sind Auto-Weißabgleich und Pipette gesperrt.
 
+- **Bewertung in der Ordneransicht**: Fährt die Maus über eine Bildkachel, erscheinen
+  fünf leere Sterne und ein Papierkorb im Bild. Ein Klick auf Stern *n* setzt *n* Sterne,
+  ein Klick auf den Stern der jetzigen Bewertung nimmt sie zurück. Der Papierkorb
+  markiert das Bild als **Ausschuss** (nochmal klicken hebt es auf): Er **löscht, verschiebt
+  und verändert nichts** – die Kachel wird nur abgeblendet. Gesetzte Sterne und Ausschuss
+  bleiben auch ohne Maus sichtbar; ein Klick darauf wählt die Kachel nicht und öffnet sie
+  nicht. Unterordner bekommen nichts, es gibt keine Tastenkürzel. Neben „Stapel …“ wählt
+  eine Liste die Reihenfolge: nach **Name** (wie bisher), **Datum** (Änderungsdatum, neueste
+  zuerst) oder **Sternen** (meiste zuerst, bei Gleichstand nach Name). Unterordner stehen
+  immer vorn, Ausschuss immer am Ende; die Wahl steht in `silberkorn.json`. Nach einer
+  Bewertung springt die Kachel nicht weg – „↻“ liest den Ordner neu und sortiert dann ein.
+  Die Bewertung liegt in einer kleinen XMP-Datei neben dem Bild (`foto.jpg.xmp`: nur
+  `xmp:Rating`, −1 für Ausschuss, dazu eine Kennung von Silberkorn) – atomar geschrieben,
+  nur mit der Erlaubnis für Begleitdateien (beim ersten Mal wird gefragt; ohne sie wird
+  nichts gespeichert und nichts als gesetzt gezeigt). **Fremde XMP-Dateien** mit diesem
+  Namen – etwa von darktable – verändert, ersetzt und löscht Silberkorn nie, auch nicht
+  über das Feld im Reiter Bearbeiten: Ihre Bewertung wird gezeigt, die Sterne sind dann
+  ausgegraut. Dateien wie `foto.xmp` (Lightroom) liest und schreibt Silberkorn nicht. Eine
+  kaputte, zu große oder sonst unlesbare Datei (auch eine Verknüpfung oder ein Ordner mit
+  diesem Namen) ergibt keine Bewertung, bleibt unverändert und wird mit einem eigenen
+  Hinweis gemeldet. Das Feld „Bewertung“ im Reiter Bearbeiten übernimmt die Sterne der
+  eigenen Datei – sie hat immer Vorrang vor den Sternen im Bild, auch mit „–“ (0 Sterne);
+  Ausschuss steht als „–“ – und schreibt Änderungen dorthin zurück, ebenso Rückgängig,
+  Wiederholen und „Zurücksetzen“, wenn sie das Feld ändern (ein Ausschuss in der Datei
+  bleibt, solange das Feld nicht wirklich geändert wird). „Speichern unter“ nimmt die
+  Sterne mit, Ausschuss nicht, und legt keine Datei für die Ausgabe an.
+
 ### Geändert
 
 - Das Histogramm der Gradationskurve zeigt die Helligkeit des ganzen Bildes (bisher nur
@@ -53,6 +80,8 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 
 ### Behoben
 
+- Die Ordneransicht stürzt bei Dateinamen mit hochgestellten Ziffern wie „Raum 1²“ nicht
+  mehr ab.
 - Wer das Herunterladen der NVIDIA-Bibliotheken, eines KI-Modells oder der
   Objektivdatenbank ablehnt, findet danach keinen leeren Ordner mehr: Silberkorn
   legt `nvidia` und `modelle` erst beim Herunterladen an.

@@ -218,7 +218,9 @@ class Sitzung:
         except (OSError, ValueError):
             pass                                  # ohne Profil weiter
         self.vorgefunden = metadaten.lesen(daten.exif, daten.xmp, daten.iptc)
-        self._angaben_vorgabe: tuple = ()         # Urheber und Copyright aus den Einstellungen
+        self._angaben_vorgabe: tuple = ()         # Urheber, Copyright und Sterne, die dazugehoeren
+        self._vorgabe_text = ("", "")             # Urheber und Copyright aus den Einstellungen
+        self._bewertung_vorgabe: int | None = None    # Sterne aus der Bewertungsdatei
         self.begleit_gesichert()                  # nach dem Oeffnen gibt es nichts zu sichern
 
     @property
@@ -816,15 +818,38 @@ class Sitzung:
     def angaben_vorgeben(self, urheber: str, copyright_: str):
         """Urheber und Copyright fuer Bilder, die selbst keine haben. Gilt wie die Datei
         selbst nicht als Aenderung - nur gespeichert wird es mit."""
-        vorgabe = ()
-        for name, wert in (("urheber", urheber.strip()), ("copyright", copyright_.strip())):
-            if wert and not getattr(self.vorgefunden.angaben, name):
-                vorgabe = metadaten.aendern(vorgabe, self.vorgefunden.angaben, name, wert)
+        self._vorgabe_text = (urheber.strip(), copyright_.strip())
+        vorgabe = self._vorgabe_bilden()
         alt, self._angaben_vorgabe = self._angaben_vorgabe, vorgabe
         if self.werte.angaben == alt:
             danach = self._still_aendern()
             self.werte.angaben = vorgabe
             danach()
+
+    def bewertung_vorgeben(self, sterne: int | None):
+        """Die Sterne aus Silberkorns eigener Bewertungsdatei (bewertung.py) - sie gehen vor
+        denen im Bild und kommen mit „Speichern unter“ in die neue Datei. 0 steht fuer
+        Ausschuss: der nimmt keine Sterne mit. None: nichts vorgeben, es gilt das Bild.
+        Gilt wie die Datei selbst nicht als Aenderung; was der Anwender vorher am Feld
+        eingestellt hat, ersetzt es."""
+        self._bewertung_vorgabe = sterne
+        vorgabe = self._vorgabe_bilden()
+        self._angaben_vorgabe = vorgabe
+        danach = self._still_aendern()
+        uebrige = {name: wert for name, wert in self.werte.angaben if name != "bewertung"}
+        uebrige.update({name: wert for name, wert in vorgabe if name == "bewertung"})
+        self.werte.angaben = tuple(sorted(uebrige.items()))
+        danach()
+
+    def _vorgabe_bilden(self) -> tuple:
+        vorgabe = ()
+        for name, wert in zip(("urheber", "copyright"), self._vorgabe_text, strict=True):
+            if wert and not getattr(self.vorgefunden.angaben, name):
+                vorgabe = metadaten.aendern(vorgabe, self.vorgefunden.angaben, name, wert)
+        if self._bewertung_vorgabe is not None:
+            vorgabe = metadaten.aendern(vorgabe, self.vorgefunden.angaben, "bewertung",
+                                        self._bewertung_vorgabe)
+        return vorgabe
 
     def angaben_grundwerte(self) -> tuple:
         """Was „Angaben zurücksetzen“ herstellt."""

@@ -16,6 +16,7 @@ Created with assistance of Claude AI
 from __future__ import annotations
 
 import collections
+import math
 import os
 import re
 import stat
@@ -24,17 +25,29 @@ import threading
 from PySide6.QtCore import (
     QAbstractListModel,
     QDir,
+    QEvent,
     QObject,
+    QPointF,
     QRect,
     QSize,
     Qt,
     Signal,
 )
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QCursor,
+    QImage,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -48,11 +61,19 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QStyle,
     QStyledItemDelegate,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
-from . import einstellungen, farben, voreinstellungen, vorschau_cache, vorschaubilder
+from . import (
+    bewertung,
+    einstellungen,
+    farben,
+    voreinstellungen,
+    vorschau_cache,
+    vorschaubilder,
+)
 from .stapel import Auftrag, Stapel, StapelAbbruch
 from .stapel_dialog import StapelDialog, bericht_text
 from .uebersetzung import _
@@ -63,6 +84,10 @@ AUFRAEUMEN_S = 1.0            # so lange raeumt der Cache je Leerlauf auf
 BEARBEITET_ROLLE = Qt.ItemDataRole.UserRole + 1
 PFAD_ROLLE = Qt.ItemDataRole.UserRole + 2
 ZUSTAND_ROLLE = Qt.ItemDataRole.UserRole + 3     # "ordner", "laedt", "fehlt" oder "bild"
+BEWERTUNG_ROLLE = Qt.ItemDataRole.UserRole + 4   # bewertung.Stand eines Bildes
+RAND = 6                      # Luft um den Inhalt einer Kachel
+# Sterne und Papierkorb in der Kachel: Felder, die auch mit dem Finger zu treffen sind
+STERN_B, FELD_H, KORB_B, FELD_LUECKE = 20, 24, 24, 6
 
 
 def _natuerlich(name: str):
@@ -83,14 +108,13 @@ def _versteckt(eintrag: os.DirEntry) -> bool:
     return bool(merkmale & (stat.FILE_ATTRIBUTE_HIDDEN | stat.FILE_ATTRIBUTE_SYSTEM))
 
 
-def eintraege_im_ordner(ordner: str) -> tuple[list[str], list[str]]:
-    """Unterordner und Bilddateien eines Ordners, je natuerlich sortiert - ohne versteckte.
-    Unterordner werden nicht durchsucht; hinein geht es erst per Doppelklick."""
+def _durchsuchen(ordner: str):
+    """Unterordner, Bilddateien (unsortiert) und deren Aenderungszeiten - ohne versteckte."""
     try:
         eintraege = list(os.scandir(ordner))
     except OSError:
-        return [], []
-    unterordner, bilder = [], []
+        return [], [], {}
+    unterordner, bilder, zeiten = [], [], {}
     for eintrag in eintraege:
         if eintrag.name.startswith(".") or _versteckt(eintrag):
             continue
@@ -99,12 +123,26 @@ def eintraege_im_ordner(ordner: str) -> tuple[list[str], list[str]]:
                 unterordner.append(eintrag.path)
             elif vorschaubilder.ist_bild(eintrag.name) and eintrag.is_file():
                 bilder.append(eintrag.path)
+                zeiten[eintrag.path] = eintrag.stat().st_mtime    # unter Windows ohne Zugriff
         except OSError:
             continue
+    return unterordner, bilder, zeiten
 
-    def schluessel(pfad):
-        return _natuerlich(os.path.basename(pfad))
-    return sorted(unterordner, key=schluessel), sorted(bilder, key=schluessel)
+
+def _nach_name(pfad: str):
+    return _natuerlich(os.path.basename(pfad))
+
+
+def ordner_inhalt(ordner: str) -> tuple[list[str], list[str], dict[str, float]]:
+    """Wie eintraege_im_ordner, dazu die Aenderungszeit jedes Bildes (fuer die Sortierung)."""
+    unterordner, bilder, zeiten = _durchsuchen(ordner)
+    return sorted(unterordner, key=_nach_name), sorted(bilder, key=_nach_name), zeiten
+
+
+def eintraege_im_ordner(ordner: str) -> tuple[list[str], list[str]]:
+    """Unterordner und Bilddateien eines Ordners, je natuerlich sortiert - ohne versteckte.
+    Unterordner werden nicht durchsucht; hinein geht es erst per Doppelklick."""
+    return ordner_inhalt(ordner)[:2]
 
 
 def bilder_im_ordner(ordner: str) -> list[str]:
@@ -297,6 +335,41 @@ class VorschauDienst(QObject):
         self.fertig.emit(durchgang, pfad, _qimage(vorschau.bild), False)
 
 
+class BewertungsDienst(QObject):
+    """Liest die Bewertungsdateien eines Ordners im Hintergrund - ein stat je Bild, gelesen
+    wird nur, wo eine Datei liegt. Die Kacheln erscheinen sofort, die Sterne kommen danach."""
+
+    fertig = Signal(int, object)                  # Durchgang, {Pfad: bewertung.Stand}
+    meldung = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self._aktuell = 0
+
+    def laden(self, durchgang: int, pfade: list[str]):
+        self._aktuell = durchgang                 # ein laufender, aelterer Durchgang bricht ab
+        threading.Thread(target=self._lesen, args=(durchgang, list(pfade)), daemon=True,
+                         name="Bewertungen").start()
+
+    def abbrechen(self):
+        """Ein laufendes Lesen gibt auf, sein Ergebnis wird nicht mehr abgeliefert."""
+        self._aktuell = -1
+
+    def _lesen(self, durchgang: int, pfade: list[str]):
+        try:
+            try:
+                staende = bewertung.lesen_viele(pfade, lambda: self._aktuell == durchgang)
+            except Exception as fehler:          # noqa: BLE001 - der Thread soll nie still sterben
+                if self._aktuell == durchgang:
+                    self.meldung.emit(_("Die Bewertungen ließen sich nicht lesen: {grund}")
+                                      .format(grund=str(fehler)))
+                return
+            if self._aktuell == durchgang:
+                self.fertig.emit(durchgang, staende)
+        except RuntimeError:
+            pass                                 # das Fenster ist schon zu: nichts mehr zu melden
+
+
 def _qimage(bild) -> QImage:
     rgb = bild.convert("RGB")
     daten = rgb.tobytes()
@@ -319,6 +392,7 @@ class KachelModell(QAbstractListModel):
         self._angefragt: set[str] = set()
         self._fehlend: set[str] = set()
         self.unterordner: set[str] = set()
+        self.bewertungen: dict[str, bewertung.Stand] = {}     # getrennt vom Bild-Cache
         self._ordner_symbol = QApplication.style().standardIcon(
             QStyle.StandardPixmap.SP_DirIcon).pixmap(KACHEL * 3 // 4, KACHEL * 3 // 4)
         dienst.fertig.connect(self._fertig)
@@ -330,9 +404,52 @@ class KachelModell(QAbstractListModel):
         self.dienst.verwerfen()
         self.pfade = [*unterordner, *pfade]
         self.unterordner = set(unterordner)
+        self.bewertungen = {}
         self._angefragt.clear()
         self._fehlend.clear()
         self.endResetModel()
+
+    def umordnen(self, pfade: list[str], unterordner: list[str]):
+        """Dieselben Eintraege in neuer Reihenfolge; die Auswahl bleibt, wo sie war."""
+        neu = [*unterordner, *pfade]
+        if neu == self.pfade:
+            return
+        self.layoutAboutToBeChanged.emit()
+        alt = self.persistentIndexList()
+        namen = [self.pfade[i.row()] for i in alt]
+        stellen = {p: z for z, p in enumerate(neu)}
+        self.pfade = neu
+        self.changePersistentIndexList(alt, [self.index(stellen[n]) for n in namen])
+        self.layoutChanged.emit()
+
+    def _zeile(self, pfad: str) -> int:
+        """Die Zeile eines Pfades, auch wenn er anders geschrieben ist (Schraegstriche,
+        Gross- und Kleinschreibung); -1, wenn er nicht in der Liste steht."""
+        schluessel = os.path.normcase(os.path.normpath(pfad))
+        for zeile, eintrag in enumerate(self.pfade):
+            if os.path.normcase(os.path.normpath(eintrag)) == schluessel:
+                return zeile
+        return -1
+
+    def stand_setzen(self, pfad: str, stand: bewertung.Stand):
+        """Die Bewertung eines Bildes hat sich geaendert. Die Reihenfolge bleibt - die Kachel
+        soll nicht unter der Maus wegspringen."""
+        zeile = self._zeile(pfad)
+        if zeile < 0 or self.pfade[zeile] in self.unterordner:
+            return
+        self.bewertungen[self.pfade[zeile]] = stand
+        self.dataChanged.emit(self.index(zeile), self.index(zeile))
+
+    def staende_laden(self, durchgang: int, staende: dict) -> bool:
+        """Die im Hintergrund gelesenen Bewertungen; False, wenn der Ordner inzwischen ein
+        anderer ist."""
+        if durchgang != self.durchgang:
+            return False
+        for pfad, stand in staende.items():
+            self.bewertungen.setdefault(pfad, stand)      # ein Klick seither gilt mehr
+        if self.pfade:
+            self.dataChanged.emit(self.index(0), self.index(len(self.pfade) - 1))
+        return True
 
     def neu_laden(self, pfad: str):
         """Ein Bild hat sich geaendert (etwa seine Begleitdatei): neu anfragen."""
@@ -356,6 +473,9 @@ class KachelModell(QAbstractListModel):
             return os.path.basename(pfad)
         if rolle == PFAD_ROLLE:
             return pfad
+        if rolle == BEWERTUNG_ROLLE:
+            return None if pfad in self.unterordner else self.bewertungen.get(pfad,
+                                                                              bewertung.KEINE)
         if pfad in self.unterordner:
             return {Qt.ItemDataRole.DecorationRole: self._ordner_symbol,
                     ZUSTAND_ROLLE: "ordner", BEARBEITET_ROLLE: False}.get(rolle)
@@ -411,12 +531,83 @@ def zwei_zeilen(metrik, text: str, breite: int) -> list[str]:
     return [erste.rstrip(), metrik.elidedText(rest, Qt.TextElideMode.ElideRight, breite)]
 
 
+def bild_flaeche(kachel: QRect) -> QRect:
+    """Das Quadrat, in dem das Vorschaubild unten buendig sitzt."""
+    rahmen = kachel.adjusted(2, 2, -2, -2)
+    return QRect(rahmen.left() + (rahmen.width() - KACHEL) // 2, rahmen.top() + RAND,
+                 KACHEL, KACHEL)
+
+
+def gesperrt_text(stand: bewertung.Stand) -> str:
+    """Warum sich eine Bewertung nicht aendern laesst."""
+    if stand.art == "unlesbar":
+        return _("Die Bewertungsdatei neben dem Bild lässt sich nicht lesen und bleibt "
+                 "unverändert.")
+    return _("Bewertung stammt aus einer fremden XMP-Datei und wird nicht verändert")
+
+
+def bewertung_felder(flaeche: QRect) -> tuple[list[QRect], QRect]:
+    """Die fuenf Sternfelder und das Papierkorbfeld, unten im Bild. Dieselben Rechtecke
+    zeichnet der Zeichner und trifft die Liste beim Klicken."""
+    gesamt = 5 * STERN_B + FELD_LUECKE + KORB_B
+    x = flaeche.left() + (KACHEL - gesamt) // 2
+    y = flaeche.bottom() + 1 - FELD_H - 5
+    sterne = [QRect(x + i * STERN_B, y, STERN_B, FELD_H) for i in range(5)]
+    return sterne, QRect(x + 5 * STERN_B + FELD_LUECKE, y, KORB_B, FELD_H)
+
+
+def bewertung_ziel(flaeche: QRect, ort) -> tuple | None:
+    """Was liegt unter dem Mauszeiger: ("stern", 1 bis 5), ("korb",) oder nichts."""
+    sterne, korb = bewertung_felder(flaeche)
+    for nummer, feld in enumerate(sterne, 1):
+        if feld.contains(ort):
+            return ("stern", nummer)
+    return ("korb",) if korb.contains(ort) else None
+
+
+def _stern(feld: QRect) -> QPolygonF:
+    mitte = QPointF(feld.center().x() + 0.5, feld.center().y() + 1.0)
+    kante = min(feld.width(), feld.height())
+    punkte = []
+    for ecke in range(10):
+        winkel = math.pi * (ecke / 5 - 0.5)
+        radius = kante * (0.42 if ecke % 2 == 0 else 0.18)
+        punkte.append(QPointF(mitte.x() + radius * math.cos(winkel),
+                              mitte.y() + radius * math.sin(winkel)))
+    return QPolygonF(punkte)
+
+
+def _korb(feld: QRect) -> tuple[QPainterPath, QPainterPath]:
+    """Papierkorb als Umriss: (Deckel mit Griff, Eimer)."""
+    x, y = feld.center().x() + 0.5, feld.center().y() + 0.5
+    deckel, eimer = QPainterPath(), QPainterPath()
+    deckel.moveTo(x - 7, y - 5)
+    deckel.lineTo(x + 7, y - 5)
+    deckel.moveTo(x - 2.5, y - 5)
+    deckel.lineTo(x - 2.5, y - 8)
+    deckel.lineTo(x + 2.5, y - 8)
+    deckel.lineTo(x + 2.5, y - 5)
+    eimer.moveTo(x - 5.5, y - 3)
+    eimer.lineTo(x - 4.5, y + 8)
+    eimer.lineTo(x + 4.5, y + 8)
+    eimer.lineTo(x + 5.5, y - 3)
+    eimer.closeSubpath()
+    return deckel, eimer
+
+
 class KachelZeichner(QStyledItemDelegate):
     """Bild oder Ordnersymbol unten buendig, der Name direkt darunter - wie im Explorer.
     Ein Punkt oben rechts markiert eine Begleitdatei. Solange ein Bild laedt, steht dort
-    eine graue Flaeche, ohne moegliche Vorschau ein Fragezeichen."""
+    eine graue Flaeche, ohne moegliche Vorschau ein Fragezeichen. Beim Darueberfahren
+    erscheinen fuenf Sterne und ein Papierkorb im Bild; gesetzte Sterne bleiben stehen,
+    Ausschuss blendet die Kachel ab."""
 
-    RAND = 6                                       # Luft um den Inhalt einer Kachel
+    RAND = RAND
+
+    def __init__(self, eltern=None):
+        super().__init__(eltern)
+        self.hover_zeile = -1                      # die Kachel unter der Maus
+        self.hover_ziel = None                     # und was in ihr: ("stern", n) oder ("korb",)
 
     def sizeHint(self, option, _index):                   # noqa: N802 - Qt-Name
         zeilen = 2 * option.fontMetrics.lineSpacing()
@@ -435,11 +626,13 @@ class KachelZeichner(QStyledItemDelegate):
             maler.setPen(Qt.PenStyle.NoPen)
             maler.setBrush(auswahl)
             maler.drawRoundedRect(rahmen, 6, 6)
-        flaeche = QRect(rahmen.left() + (rahmen.width() - KACHEL) // 2,
-                        rahmen.top() + self.RAND, KACHEL, KACHEL)
+        flaeche = bild_flaeche(option.rect)
         unten = flaeche.bottom()                   # Unterkante des Bildes - darunter der Name
         zustand = index.data(ZUSTAND_ROLLE)
         bild = index.data(Qt.ItemDataRole.DecorationRole)
+        stand = index.data(BEWERTUNG_ROLLE)
+        if stand is not None and stand.wert == bewertung.AUSSCHUSS:
+            maler.setOpacity(0.4)                  # Ausschuss: abgeblendet samt Namen
         if zustand in ("laedt", "fehlt"):
             leer = QRect(flaeche.left() + KACHEL // 8, flaeche.top() + KACHEL // 4,
                          KACHEL * 3 // 4, KACHEL * 3 // 4)
@@ -474,7 +667,191 @@ class KachelZeichner(QStyledItemDelegate):
             ort = QRect(rahmen.left() + self.RAND, unten + 6 + nummer * metrik.lineSpacing(),
                         breite, metrik.lineSpacing())
             maler.drawText(ort, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, zeile)
+        maler.setOpacity(1.0)
+        if stand is not None:
+            self._bewertung_malen(maler, flaeche, stand, index.row() == self.hover_zeile,
+                                  schema)
         maler.restore()
+
+    def _bewertung_malen(self, maler: QPainter, flaeche: QRect, stand, darueber: bool, schema):
+        """Beim Darueberfahren fuenf leere Sterne und der Papierkorb; gesetzte Sterne und
+        Ausschuss bleiben auch ohne Maus sichtbar. Fremde Bewertungen sind ausgegraut."""
+        ausschuss = stand.wert == bewertung.AUSSCHUSS
+        sterne = max(stand.wert, 0)
+        if not darueber and not sterne and not ausschuss:
+            return
+        felder, korb = bewertung_felder(flaeche)
+        gesperrt = not stand.aenderbar
+        ziel = self.hover_ziel if darueber and not gesperrt else None
+        if darueber:
+            traeger = felder[0].united(korb)
+        elif ausschuss:
+            traeger = korb
+        else:
+            traeger = felder[0].united(felder[sterne - 1])
+        maler.setPen(Qt.PenStyle.NoPen)
+        maler.setBrush(QColor(schema["PLAKETTE"]))
+        maler.drawRoundedRect(traeger.adjusted(-3, 1, 3, -1), 7, 7)
+
+        umriss = QColor(schema["PLAKETTE_TEXT"])
+        gold = QColor(schema["STERN"])
+        if gesperrt:
+            umriss.setAlpha(110)
+            gold = QColor(schema["MUTED"])
+        voll = sterne
+        if ziel is not None and ziel[0] == "stern":
+            voll = ziel[1]                         # Vorschau: bis zum Stern unter der Maus
+        for nummer, feld in enumerate(felder, 1):
+            if not darueber and nummer > sterne:
+                break
+            gefuellt = nummer <= voll
+            farbe = gold if gefuellt else umriss
+            maler.setPen(QPen(farbe, 1.2))
+            maler.setBrush(farbe if gefuellt else Qt.BrushStyle.NoBrush)
+            maler.drawPolygon(_stern(feld))
+        if darueber or ausschuss:
+            if ausschuss:
+                farbe = QColor(schema["DANGER"])
+            elif ziel == ("korb",):
+                farbe = QColor(schema["ACCENT"])
+            else:
+                farbe = umriss
+            deckel, eimer = _korb(korb)
+            maler.setPen(QPen(farbe, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
+                              Qt.PenJoinStyle.RoundJoin))
+            fuellung = QColor(farbe)
+            fuellung.setAlpha(110)
+            maler.setBrush(fuellung if ausschuss else Qt.BrushStyle.NoBrush)
+            maler.drawPath(eimer)
+            maler.setBrush(Qt.BrushStyle.NoBrush)
+            maler.drawPath(deckel)
+
+
+class KachelListe(QListView):
+    """Die Liste der Kacheln. Sterne und Papierkorb in einer Kachel nimmt sie selbst an -
+    ein Klick darauf waehlt die Kachel nicht und oeffnet sie nicht."""
+
+    bewertung_gewaehlt = Signal(str, int)         # Pfad, neuer Wert (-1 Ausschuss, 0 bis 5)
+    bewertung_gesperrt = Signal(str)              # Klick auf eine fremde Bewertung
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("kacheln")
+        self.setMouseTracking(True)
+        self.zeichner = KachelZeichner(self)
+        self.setItemDelegate(self.zeichner)
+        self._verbraucht = False                   # der Druck galt den Sternen
+        self.setViewMode(QListView.ViewMode.IconMode)
+        self.setResizeMode(QListView.ResizeMode.Adjust)
+        self.setMovement(QListView.Movement.Static)
+        self.setUniformItemSizes(True)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+
+    def setModel(self, modell):                    # noqa: N802 - Qt-Name
+        super().setModel(modell)
+        modell.modelReset.connect(lambda: self._darueber(-1, None))
+        modell.layoutChanged.connect(lambda: self._darueber(-1, None))
+
+    # Wo ist die Maus ---------------------------------------------------
+
+    def ziel_bei(self, ort) -> tuple[int, tuple | None]:
+        """(Zeile, Ziel) unter diesem Punkt: -1 ausserhalb von Bildkacheln."""
+        index = self.indexAt(ort)
+        if not index.isValid() or self.model().pfade[index.row()] in self.model().unterordner:
+            return -1, None
+        return index.row(), bewertung_ziel(bild_flaeche(self.visualRect(index)), ort)
+
+    def _darueber(self, zeile: int, ziel):
+        if (zeile, ziel) == (self.zeichner.hover_zeile, self.zeichner.hover_ziel):
+            return
+        alt = self.zeichner.hover_zeile
+        self.zeichner.hover_zeile, self.zeichner.hover_ziel = zeile, ziel
+        modell = self.model()
+        for nummer in (alt, zeile):
+            if modell is not None and 0 <= nummer < modell.rowCount():
+                self.viewport().update(self.visualRect(modell.index(nummer)))
+
+    def tooltip_fuer(self, zeile: int, ziel: tuple) -> str:
+        """Der Hinweistext zu einem Stern oder zum Papierkorb."""
+        stand = self.model().data(self.model().index(zeile), BEWERTUNG_ROLLE)
+        if not stand.aenderbar:
+            return gesperrt_text(stand)
+        if ziel[0] == "korb":
+            if stand.wert == bewertung.AUSSCHUSS:
+                return _("Ausschuss aufheben")
+            return _("Als Ausschuss markieren – löscht nichts")
+        if ziel[1] == stand.wert:
+            return _("Bewertung entfernen")
+        return _("1 Stern") if ziel[1] == 1 else _("{n} Sterne").format(n=ziel[1])
+
+    # Ereignisse ---------------------------------------------------------
+
+    def mouseMoveEvent(self, ereignis):            # noqa: N802 - Qt-Name
+        if self._verbraucht:
+            # Der Klick auf einen Stern gehoert uns: Qt kennt dafuer keine Druckposition und
+            # zoege sonst ein Gummiband ab dem vorigen Klick (oder startete ein Ziehen)
+            ereignis.accept()
+        else:
+            super().mouseMoveEvent(ereignis)
+        self._darueber(*self.ziel_bei(ereignis.position().toPoint()))
+
+    def leaveEvent(self, ereignis):                # noqa: N802 - Qt-Name
+        super().leaveEvent(ereignis)
+        self._darueber(-1, None)
+
+    def scrollContentsBy(self, dx, dy):            # noqa: N802 - Qt-Name
+        super().scrollContentsBy(dx, dy)
+        ort = self.viewport().mapFromGlobal(QCursor.pos())
+        self._darueber(*(self.ziel_bei(ort) if self.viewport().rect().contains(ort)
+                         else (-1, None)))
+
+    def viewportEvent(self, ereignis):             # noqa: N802 - Qt-Name
+        if ereignis.type() == QEvent.Type.ToolTip:
+            zeile, ziel = self.ziel_bei(ereignis.pos())
+            if ziel is not None:
+                QToolTip.showText(ereignis.globalPos(), self.tooltip_fuer(zeile, ziel),
+                                  self.viewport())
+                return True
+        return super().viewportEvent(ereignis)
+
+    def mousePressEvent(self, ereignis):           # noqa: N802 - Qt-Name
+        self._verbraucht = False
+        if ereignis.button() == Qt.MouseButton.LeftButton:
+            zeile, ziel = self.ziel_bei(ereignis.position().toPoint())
+            if ziel is not None:
+                self._verbraucht = True            # keine Auswahl, kein Oeffnen
+                self._angeklickt(zeile, ziel)
+                ereignis.accept()
+                return
+        super().mousePressEvent(ereignis)
+
+    def mouseDoubleClickEvent(self, ereignis):     # noqa: N802 - Qt-Name
+        # Der zweite Klick eines schnellen Paares auf einen Stern zaehlt nicht noch einmal
+        # (er nahme die Bewertung gleich wieder zurueck) und oeffnet das Bild nicht
+        if self.ziel_bei(ereignis.position().toPoint())[1] is not None:
+            self._verbraucht = True
+            ereignis.accept()
+            return
+        super().mouseDoubleClickEvent(ereignis)
+
+    def mouseReleaseEvent(self, ereignis):         # noqa: N802 - Qt-Name
+        if self._verbraucht:
+            self._verbraucht = False
+            ereignis.accept()
+            return
+        super().mouseReleaseEvent(ereignis)
+
+    def _angeklickt(self, zeile: int, ziel: tuple):
+        modell = self.model()
+        pfad = modell.pfade[zeile]
+        stand = modell.data(modell.index(zeile), BEWERTUNG_ROLLE)
+        if not stand.aenderbar:
+            self.bewertung_gesperrt.emit(pfad)
+        elif ziel[0] == "korb":
+            self.bewertung_gewaehlt.emit(
+                pfad, 0 if stand.wert == bewertung.AUSSCHUSS else bewertung.AUSSCHUSS)
+        else:
+            self.bewertung_gewaehlt.emit(pfad, 0 if ziel[1] == stand.wert else ziel[1])
 
 
 # --------------------------------------------------------------------------
@@ -620,6 +997,12 @@ class OrdnerSeite(QWidget):
         self.dienst.cache_stand.connect(self._cache_stand_merken)
         self.dienst.meldung.connect(lambda text: fenster.melden(text, fehler=True))
         self.dienst.ausnehmen(ausgenommene_ordner())
+        self.bewertungen = BewertungsDienst()
+        self.bewertungen.fertig.connect(self._bewertungen_da)
+        self.bewertungen.meldung.connect(lambda text: fenster.melden(text, fehler=True))
+        self._unterordner: list[str] = []
+        self._bilder: list[str] = []               # nach Name sortiert, die Grundlage
+        self._zeiten: dict[str, float] = {}
 
         aufbau = QVBoxLayout(self)
         aufbau.setContentsMargins(0, 12, 0, 0)
@@ -636,6 +1019,17 @@ class OrdnerSeite(QWidget):
         self.neu_knopf.clicked.connect(lambda: self.ordner_zeigen(self.ordner))
         self.ort = QLabel(objectName="nebentext")
         self.ort.setTextFormat(Qt.TextFormat.PlainText)
+        self.sortierung = QComboBox()
+        for art in einstellungen.ORDNER_SORTIERUNGEN:
+            self.sortierung.addItem("", art)
+        for nummer, text in enumerate((_("Nach Name"), _("Nach Datum"), _("Nach Sternen"))):
+            fenster.beschriften(lambda t, i=nummer: self.sortierung.setItemText(i, t), text)
+        fenster.beschriften(self.sortierung.setToolTip, _(
+            "Reihenfolge der Bilder: nach Name, nach Änderungsdatum (neueste zuerst) oder nach "
+            "Sternen (meiste zuerst). Ausschuss steht immer am Ende, Unterordner vorn."))
+        self.sortierung.setCurrentIndex(
+            max(0, self.sortierung.findData(einstellungen.ordner_sortierung())))
+        self.sortierung.currentIndexChanged.connect(self._sortierung_gewaehlt)
         self.stapel_knopf = QPushButton()
         fenster.beschriften(self.stapel_knopf.setText, _("Stapel …"))
         fenster.beschriften(self.stapel_knopf.setToolTip, _(
@@ -653,20 +1047,17 @@ class OrdnerSeite(QWidget):
         leiste.addWidget(self.hoch_knopf)
         leiste.addWidget(self.neu_knopf)
         leiste.addWidget(self.ort, 1)
+        leiste.addWidget(self.sortierung)
         leiste.addWidget(self.stapel_knopf)
         leiste.addWidget(self.cache_knopf)
         aufbau.addLayout(leiste)
 
         self.modell = KachelModell(self.dienst)
-        self.liste = QListView(objectName="kacheln")
-        self.liste.setViewMode(QListView.ViewMode.IconMode)
-        self.liste.setResizeMode(QListView.ResizeMode.Adjust)
-        self.liste.setMovement(QListView.Movement.Static)
-        self.liste.setUniformItemSizes(True)
-        self.liste.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.liste.setItemDelegate(KachelZeichner(self.liste))
+        self.liste = KachelListe()
         self.liste.setModel(self.modell)
         self.liste.doubleClicked.connect(self._doppelklick)
+        self.liste.bewertung_gewaehlt.connect(self._bewertung_gewaehlt)
+        self.liste.bewertung_gesperrt.connect(self._bewertung_gesperrt)
         self.liste.selectionModel().selectionChanged.connect(
             lambda *_a: self.stapel_knopf.setEnabled(bool(self.gewaehlte_bilder())))
         aufbau.addWidget(self.liste, 1)
@@ -708,8 +1099,13 @@ class OrdnerSeite(QWidget):
 
     def ordner_zeigen(self, ordner: str, melden: bool = True):
         self.ordner = ordner
-        unterordner, pfade = eintraege_im_ordner(ordner) if ordner else ([], [])
-        self.modell.setzen(pfade, unterordner)
+        unterordner, pfade, zeiten = ordner_inhalt(ordner) if ordner else ([], [], {})
+        self._unterordner, self._bilder, self._zeiten = unterordner, pfade, zeiten
+        self.modell.setzen(self._geordnet(), unterordner)
+        if pfade:
+            self.bewertungen.laden(self.modell.durchgang, pfade)
+        else:
+            self.bewertungen.abbrechen()           # sonst käme das Ergebnis des alten Ordners
         self.ort.setText(ordner)
         self.liste.setVisible(bool(ordner))
         self.leer.setVisible(not ordner)
@@ -719,6 +1115,47 @@ class OrdnerSeite(QWidget):
             text = _("1 Bild in {ordner}") if len(pfade) == 1 else _("{anzahl} Bilder in {ordner}")
             self.fenster.melden(text.format(
                 anzahl=len(pfade), ordner=os.path.basename(ordner) or ordner))
+
+    def _geordnet(self) -> list[str]:
+        """Die Bilder in der gewaehlten Reihenfolge; Ausschuss zuletzt, Gleichstand nach Name."""
+        return bewertung.sortiert(self._bilder, self.sortierung.currentData(), _nach_name,
+                                  self.modell.bewertungen, self._zeiten)
+
+    def _sortierung_gewaehlt(self, _nummer: int):
+        einstellungen.ordner_sortierung_setzen(self.sortierung.currentData())
+        self.modell.umordnen(self._geordnet(), self._unterordner)
+
+    def _bewertungen_da(self, durchgang: int, staende: dict):
+        """Die Sterne sind gelesen: zeigen und einsortieren (Ausschuss ans Ende, bei
+        „Nach Sternen“ die Reihenfolge)."""
+        if self.modell.staende_laden(durchgang, staende):
+            self.modell.umordnen(self._geordnet(), self._unterordner)
+            unlesbar = sum(1 for stand in staende.values() if stand.art == "unlesbar")
+            if unlesbar:
+                text = (_("1 Bewertungsdatei ließ sich nicht lesen und bleibt unverändert.")
+                        if unlesbar == 1 else
+                        _("{anzahl} Bewertungsdateien ließen sich nicht lesen und bleiben "
+                          "unverändert.").format(anzahl=unlesbar))
+                self.fenster.melden(text)
+
+    def _bewertung_gewaehlt(self, pfad: str, wert: int):
+        if not bewertung_setzen(self.fenster, pfad, wert):
+            return
+        name = os.path.basename(pfad)
+        if wert > 0:
+            text = _("{name}: {sterne}").format(name=name, sterne="★" * wert)
+        elif wert == 0:
+            text = _("{name}: Bewertung entfernt").format(name=name)
+        else:
+            text = _("{name} als Ausschuss markiert – die Datei bleibt unverändert").format(
+                name=name)
+        if wert == bewertung.AUSSCHUSS or self.sortierung.currentData() == "sterne":
+            text += " " + _("Mit ↻ lässt sich neu einsortieren.")
+        self.fenster.melden(text)
+
+    def _bewertung_gesperrt(self, pfad: str):
+        stand = self.modell.bewertungen.get(pfad, bewertung.KEINE)
+        self.fenster.melden(gesperrt_text(stand))
 
     def _doppelklick(self, index):
         pfad = index.data(PFAD_ROLLE)
@@ -855,6 +1292,7 @@ class OrdnerSeite(QWidget):
 
     def beenden(self):
         self.dienst.beenden()
+        self.bewertungen.abbrechen()
 
 
 def begleitdatei_geaendert(fenster, pfad: str):
@@ -865,3 +1303,35 @@ def begleitdatei_geaendert(fenster, pfad: str):
         seite.bild_geaendert(pfad)
     elif seite is not None:
         seite.dienst.befehl("vergessen", pfad)
+
+
+def bewertung_setzen(fenster, pfad: str, wert: int, von_bearbeiten: bool = False) -> bool:
+    """Die Bewertung (-1 Ausschuss, 0 bis 5) neben das Bild schreiben - nur mit der Erlaubnis
+    fuer Begleitdateien und nie in eine fremde XMP-Datei. Es wird nichts geloescht, auch bei
+    Ausschuss nicht. Rueckgabe: ob geschrieben wurde; sonst steht der Grund in der Statuszeile."""
+    bearbeiten = fenster.bearbeiten
+    if not bearbeiten.bewertung_erlaubt(pfad):
+        fenster.melden(_("Ohne Erlaubnis für Begleitdateien werden Bewertungen nicht gespeichert."),
+                       fehler=True)
+        return False
+    try:
+        bewertung.schreiben(pfad, wert)
+    except bewertung.FremdeDatei as fehler:        # auch UnlesbareDatei
+        fenster.melden(gesperrt_text(bewertung.Stand(
+            0, "unlesbar" if isinstance(fehler, bewertung.UnlesbareDatei) else "fremd")),
+            fehler=True)
+        return False
+    except bewertung.BewertungFehler as fehler:
+        fenster.melden(_("Die Bewertung ließ sich nicht neben dem Bild sichern: {grund}")
+                       .format(grund=str(fehler)), fehler=True)
+        return False
+    stand = bewertung.Stand(wert, "eigen")
+    seite = getattr(fenster, "ordner", None)
+    if seite is not None:
+        seite.modell.stand_setzen(pfad, stand)
+    sitzung = bearbeiten.sitzung
+    if (not von_bearbeiten and sitzung is not None
+            and os.path.normcase(os.path.normpath(sitzung.daten.pfad))
+            == os.path.normcase(os.path.normpath(pfad))):
+        bearbeiten.bewertung_von_aussen(stand)     # das offene Bild bekommt die Sterne auch
+    return True

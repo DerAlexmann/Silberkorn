@@ -363,3 +363,24 @@ def test_fuers_netz_mit_angaben(sitzung, tmp_path):
     assert angaben.stichwoerter == ("Hafen", "Abend") and angaben.urheber == "Kamera Besitzer"
     assert angaben.stadt == ""                          # Kameradaten entfernt: kein Ort
     assert exif[0x013B] == "Kamera Besitzer"
+
+
+def test_sitzung_bewertung_vorgeben_laesst_urheber_vorgabe_stehen(sitzung):
+    """Sterne aus der Bewertungsdatei sind Vorgabe wie Urheber und Copyright: nie eine
+    Aenderung, und eine Vorgabe ersetzt die andere nicht."""
+    sitzung.angaben_vorgeben("Alex", "© 2026 Alex")
+    for sterne in (4, 0, None):
+        sitzung.bewertung_vorgeben(sterne)
+        assert sitzung.angaben.urheber == "Kamera Besitzer"       # die Datei hat einen
+        assert sitzung.angaben.copyright == "© 2026 Alex"
+        assert not sitzung.geaendert
+        vorgabe = dict(sitzung.angaben_grundwerte())
+        assert vorgabe["copyright"] == "© 2026 Alex"
+        if sterne is not None:
+            assert sitzung.angaben.bewertung == sterne
+        assert sitzung.werte.angaben == sitzung.angaben_grundwerte()
+    # Urheber nachtraeglich geaendert: die Sterne bleiben
+    sitzung.bewertung_vorgeben(3)
+    sitzung.angaben_vorgeben("Neu", "© Neu")
+    assert sitzung.angaben.bewertung == 3 and sitzung.angaben.copyright == "© Neu"
+    assert not sitzung.geaendert
