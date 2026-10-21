@@ -1,6 +1,10 @@
 """Natuerliche Sortierung der Ordneransicht."""
 
-from silberkorn.ordner_seite import _natuerlich
+import pytest
+
+pytest.importorskip("PySide6")
+
+from silberkorn.ordner_seite import _natuerlich  # noqa: E402 - erst nach der Pruefung
 
 
 def test_zahlen_nach_wert():
