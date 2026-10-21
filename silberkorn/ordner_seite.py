@@ -67,7 +67,8 @@ ZUSTAND_ROLLE = Qt.ItemDataRole.UserRole + 3     # "ordner", "laedt", "fehlt" od
 
 def _natuerlich(name: str):
     """Sortierschluessel: Bild2 vor Bild10."""
-    return [int(t) if t.isdigit() else t.casefold() for t in re.split(r"(\d+)", name)]
+    # isdecimal statt isdigit: "²" ist eine Ziffer, aber int() kennt sie nicht
+    return [int(t) if t.isdecimal() else t.casefold() for t in re.split(r"(\d+)", name)]
 
 
 def _versteckt(eintrag: os.DirEntry) -> bool:
