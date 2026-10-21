@@ -959,3 +959,561 @@ def test_histogramm_und_warnung_in_der_100_prozent_ansicht(fenster, tmp_path, mo
         seite.leinwand.zoom_setzen(None)
         seite.schliessen()
         seite._knoepfe_freischalten()
+
+
+def _stich_bild(pfad, links=(130, 120, 110), rechts=(110, 120, 130)):
+    """Zwei Hälften mit entgegengesetztem Farbstich, dazu etwas Helligkeitsstreuung."""
+    import numpy as np
+    from PIL import Image
+    rng = np.random.default_rng(5)
+    bild = np.empty((96, 128, 3), np.float32)
+    bild[:, :64] = links
+    bild[:, 64:] = rechts
+    bild *= rng.uniform(0.7, 1.1, bild.shape[:2] + (1,))
+    Image.fromarray(np.clip(bild, 0, 255).astype(np.uint8)).save(pfad)
+
+
+def _nur_geaendert(seite, vorher, erlaubt):
+    """Die Felder der Werte, die sich gegenüber `vorher` geändert haben, liegen in `erlaubt`."""
+    from silberkorn import verlauf
+    geaendert = set(verlauf.unterschied(
+        verlauf.Stand(vorher, ()), verlauf.Stand(seite.sitzung.werte, ())))
+    assert geaendert <= set(erlaubt), geaendert
+
+
+def test_automatik_ohne_bild_gesperrt_und_keine_neuen_einstellungen(fenster):
+    import dataclasses
+
+    from silberkorn import filter as f
+    seite = fenster.bearbeiten
+    assert seite.sitzung is None
+    for knopf in (seite.ton_auto_knopf, seite.wb_auto_knopf, seite.wb_pipette_knopf):
+        assert not knopf.isEnabled()
+    # Die Automatik setzt nur vorhandene Reglerwerte - kein eigenes Feld in den Einstellungen
+    namen = {feld.name for feld in dataclasses.fields(f.Einstellungen)}
+    assert not {n for n in namen if "auto" in n or "pipette" in n}
+
+
+def test_auto_ton_ein_schritt_und_stabil(fenster, tmp_path, monkeypatch):
+    import dataclasses
+
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "dunkel.png")
+    rng = np.random.default_rng(2)
+    Image.fromarray(rng.integers(5, 70, (60, 80, 3)).astype(np.uint8)).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert seite.ton_auto_knopf.isEnabled()
+        vorher = dataclasses.replace(seite.sitzung.werte)
+        seite.ton_auto_knopf.click()
+        werte = seite.sitzung.werte
+        assert werte.belichtung > 0.5 and werte.tiefen >= 0
+        assert seite.zeilen["belichtung"].wert() == werte.belichtung
+        assert "Auto-Ton" in fenster.statusmeldung.text()
+        _nur_geaendert(seite, vorher, ("belichtung", "kontrast", "lichter", "tiefen"))
+        seite._festhalten(sofort=True)
+        assert "Auto-Ton" in seite.rueckgaengig_knopf.toolTip()
+        erster = dataclasses.replace(werte)
+        # Noch einmal: dasselbe Ergebnis, kein weiterer Schritt
+        seite.ton_auto_knopf.click()
+        seite._festhalten(sofort=True)
+        assert seite.sitzung.werte == erster
+        seite.rueckgaengig()                      # ein Schritt zurück: alles wie am Anfang
+        assert seite.sitzung.werte == vorher and not seite.rueckgaengig_knopf.isEnabled()
+        seite.wiederholen()
+        assert seite.sitzung.werte == erster
+        # Andere Regler bleiben: erst Sättigung setzen, dann Auto
+        seite.zeilen["saettigung"].schieber.setValue(
+            seite.zeilen["saettigung"].schieber.value() + 20)
+        seite._festhalten(sofort=True)
+        mit_saettigung = dataclasses.replace(seite.sitzung.werte)
+        seite.ton_auto_knopf.click()
+        assert seite.sitzung.werte.saettigung == mit_saettigung.saettigung == 20
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_auto_weissabgleich_ein_schritt_und_sperre_bei_schwarzweiss(fenster, tmp_path,
+                                                                    monkeypatch):
+    import dataclasses
+
+    import numpy as np
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "stich.png")
+    _stich_bild(pfad, (130, 120, 110), (130, 120, 110))         # überall warm
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert seite.wb_auto_knopf.isEnabled() and seite.wb_pipette_knopf.isEnabled()
+        vorher = dataclasses.replace(seite.sitzung.werte)
+        seite.wb_auto_knopf.click()
+        werte = seite.sitzung.werte
+        assert werte.temperatur < -10
+        assert seite.zeilen["temperatur"].wert() == werte.temperatur
+        assert "Auto-Weißabgleich" in fenster.statusmeldung.text()
+        _nur_geaendert(seite, vorher, ("temperatur", "toenung"))
+        bild = np.asarray(seite.sitzung.vorschau()[0]).astype(int)
+        assert np.abs(bild.mean(axis=(0, 1)) - bild.mean()).max() < 4          # im Mittel grau
+        seite._festhalten(sofort=True)
+        erster = dataclasses.replace(werte)
+        seite.wb_auto_knopf.click()                               # stabil
+        seite._festhalten(sofort=True)
+        assert seite.sitzung.werte == erster
+        seite.rueckgaengig()
+        assert seite.sitzung.werte == vorher and not seite.rueckgaengig_knopf.isEnabled()
+
+        # Schwarzweiß sperrt Auto-Weißabgleich und Pipette, nicht Auto-Ton
+        seite.wb_pipette_knopf.setChecked(True)
+        assert seite._klick_ziel == "wb" and seite.leinwand.klickmodus
+        seite.sw_box.setChecked(True)
+        assert seite._klick_ziel is None and not seite.leinwand.klickmodus
+        assert not seite.wb_pipette_knopf.isChecked()
+        assert not seite.wb_auto_knopf.isEnabled() and not seite.wb_pipette_knopf.isEnabled()
+        assert seite.ton_auto_knopf.isEnabled()
+        seite.wb_pipette_knopf.setChecked(True)                   # gesperrt: tut nichts
+        assert seite._klick_ziel is None
+        seite.wb_pipette_knopf.setChecked(False)
+        seite.sw_box.setChecked(False)
+        assert seite.wb_auto_knopf.isEnabled() and seite.wb_pipette_knopf.isEnabled()
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_wb_pipette_klick_esc_und_andere_modi(fenster, tmp_path, monkeypatch):
+    import dataclasses
+
+    import numpy as np
+    from PySide6.QtWidgets import QApplication
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "stich.png")
+    _stich_bild(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    leinwand = seite.leinwand
+    try:
+        QApplication.processEvents()
+        seite.vergleich_knopf.setChecked(True)
+        assert leinwand.vergleich_gilt()
+        vorher = dataclasses.replace(seite.sitzung.werte)
+
+        seite.wb_pipette_knopf.setChecked(True)
+        assert seite._klick_ziel == "wb" and leinwand.klickmodus
+        assert seite.wb_pipette_knopf.isChecked()
+        assert not leinwand.vergleich_gilt()                      # die Trennlinie ruht
+        assert leinwand.cursor().shape().name == "CrossCursor"
+        seite._bild_geklickt(30.0, 40.0, False)                   # rechte Taste: nichts
+        assert seite._klick_ziel == "wb" and seite.sitzung.werte == vorher
+        seite._abbrechen()                                        # Esc
+        assert seite._klick_ziel is None and not seite.wb_pipette_knopf.isChecked()
+        assert not leinwand.klickmodus and leinwand.vergleich_gilt()
+        assert seite.sitzung.werte == vorher
+
+        seite.wb_pipette_knopf.setChecked(True)                   # nochmal drücken bricht ab
+        seite.wb_pipette_knopf.setChecked(False)
+        assert seite._klick_ziel is None and seite.sitzung.werte == vorher
+
+        # Andere Modi beenden die Pipette
+        seite.wb_pipette_knopf.setChecked(True)
+        seite.zuschneiden(True)
+        assert seite._klick_ziel is None and not seite.wb_pipette_knopf.isChecked()
+        seite.zuschnitt_abbrechen()
+        seite.wb_pipette_knopf.setChecked(True)
+        seite.pinsel_beginnen()
+        assert seite._klick_ziel is None and not seite.wb_pipette_knopf.isChecked()
+        seite.pinsel_beenden()
+        seite.wb_pipette_knopf.setChecked(True)
+        seite.flaechen_beginnen()
+        assert seite._klick_ziel is None and not seite.wb_pipette_knopf.isChecked()
+        seite.flaechen_beenden()
+        seite.wb_pipette_knopf.setChecked(True)
+        seite.lokal_neue_maske("farbe")                           # Maskenmodus
+        assert seite._klick_ziel is None and leinwand.lokalmodus
+        seite.lokal_beenden()
+        seite.sitzung.werte.masken = ()
+
+        # Ein Klick links im warmen Teil: dieser Punkt wird neutral, die Pipette endet
+        seite.wb_pipette_knopf.setChecked(True)
+        seite._bild_geklickt(30.0, 40.0, True)
+        werte = seite.sitzung.werte
+        assert seite._klick_ziel is None and not seite.wb_pipette_knopf.isChecked()
+        assert werte.temperatur < -10 and "Weißabgleich" in fenster.statusmeldung.text()
+        assert seite.zeilen["temperatur"].wert() == werte.temperatur
+        _nur_geaendert(seite, vorher, ("temperatur", "toenung"))
+        bild = np.asarray(seite.sitzung.vorschau()[0]).astype(int)
+        punkt = bild[35:46, 25:36].mean(axis=(0, 1))
+        assert np.abs(punkt - punkt.mean()).max() < 4
+        seite._festhalten(sofort=True)
+        assert "Pipette" in seite.rueckgaengig_knopf.toolTip()
+
+        # Rechts im kalten Teil: anderes Ergebnis
+        seite.wb_pipette_knopf.setChecked(True)
+        seite._bild_geklickt(100.0, 40.0, True)
+        assert seite.sitzung.werte.temperatur > 10
+    finally:
+        seite.vergleich_knopf.setChecked(False)
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_wb_pipette_auf_schwarz_meldet_und_aendert_nichts(fenster, tmp_path, monkeypatch):
+    import dataclasses
+
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "schwarz.png")
+    bild = np.full((48, 64, 3), 120, np.uint8)
+    bild[:, :20] = 0
+    Image.fromarray(bild).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        vorher = dataclasses.replace(seite.sitzung.werte)
+        seite.wb_pipette_knopf.setChecked(True)
+        seite._bild_geklickt(8.0, 20.0, True)
+        assert seite.sitzung.werte == vorher and seite._klick_ziel is None
+        assert "nichts messen" in fenster.statusmeldung.text()
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_automatik_misst_im_zuschnitt(fenster, tmp_path, monkeypatch):
+    """Ein Rand, der weggeschnitten ist, darf das Ergebnis nicht beeinflussen - weder beim
+    Ton noch beim Weißabgleich noch bei der Pipette; ohne Zuschnitt wirkt er."""
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    seite = fenster.bearbeiten
+    rng = np.random.default_rng(9)
+    mitte = (rng.uniform(0.5, 1.0, (64, 96, 1)) * np.asarray([130, 120, 110])).astype(np.uint8)
+    ergebnisse = []
+    for nummer, rand in enumerate(((255, 0, 255), (0, 255, 0), (0, 0, 0))):
+        bild = np.empty((96, 128, 3), np.uint8)
+        bild[:] = rand
+        bild[16:80, 16:112] = mitte
+        pfad = str(tmp_path / f"rand{nummer}.png")
+        Image.fromarray(bild).save(pfad)
+        seite.oeffnen(pfad)
+        try:
+            sitzung = seite.sitzung
+            ohne = (sitzung.ton_automatisch(), sitzung.weissabgleich_auto())
+            sitzung.werte.zuschnitt = (16 / 128, 16 / 96, 112 / 128, 80 / 96)
+            mit = (sitzung.ton_automatisch(), sitzung.weissabgleich_auto(),
+                   sitzung.weissabgleich_punkt(40.0, 30.0))
+            seite.auto_weissabgleich()
+            ergebnisse.append((ohne, mit, (sitzung.werte.temperatur, sitzung.werte.toenung)))
+        finally:
+            seite.schliessen()
+            seite._knoepfe_freischalten()
+    (_, erst, gesetzt), *rest = ergebnisse
+    for _ohne, mit, gesetzt_i in rest:
+        assert mit == erst and gesetzt_i == gesetzt
+    assert erst[1][0] < -10 and gesetzt == erst[1]
+    assert erst[2] is not None
+    # Ohne Zuschnitt zählt der Rand (die Ränder sind verschieden)
+    assert len({ohne for ohne, _mit, _g in ergebnisse}) > 1
+
+
+def test_automatik_im_zuschnittmodus_uebernimmt_den_rahmen(fenster, tmp_path, monkeypatch):
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "stich.png")
+    _stich_bild(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        seite.zuschneiden(True)
+        seite.leinwand.zuschnitt = (0.0, 0.0, 0.5, 1.0)
+        seite.wb_auto_knopf.click()
+        assert seite.leinwand.zuschnitt is None
+        assert seite.sitzung.werte.zuschnitt == (0.0, 0.0, 0.5, 1.0)
+        assert seite.sitzung.werte.temperatur < -10                # nur die warme Hälfte
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def _vier_viertel(pfad):
+    """Vier verschieden getönte Viertel: oben links warm, oben rechts kalt, unten links grün,
+    unten rechts magenta."""
+    import numpy as np
+    from PIL import Image
+    bild = np.empty((96, 128, 3), np.uint8)
+    bild[:48, :64] = (135, 120, 108)
+    bild[:48, 64:] = (108, 120, 135)
+    bild[48:, :64] = (112, 130, 112)
+    bild[48:, 64:] = (130, 112, 130)
+    Image.fromarray(bild).save(pfad)
+
+
+@pytest.mark.parametrize("drehung, spiegeln, zuschnitt", [
+    (1, False, (0.0, 0.0, 1.0, 1.0)),
+    (3, False, (0.0, 0.0, 1.0, 1.0)),
+    (0, True, (0.0, 0.0, 1.0, 1.0)),
+    (1, True, (0.0, 0.0, 1.0, 1.0)),
+    (1, False, (0.05, 0.1, 0.95, 1.0)),
+    (2, True, (0.05, 0.1, 0.95, 1.0)),
+])
+def test_pipette_trifft_den_geklickten_punkt_mit_geometrie(fenster, tmp_path, monkeypatch,
+                                                           drehung, spiegeln, zuschnitt):
+    """Gedreht, gespiegelt, zugeschnitten: Der Klick im fertigen Bild macht genau diese Stelle
+    neutral - in jedem der vier Viertel."""
+    import numpy as np
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "viertel.png")
+    _vier_viertel(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        sitzung = seite.sitzung
+        sitzung.werte.drehung90 = drehung
+        sitzung.werte.spiegeln = spiegeln
+        sitzung.werte.zuschnitt = zuschnitt
+        hoehe, breite = sitzung.ausgabe_form()
+        ergebnisse = set()
+        for fy in (0.25, 0.75):
+            for fx in (0.25, 0.75):
+                x, y = fx * breite, fy * hoehe
+                seite.wb_pipette_knopf.setChecked(True)
+                seite._bild_geklickt(x, y, True)
+                assert seite._klick_ziel is None
+                bild = np.asarray(sitzung.vorschau()[0]).astype(int)
+                assert bild.shape[:2] == (hoehe, breite)
+                punkt = bild[int(y) - 2:int(y) + 3, int(x) - 2:int(x) + 3].mean(axis=(0, 1))
+                assert np.abs(punkt - punkt.mean()).max() < 4, (fx, fy, punkt)
+                ergebnisse.add((sitzung.werte.temperatur, sitzung.werte.toenung))
+        assert len(ergebnisse) == 4              # vier verschiedene Viertel gemessen
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+@pytest.mark.parametrize("aufruf, methode, fehler", [
+    ("auto_ton", "ton_automatisch", "speicher"),
+    ("auto_ton", "ton_automatisch", "ki"),
+    ("auto_weissabgleich", "weissabgleich_auto", "speicher"),
+    ("auto_weissabgleich", "weissabgleich_auto", "ki"),
+    ("pipette", "weissabgleich_punkt", "speicher"),
+    ("pipette", "weissabgleich_punkt", "ki"),
+])
+def test_automatik_fehlerweg_aendert_nichts(fenster, tmp_path, monkeypatch, aufruf, methode,
+                                            fehler):
+    import dataclasses
+
+    from PySide6.QtWidgets import QApplication
+
+    from silberkorn import einstellungen, ki
+    from silberkorn.cuda import cupy as cp
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "stich.png")
+    _stich_bild(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        meldungen = []
+        monkeypatch.setattr(seite, "_fehler", lambda text, einzelheiten: meldungen.append(
+            (text, einzelheiten, QApplication.overrideCursor() is None)))
+
+        def scheitern(*_args, **_kwargs):
+            raise (cp.cuda.memory.OutOfMemoryError(1, 1) if fehler == "speicher"
+                   else ki.KiFehler("kaputt"))
+        monkeypatch.setattr(seite.sitzung, methode, scheitern)
+        vorher = dataclasses.replace(seite.sitzung.werte)
+        if aufruf == "pipette":
+            seite.wb_pipette_knopf.setChecked(True)
+            seite._bild_geklickt(30.0, 40.0, True)
+        else:
+            getattr(seite, aufruf)()
+        assert len(meldungen) == 1
+        _text, einzelheiten, cursor_zurueck = meldungen[0]
+        assert cursor_zurueck                      # die Meldung kommt erst nach dem Aufräumen
+        assert ("kaputt" if fehler == "ki" else "Grafikspeicher") in einzelheiten
+        assert QApplication.overrideCursor() is None
+        assert seite.sitzung.werte == vorher
+        seite._festhalten(sofort=True)
+        assert not seite.rueckgaengig_knopf.isEnabled()
+        assert seite._klick_ziel is None and not seite.wb_pipette_knopf.isChecked()
+        assert not seite.leinwand.klickmodus
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_auto_ton_ueberschreibt_vorhandene_werte_und_rueckgaengig(fenster, tmp_path,
+                                                                  monkeypatch):
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen
+    from silberkorn import filter as f
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "dunkel.png")
+    rng = np.random.default_rng(2)
+    Image.fromarray(rng.integers(5, 70, (60, 80, 3)).astype(np.uint8)).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    vier = ("belichtung", "kontrast", "lichter", "tiefen")
+
+    def setzen(name, wert):
+        setattr(seite.sitzung.werte, name, wert)
+        seite.zeilen[name].setzen(wert)
+
+    try:
+        seite.auto_ton()
+        seite._festhalten(sofort=True)
+        ab_null = {n: getattr(seite.sitzung.werte, n) for n in vier}
+        assert ab_null["belichtung"] > 0.5
+        # Extremwerte, dann Auto: dasselbe wie ab 0
+        for name in vier:
+            regler = f.REGLER_NACH_NAME[name]
+            setzen(name, regler.minimum if name == "lichter" else regler.maximum)
+        seite._festhalten(sofort=True)
+        seite.auto_ton()
+        seite._festhalten(sofort=True)
+        assert {n: getattr(seite.sitzung.werte, n) for n in vier} == ab_null
+        # Sättigung bleibt; zwei Schritte zurück: erst Auto-Ton, dann Sättigung
+        for name in vier:
+            setzen(name, 0.0)
+        seite._festhalten(sofort=True)
+        seite.zeilen["saettigung"].schieber.setValue(
+            seite.zeilen["saettigung"].schieber.value() + 20)
+        seite._festhalten(sofort=True)
+        seite.auto_ton()
+        seite._festhalten(sofort=True)
+        werte = seite.sitzung.werte
+        assert werte.saettigung == 20 and werte.belichtung == ab_null["belichtung"]
+        seite.rueckgaengig()
+        assert seite.sitzung.werte.saettigung == 20
+        assert all(getattr(seite.sitzung.werte, n) == 0 for n in vier)
+        seite.rueckgaengig()
+        assert seite.sitzung.werte.saettigung == 0
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_auto_ton_laesst_den_vorschau_zwischenspeicher_unberuehrt(fenster, tmp_path,
+                                                                 monkeypatch):
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "dunkel.png")
+    rng = np.random.default_rng(4)
+    Image.fromarray(rng.integers(5, 70, (60, 80, 3)).astype(np.uint8)).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        sitzung = seite.sitzung
+        sitzung.werte.rauschen = 30                   # eine teure Zwischenstufe im Speicher
+        erst = np.array(sitzung.vorschau()[0])
+        sitzung.ton_automatisch()
+        zweit = np.array(sitzung.vorschau()[0])
+        assert np.array_equal(erst, zweit)
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_bild_schliessen_beendet_die_pipette_und_vorher_sperrt_den_klick(fenster, tmp_path,
+                                                                         monkeypatch):
+    import dataclasses
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "stich.png")
+    _stich_bild(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        # „Vorher“ gedrückt: der Klick setzt nichts
+        vorher = dataclasses.replace(seite.sitzung.werte)
+        seite.wb_pipette_knopf.setChecked(True)
+        seite.vorher_knopf.pressed.emit()
+        seite._bild_geklickt(30.0, 40.0, True)
+        assert seite.sitzung.werte == vorher and seite._klick_ziel == "wb"
+        seite.vorher_knopf.released.emit()
+        # Bild schließen bei aktiver Pipette (so wie der Stapel: schließen, dann freischalten)
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+        assert seite._klick_ziel is None and not seite.leinwand.klickmodus
+        assert not seite.wb_pipette_knopf.isChecked()
+        assert not seite.wb_pipette_knopf.isEnabled()
+        assert not seite.wb_auto_knopf.isEnabled() and not seite.ton_auto_knopf.isEnabled()
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_automatik_meldet_anschlag_und_zuruecksetzen(fenster, tmp_path, monkeypatch):
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    seite = fenster.bearbeiten
+    rng = np.random.default_rng(6)
+    hinweis = "Ende des Reglers"
+
+    def oeffnen(name, bild):
+        seite.schliessen()                        # sonst fragt „Änderungen verwerfen?“
+        seite._knoepfe_freischalten()
+        pfad = str(tmp_path / name)
+        Image.fromarray(bild).save(pfad)
+        seite.oeffnen(pfad)
+
+    try:
+        # Sehr dunkel: Belichtung am Anschlag
+        oeffnen("schwarz.png", rng.integers(1, 6, (60, 80, 3)).astype(np.uint8))
+        seite.auto_ton()
+        assert seite.sitzung.werte.belichtung == 2.0
+        assert hinweis in fenster.statusmeldung.text()
+        # Gut belichtet: kein Hinweis; vorhandene Werte werden zurückgesetzt gemeldet
+        rampe = np.linspace(40, 200, 80).astype(np.uint8)[None, :, None]
+        oeffnen("gut.png", np.broadcast_to(rampe, (60, 80, 3)).copy())
+        seite.auto_ton()
+        assert "keine Korrektur" in fenster.statusmeldung.text()
+        assert "zurückgesetzt" not in fenster.statusmeldung.text()
+        assert hinweis not in fenster.statusmeldung.text()
+        seite.sitzung.werte.belichtung = 1.0
+        seite.sitzung.werte.lichter = -30.0
+        seite.auto_ton()
+        werte = seite.sitzung.werte
+        assert (werte.belichtung, werte.kontrast, werte.lichter, werte.tiefen) == (0, 0, 0, 0)
+        assert "zurückgesetzt" in fenster.statusmeldung.text()
+        # Starker Stich: Temperatur am Anschlag (Auto und Pipette)
+        oeffnen("stich.png", np.full((60, 80, 3), (200, 120, 40), np.uint8))
+        seite.auto_weissabgleich()
+        assert seite.sitzung.werte.temperatur == -100
+        assert hinweis in fenster.statusmeldung.text()
+        seite.sitzung.werte.temperatur = 0.0
+        seite.wb_pipette_knopf.setChecked(True)
+        seite._bild_geklickt(40.0, 30.0, True)
+        assert seite.sitzung.werte.temperatur == -100
+        assert hinweis in fenster.statusmeldung.text()
+        # Leichter Stich: kein Hinweis
+        oeffnen("leicht.png", np.full((60, 80, 3), (130, 120, 110), np.uint8))
+        seite.auto_weissabgleich()
+        assert hinweis not in fenster.statusmeldung.text()
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()

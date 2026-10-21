@@ -1269,5 +1269,41 @@ TRANSLATIONS = {
         "Bearbeite {name} …": "Processing {name} …",
         "{fertig} von {anzahl} Bildern fertig.": "{fertig} of {anzahl} images done.",
         "Abgebrochen.": "Cancelled.",
+        "Auto": "Auto",
+        "Pipette": "Picker",
+        "Stellt Temperatur und Tönung so ein, dass das Bild im Mittel neutral wird – "
+        "gemessen im Zuschnitt, ohne abgeschnittene Stellen. Nicht bei Schwarzweiß.":
+            "Sets temperature and tint so that the image is neutral on average – measured "
+            "in the crop, ignoring clipped areas. Not available for black and white.",
+        "Eine Stelle im Bild anklicken, die neutral grau oder weiß sein soll; Esc "
+        "bricht ab. Nicht bei Schwarzweiß.":
+            "Click a spot in the image that should be neutral grey or white; Esc cancels. "
+            "Not available for black and white.",
+        "Stellt Belichtung, Kontrast, Lichter und Tiefen für ein ausgewogenes Bild ein – "
+        "gemessen im Zuschnitt. Alle anderen Regler bleiben.":
+            "Sets exposure, contrast, highlights and shadows for a balanced image – measured "
+            "in the crop. All other sliders stay as they are.",
+        "Auto-Ton": "Auto tone",
+        "Auto-Weißabgleich": "Auto white balance",
+        "Weißabgleich-Pipette": "White balance picker",
+        "Auto-Ton: {werte}": "Auto tone: {werte}",
+        "Auto-Ton: Das Bild braucht keine Korrektur.": "Auto tone: the image needs no correction.",
+        "Auto-Ton: Belichtung, Kontrast, Lichter und Tiefen zurückgesetzt – das Bild braucht "
+        "keine Korrektur.":
+            "Auto tone: exposure, contrast, highlights and shadows reset – the image needs no "
+            "correction.",
+        "– am Ende des Reglers, ganz ausgleichen lässt es sich nicht.":
+            "– at the end of the slider, it cannot be fully corrected.",
+        "Die Automatik ließ sich nicht berechnen.": "The automatic adjustment could not be "
+                                                    "calculated.",
+        "Auto-Weißabgleich: Im Bild ist nichts Neutrales zu messen.":
+            "Auto white balance: nothing neutral to measure in the image.",
+        "Auto-Weißabgleich: {werte}": "Auto white balance: {werte}",
+        "Eine Stelle anklicken, die neutral grau oder weiß sein soll.":
+            "Click a spot that should be neutral grey or white.",
+        "Dort lässt sich nichts messen – zu dunkel oder abgeschnitten. Eine andere Stelle "
+        "anklicken.":
+            "Nothing to measure there – too dark or clipped. Click another spot.",
+        "Weißabgleich: {werte}": "White balance: {werte}",
     },
 }

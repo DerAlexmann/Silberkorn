@@ -65,6 +65,11 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   colour as soon as pixels are really clipped. The marking is display only – it never
   ends up in saved, printed or published images and is missing from "Before" and from the
   left half of the comparison. Key `J` toggles both warnings; they stay as you left them.
+- **Automatic adjustments**: "Auto" in the Light card sets exposure, contrast, highlights
+  and shadows for a balanced image; "Auto" and "Picker" in the White balance card make the
+  image neutral on average or turn the spot you click grey. Everything is measured in the
+  crop, each action is one undo step and all other sliders stay as they are. Auto white
+  balance and the picker are not available for black and white.
 - **Clarity**: more or less local contrast in the midtones.
 - **Dehaze** using the dark channel prior – also in reverse, to add haze.
 - **Colour ranges (HSL)**: hue, saturation and luminance separately for red, orange,
