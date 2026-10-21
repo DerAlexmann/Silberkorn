@@ -10,6 +10,10 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 - Wer das Herunterladen der NVIDIA-Bibliotheken, eines KI-Modells oder der
   Objektivdatenbank ablehnt, findet danach keinen leeren Ordner mehr: Silberkorn
   legt `nvidia` und `modelle` erst beim Herunterladen an.
+- Die Programmeinstellungen (`silberkorn.json`) gehen nicht mehr verloren, wenn die
+  Datei beim Speichern kurz gesperrt ist oder das Schreiben abbricht: Silberkorn
+  schreibt sie jetzt atomar, überschreibt eine gerade unlesbare Datei nicht und legt
+  eine kaputte vorher als `silberkorn.json.defekt` beiseite.
 
 ## [0.10.0] – 2026-10-19
 

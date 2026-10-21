@@ -12,6 +12,7 @@ import json
 import locale
 import os
 import sys
+import tempfile
 
 from . import farben
 from .uebersetzung import LANGUAGE_NAMES, SOURCE_LANGUAGE, TRANSLATIONS
@@ -70,22 +71,64 @@ def config_path() -> str:
     return os.path.join(programm_ordner(), CONFIG_NAME)
 
 
+class _Unvollstaendig(dict):
+    """Ergebnis von load_config(), wenn die Datei da war, sich aber gerade nicht
+    lesen liess (gesperrt, keine Rechte). save_config() schreibt so etwas nicht -
+    sonst ersetzte ein einzelner geaenderter Schluessel alle uebrigen Einstellungen."""
+
+
 def load_config() -> dict:
     try:
         with open(config_path(), encoding="utf-8") as datei:
             daten = json.load(datei)
-        return daten if isinstance(daten, dict) else {}
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {}
+    except OSError:
+        return _Unvollstaendig()
+    except (ValueError, RecursionError):
+        return {}                       # kaputt: save_config() legt sie vorher beiseite
+    return daten if isinstance(daten, dict) else {}
+
+
+def _defekte_beiseitelegen(pfad: str):
+    """Eine vorhandene, aber kaputte Datei als .defekt aufheben statt sie zu
+    ueberschreiben. OSError, wenn sie sich nicht pruefen laesst."""
+    try:
+        with open(pfad, encoding="utf-8") as datei:
+            daten = json.load(datei)
+        if isinstance(daten, dict):
+            return
+    except FileNotFoundError:
+        return
+    except (ValueError, RecursionError):
+        pass
+    os.replace(pfad, pfad + ".defekt")
 
 
 def save_config(daten: dict) -> bool:
+    """Atomar schreiben: erst daneben, dann ersetzen. False, wenn nichts gespeichert wurde."""
+    if isinstance(daten, _Unvollstaendig):
+        return False
+    pfad = config_path()
     try:
-        with open(config_path(), "w", encoding="utf-8") as datei:
-            json.dump(daten, datei, indent=2)
-        return True
+        _defekte_beiseitelegen(pfad)
+        griff, zwischen = tempfile.mkstemp(prefix=".silberkorn-json-", suffix=".tmp",
+                                           dir=os.path.dirname(pfad))
     except OSError:
         return False
+    try:
+        with os.fdopen(griff, "w", encoding="utf-8") as datei:
+            json.dump(daten, datei, indent=2)
+        os.replace(zwischen, pfad)
+        return True
+    except BaseException as fehler:
+        try:
+            os.remove(zwischen)
+        except OSError:
+            pass
+        if isinstance(fehler, OSError):
+            return False
+        raise
 
 
 def detect_language() -> str:
