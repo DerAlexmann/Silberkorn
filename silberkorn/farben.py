@@ -49,6 +49,9 @@ THEMES = {
         "TROUGH": "#e3e8f0",         # Rille von Schiebereglern
         "TAB_BG": "#e3e8f0",         # nicht gewaehlter Reiter
         "STATUS_BG": "#e4e8ef",
+        "STERN": "#f2b01e",          # Sterne der Bewertung in der Ordneransicht
+        "PLAKETTE": "#d9161b24",     # Grund hinter Sternen und Papierkorb (ARGB)
+        "PLAKETTE_TEXT": "#ffffff",  # Umriss leerer Sterne und Papierkorb auf der Plakette
     },
     "dark": {
         "BG": "#12161d",
@@ -80,6 +83,9 @@ THEMES = {
         "TROUGH": "#2a323f",
         "TAB_BG": "#232b36",
         "STATUS_BG": "#0e1218",
+        "STERN": "#f5bf3d",
+        "PLAKETTE": "#d9000000",
+        "PLAKETTE_TEXT": "#e6eaf0",
     },
 }
 

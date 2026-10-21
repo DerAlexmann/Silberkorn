@@ -53,6 +53,7 @@ from . import (
     anonym,
     automatik,
     begleitdatei,
+    bewertung,
     bilddatei,
     drucken,
     einstellungen,
@@ -2777,6 +2778,10 @@ class BearbeitenSeite(QWidget):
             self.bewertung_wahl.addItem("★" * sterne, sterne)
         self.bewertung_wahl.currentIndexChanged.connect(
             lambda *_args: self._angabe_bearbeitet("bewertung"))
+        self.fenster.beschriften(self.bewertung_wahl.setToolTip, _(
+            "Die Sterne gehen mit „Speichern unter“ ins Bild und, wenn Begleitdateien erlaubt "
+            "sind, auch in die kleine XMP-Datei neben dem Bild, die die Ordneransicht zeigt. "
+            "Eine solche Datei von Silberkorn geht vor den Sternen im Bild – auch mit „–“."))
         gitter.addWidget(beschriftung, len(zeilen), 0)
         gitter.addWidget(self.bewertung_wahl, len(zeilen), 1)
         innen.addLayout(gitter)
@@ -2877,10 +2882,62 @@ class BearbeitenSeite(QWidget):
         else:
             wert = feld.text().strip()
         self.sitzung.angabe_setzen(name, wert)
+        if name == "bewertung":
+            self._bewertung_sichern(wert)
         if name in ("urheber", "copyright") and self.vorgabe_box.isChecked():
             self._vorgabe_speichern()
         self._angaben_knoepfe()
         self._aenderung_merken()
+
+    def _bewertung_sichern(self, sterne: int):
+        """Die Sterne des Feldes auch neben das Bild schreiben (bewertung.py), wie in der
+        Ordneransicht: nur mit Erlaubnis und nie in eine fremde XMP-Datei."""
+        pfad = self.sitzung.daten.pfad
+        if (sterne == 0 and bewertung.lesen(pfad).art == "keine"
+                and not self.sitzung.vorgefunden.angaben.bewertung):
+            return                                # nichts zu loeschen, nichts anzulegen
+            # (hat das Bild selbst Sterne, haelt die Datei mit 0 das „–“ fest)
+        if ordner_seite.bewertung_setzen(self.fenster, pfad, sterne, von_bearbeiten=True):
+            # Jetzt steht es in der Datei neben dem Bild: das ist keine offene Aenderung mehr,
+            # und „Zuruecksetzen“ holt nicht die alten Sterne zurueck (auch bei „–“)
+            self.sitzung.bewertung_vorgeben(sterne)
+
+    def _bewertung_nachziehen(self, vorher: int):
+        """Rueckgaengig, Wiederholen und Zuruecksetzen koennen das Feld aendern: dann folgt die
+        eigene Datei (gleiche Regeln wie beim Feld). Bleibt das Feld, wie es war, wird nichts
+        geschrieben - ein Ausschuss in der Datei bleibt, auch wenn das Feld „–“ zeigt."""
+        nachher = self.sitzung.angaben.bewertung
+        if nachher != vorher:
+            self._bewertung_sichern(nachher)
+
+    def bewertung_von_aussen(self, stand: bewertung.Stand):
+        """Die Ordneransicht hat die Bewertung des offenen Bildes geaendert."""
+        if self.sitzung is None:
+            return
+        self.sitzung.bewertung_vorgeben(bewertung.fuer_bearbeiten(stand))
+        self._metadaten_anzeigen()
+
+    def bewertung_erlaubt(self, pfad: str) -> bool:
+        """Darf Silberkorn die Bewertung neben das Bild schreiben? Es ist dieselbe Erlaubnis
+        wie fuer Begleitdateien; beim ersten Mal wird gefragt."""
+        erlaubt = einstellungen.begleitdateien()
+        if erlaubt is not None:
+            return erlaubt
+        antwort = QMessageBox.question(
+            self, _("Bewertung neben dem Bild sichern?"),
+            _("Silberkorn kann Sterne und Ausschuss in einer kleinen Begleitdatei neben dem "
+              "Bild sichern – „{name}“. Sie enthält nur die Bewertung; das Bild bleibt "
+              "unverändert, und der Papierkorb löscht nichts. Fremde XMP-Dateien – etwa von "
+              "darktable – fasst Silberkorn nicht an.\n\nDieselbe Erlaubnis gilt für die "
+              "Begleitdateien mit der Bearbeitung. Begleitdateien anlegen? Das lässt sich oben "
+              "über „Begleitdateien“ jederzeit ändern.").format(
+                name=os.path.basename(bewertung.pfad_fuer(pfad))),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        erlaubt = antwort == QMessageBox.StandardButton.Yes
+        einstellungen.begleitdateien_setzen(erlaubt)
+        self.fenster.begleitdateien_anzeigen()
+        return erlaubt
 
     def _datum_fertig(self):
         """Nach der Eingabe das Datum einheitlich zeigen - oder das gueltige zurueckholen."""
@@ -2902,7 +2959,9 @@ class BearbeitenSeite(QWidget):
         if self.angaben_zurueck_knopf.hasFocus():
             self.alle_metadaten_knopf.setFocus(Qt.FocusReason.OtherFocusReason)
         if self.sitzung is not None:
+            vorher = self.sitzung.angaben.bewertung
             self.sitzung.werte.angaben = self.sitzung.angaben_grundwerte()
+            self._bewertung_nachziehen(vorher)
         self._metadaten_anzeigen()
         self._aenderung_merken()
 
@@ -4505,7 +4564,9 @@ class BearbeitenSeite(QWidget):
         text = self._schritt_text(*schritt)
         stand = self.verlauf.zurueck() if zurueck else self.verlauf.vor()
         teile_vorher, teile = dict(self.sitzung.stand().teile), dict(stand.teile)
+        bewertung_vorher = self.sitzung.angaben.bewertung
         self.sitzung.stand_setzen(stand)
+        self._bewertung_nachziehen(bewertung_vorher)
         if teile["maske"][0] is not teile_vorher["maske"][0]:
             self._klick_marken["maske"] = []
         if teile["erweiterung"] is not teile_vorher["erweiterung"]:
@@ -5106,6 +5167,9 @@ class BearbeitenSeite(QWidget):
             QApplication.restoreOverrideCursor()
 
         geladen = self._begleitdatei_laden()
+        sterne = bewertung.fuer_bearbeiten(bewertung.lesen(pfad))
+        if sterne is not None:           # sonst gilt, was im Bild oder der Bearbeitung steht
+            self.sitzung.bewertung_vorgeben(sterne)
         self._letzten_ordner_merken(pfad)
         self.leinwand.zuschnitt = None
         self.zuschneiden_knopf.setChecked(False)

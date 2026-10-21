@@ -234,6 +234,15 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
   suggested, 0 = off) that is reserved right away. Every preview and path in it is
   encrypted for your own Windows sign-in with the Data Protection API; deleted entries
   are overwritten, and folders can be excluded entirely.
+- **Rating** ("Folder" tab): hover over an image and five stars and a wastebasket appear;
+  clicking star *n* gives *n* stars, clicking the same star again removes them. The
+  wastebasket marks the image as a **reject** (dimmed, always last in any sort order) – it
+  **deletes nothing** and does not touch the file. A list sorts by name, date (newest
+  first) or stars. The rating is saved in a small XMP file next to the image
+  (`photo.jpg.xmp`, rating only) when sidecar files are allowed. **Foreign XMP files of the
+  same name** (from darktable, for example) are never touched: their rating is only
+  shown. The "Rating" field on the Edit tab and the stars in "Save as" belong to it; a
+  reject is not saved there.
 - **Batch**: select several images in the folder view (`Ctrl`/`Shift`) and process them
   in one go with "Batch …" – apply a preset or copied settings, remove dust via the
   infrared channel, save the edit as a sidecar file and/or export the images: into a

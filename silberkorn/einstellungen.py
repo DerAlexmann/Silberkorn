@@ -192,3 +192,18 @@ def warnung_merken(lichter: bool, tiefen: bool) -> bool:
     daten["warnung_lichter"] = bool(lichter)
     daten["warnung_tiefen"] = bool(tiefen)
     return save_config(daten)
+
+
+ORDNER_SORTIERUNGEN = ("name", "datum", "sterne")
+
+
+def ordner_sortierung() -> str:
+    """Gemerkte Sortierung der Ordneransicht; unbekannte Werte gelten als "name"."""
+    wert = load_config().get("ordner_sortierung")
+    return wert if isinstance(wert, str) and wert in ORDNER_SORTIERUNGEN else "name"
+
+
+def ordner_sortierung_setzen(art: str) -> bool:
+    daten = load_config()
+    daten["ordner_sortierung"] = art if art in ORDNER_SORTIERUNGEN else "name"
+    return save_config(daten)

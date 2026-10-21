@@ -1517,3 +1517,709 @@ def test_automatik_meldet_anschlag_und_zuruecksetzen(fenster, tmp_path, monkeypa
     finally:
         seite.schliessen()
         seite._knoepfe_freischalten()
+
+
+# --------------------------------------------------------------------------
+# Bewertung: Sterne und Ausschuss in der Ordneransicht und im Feld „Bewertung“
+# --------------------------------------------------------------------------
+
+def _bewertungen_warten():
+    """Bis das Lesen der Bewertungsdateien im Hintergrund fertig und angekommen ist."""
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+    _warten(lambda: not any(t.name == "Bewertungen" and t.is_alive()
+                            for t in threading.enumerate()))
+    for _i in range(3):
+        QApplication.processEvents()
+
+
+def _kachel_ort(seite, pfad, ziel=None):
+    """Der Punkt in der Kachel: Bildmitte, ein Stern ("stern", n) oder der Papierkorb."""
+    from silberkorn import ordner_seite
+    kachel = seite.liste.visualRect(seite.modell.index(seite.modell.pfade.index(pfad)))
+    flaeche = ordner_seite.bild_flaeche(kachel)
+    sterne, korb = ordner_seite.bewertung_felder(flaeche)
+    if ziel is None:
+        return flaeche.center()
+    return sterne[ziel[1] - 1].center() if ziel[0] == "stern" else korb.center()
+
+
+def _klicken(seite, pfad, ziel=None, doppelt=False):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    ansicht = seite.liste.viewport()
+    ort = _kachel_ort(seite, pfad, ziel)
+    QTest.mouseMove(ansicht, ort)
+    knopf, umschalt = Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier
+    QTest.mouseClick(ansicht, knopf, umschalt, ort)
+    if doppelt:                       # so kommt es von Windows: Druck, Loslassen, zweiter Druck
+        QTest.mouseDClick(ansicht, knopf, umschalt, ort)
+
+
+def _stand(seite, pfad):
+    from silberkorn.ordner_seite import BEWERTUNG_ROLLE
+    return seite.modell.data(seite.modell.index(seite.modell.pfade.index(pfad)),
+                             BEWERTUNG_ROLLE)
+
+
+@pytest.fixture
+def bewertung_umgebung(fenster, tmp_path, monkeypatch):
+    """Erlaubnis fuer Begleitdateien, Einstellungen nur im Arbeitsspeicher, drei Bilder."""
+    from PIL import Image
+
+    from silberkorn import einstellungen
+    konfiguration = {}
+    monkeypatch.setattr(einstellungen, "load_config", lambda: dict(konfiguration))
+    monkeypatch.setattr(einstellungen, "save_config",
+                        lambda daten: konfiguration.update(daten) or True)
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: True)
+    for name, farbe in (("a.jpg", (200, 0, 0)), ("b.jpg", (0, 200, 0)), ("c.jpg", (0, 0, 200))):
+        Image.new("RGB", (64, 48), farbe).save(tmp_path / name)
+    (tmp_path / "unter").mkdir()
+    seite = fenster.ordner
+    fenster.reiter.setCurrentWidget(seite)
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+    yield seite, konfiguration
+    fenster.bearbeiten.schliessen()
+    fenster.bearbeiten._knoepfe_freischalten()
+    seite.sortierung.setCurrentIndex(0)
+    seite.ordner_zeigen("")
+    fenster.reiter.setCurrentWidget(fenster.bearbeiten)
+
+
+def test_bewertung_klicks_sterne_papierkorb(fenster, tmp_path, bewertung_umgebung):
+    """Stern n setzt n Sterne, derselbe Stern nimmt sie zurueck, der Papierkorb markiert
+    Ausschuss und hebt ihn auf. Weder oeffnet ein Klick das Bild noch waehlt er die Kachel;
+    die Bilddatei bleibt, wie sie ist."""
+    from PySide6.QtTest import QTest
+
+    from silberkorn import bewertung
+    seite, _konfiguration = bewertung_umgebung
+    a = str(tmp_path / "a.jpg")
+    original, zeit = open(a, "rb").read(), os.stat(a).st_mtime_ns
+
+    assert _stand(seite, a) == bewertung.KEINE
+    QTest.mouseMove(seite.liste.viewport(), _kachel_ort(seite, a))   # nur darueberfahren
+    assert seite.liste.zeichner.hover_zeile == seite.modell.pfade.index(a)
+    assert not (tmp_path / "a.jpg.xmp").exists()
+    _klicken(seite, a, ("stern", 3))
+    assert seite.liste.zeichner.hover_ziel == ("stern", 3)
+    assert _stand(seite, a) == bewertung.Stand(3, "eigen") and bewertung.lesen(a).wert == 3
+    assert "a.jpg" in fenster.statusmeldung.text() and "★★★" in fenster.statusmeldung.text()
+    _klicken(seite, a, ("stern", 5))
+    assert _stand(seite, a).wert == 5
+    _klicken(seite, a, ("stern", 5))                      # derselbe Stern: Bewertung weg
+    assert _stand(seite, a).wert == 0 and bewertung.lesen(a).wert == 0
+    _klicken(seite, a, ("korb",))
+    assert _stand(seite, a).wert == bewertung.AUSSCHUSS and bewertung.lesen(a).wert == -1
+    assert "unverändert" in fenster.statusmeldung.text()
+    _klicken(seite, a, ("stern", 2))                      # ein Stern hebt Ausschuss auf
+    assert _stand(seite, a).wert == 2
+    _klicken(seite, a, ("korb",))
+    _klicken(seite, a, ("korb",))                         # an, aus
+    assert _stand(seite, a).wert == 0
+    # Nichts davon hat ein Bild geoeffnet oder eine Kachel gewaehlt
+    assert fenster.reiter.currentWidget() is seite
+    assert fenster.bearbeiten.sitzung is None
+    assert seite.liste.selectionModel().selectedIndexes() == []
+    assert open(a, "rb").read() == original and os.stat(a).st_mtime_ns == zeit
+    # Doppelklick auf einen Stern oeffnet ebenfalls nichts
+    _klicken(seite, a, ("stern", 4), doppelt=True)
+    assert fenster.bearbeiten.sitzung is None and fenster.reiter.currentWidget() is seite
+    assert _stand(seite, a).wert == 4
+    # Abseits der Felder funktioniert der Doppelklick wie immer
+    _klicken(seite, a, None, doppelt=True)
+    assert fenster.reiter.currentWidget() is fenster.bearbeiten
+    assert fenster.bearbeiten.sitzung is not None
+
+
+def test_bewertung_unterordner_hat_nichts(fenster, tmp_path, bewertung_umgebung):
+    from silberkorn.ordner_seite import BEWERTUNG_ROLLE
+    seite, _konfiguration = bewertung_umgebung
+    unter = str(tmp_path / "unter")
+    zeile = seite.modell.pfade.index(unter)
+    ort = seite.liste.visualRect(seite.modell.index(zeile)).center()
+    assert seite.liste.ziel_bei(ort) == (-1, None)
+    assert seite.modell.data(seite.modell.index(zeile), BEWERTUNG_ROLLE) is None
+    assert seite.liste.ziel_bei(_kachel_ort(seite, str(tmp_path / "a.jpg"),
+                                            ("korb",)))[1] == ("korb",)
+
+
+def test_bewertung_tooltips(fenster, tmp_path, bewertung_umgebung):
+    from silberkorn import bewertung
+    seite, _konfiguration = bewertung_umgebung
+    a = str(tmp_path / "a.jpg")
+    zeile = seite.modell.pfade.index(a)
+    assert "löscht nichts" in seite.liste.tooltip_fuer(zeile, ("korb",))
+    assert seite.liste.tooltip_fuer(zeile, ("stern", 1)) == "1 Stern"
+    assert seite.liste.tooltip_fuer(zeile, ("stern", 4)) == "4 Sterne"
+    bewertung.schreiben(a, 4)
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+    zeile = seite.modell.pfade.index(a)
+    assert seite.liste.tooltip_fuer(zeile, ("stern", 4)) == "Bewertung entfernen"
+    bewertung.schreiben(a, -1)
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+    assert seite.liste.tooltip_fuer(seite.modell.pfade.index(a), ("korb",)) == \
+        "Ausschuss aufheben"
+
+
+FREMDES_XMP = (
+    b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/'
+    b'22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/'
+    b'1.0/" xmp:Rating="4"/></rdf:RDF></x:xmpmeta>')
+
+
+def test_bewertung_fremde_datei_bleibt_unberuehrt(fenster, tmp_path, bewertung_umgebung):
+    """Eine fremde XMP-Datei (darktable) wird gelesen und gezeigt, aber nie veraendert."""
+    from silberkorn import bewertung, ordner_seite
+    seite, _konfiguration = bewertung_umgebung
+    b = str(tmp_path / "b.jpg")
+    fremd = tmp_path / "b.jpg.xmp"
+    fremd.write_bytes(FREMDES_XMP)
+    os.utime(fremd, ns=(10**18, 10**18))
+    vorher, zeit = fremd.read_bytes(), fremd.stat().st_mtime_ns
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+    assert _stand(seite, b) == bewertung.Stand(4, "fremd")
+    zeile = seite.modell.pfade.index(b)
+    assert "fremden XMP-Datei" in seite.liste.tooltip_fuer(zeile, ("stern", 2))
+    for ziel in (("stern", 2), ("stern", 4), ("korb",)):
+        _klicken(seite, b, ziel)
+        assert "fremden XMP-Datei" in fenster.statusmeldung.text()
+    assert fremd.read_bytes() == vorher and fremd.stat().st_mtime_ns == zeit
+    assert _stand(seite, b).wert == 4
+    assert fenster.reiter.currentWidget() is seite
+    assert ordner_seite.bewertung_setzen(fenster, b, 1) is False
+    assert fremd.read_bytes() == vorher and fremd.stat().st_mtime_ns == zeit
+
+
+def test_bewertung_ohne_erlaubnis_und_rueckfrage(fenster, tmp_path, bewertung_umgebung,
+                                                 monkeypatch):
+    """Ohne Erlaubnis fuer Begleitdateien wird nichts geschrieben und nichts als gesetzt
+    gezeigt; ist noch nicht gefragt, kommt die Rueckfrage - Nein schreibt nichts."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from silberkorn import bearbeiten_seite, bewertung, einstellungen
+    seite, konfiguration = bewertung_umgebung
+    a = str(tmp_path / "a.jpg")
+
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: False)
+    _klicken(seite, a, ("stern", 3))
+    assert not (tmp_path / "a.jpg.xmp").exists() and _stand(seite, a) == bewertung.KEINE
+    assert "nicht gespeichert" in fenster.statusmeldung.text()
+
+    fragen = []
+    antwort = {"wert": QMessageBox.StandardButton.No}
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: None)
+    monkeypatch.setattr(bearbeiten_seite.QMessageBox, "question",
+                        lambda *args: fragen.append(args[2]) or antwort["wert"])
+    _klicken(seite, a, ("stern", 3))
+    assert len(fragen) == 1 and "löscht nichts" in fragen[0] and "a.jpg.xmp" in fragen[0]
+    assert not (tmp_path / "a.jpg.xmp").exists() and _stand(seite, a) == bewertung.KEINE
+    assert konfiguration["begleitdateien"] is False
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: None)
+    antwort["wert"] = QMessageBox.StandardButton.Yes
+    _klicken(seite, a, ("stern", 3))
+    assert _stand(seite, a).wert == 3 and bewertung.lesen(a).wert == 3
+    assert konfiguration["begleitdateien"] is True
+
+
+def test_bewertung_schreibfehler_wird_gemeldet(fenster, tmp_path, bewertung_umgebung,
+                                               monkeypatch):
+    from silberkorn import bewertung
+    seite, _konfiguration = bewertung_umgebung
+    a = str(tmp_path / "a.jpg")
+    bewertung.schreiben(a, 2)
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+
+    def verweigert(**_kw):
+        raise PermissionError("schreibgeschuetzt")
+
+    monkeypatch.setattr(bewertung.tempfile, "mkstemp", verweigert)
+    _klicken(seite, a, ("stern", 5))
+    assert _stand(seite, a).wert == 2                     # die Anzeige luegt nicht
+    assert "schreibgeschuetzt" in fenster.statusmeldung.text()     # der Grund steht dabei
+    assert bewertung.lesen(a).wert == 2
+
+
+def test_bewertung_sortierung(fenster, tmp_path, bewertung_umgebung):
+    """Name, Datum (neueste zuerst) und Sterne; Unterordner vorn, Ausschuss immer am Ende;
+    gemerkt in silberkorn.json. Nach einer Bewertung springt keine Kachel weg."""
+    from PIL import Image
+
+    from silberkorn import bewertung
+    seite, konfiguration = bewertung_umgebung
+    Image.new("RGB", (64, 48), (9, 9, 9)).save(tmp_path / "d.jpg")
+    zeiten = {"a.jpg": 100, "b.jpg": 200, "c.jpg": 400, "d.jpg": 300}
+    for name, zeit in zeiten.items():
+        os.utime(tmp_path / name, (zeit, zeit))
+    bewertung.schreiben(str(tmp_path / "a.jpg"), 2)
+    bewertung.schreiben(str(tmp_path / "b.jpg"), 5)
+    bewertung.schreiben(str(tmp_path / "c.jpg"), -1)       # die neueste, aber Ausschuss
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+
+    def reihenfolge():
+        return [os.path.basename(p) for p in seite.modell.pfade]
+
+    assert reihenfolge() == ["unter", "a.jpg", "b.jpg", "d.jpg", "c.jpg"]
+    seite.sortierung.setCurrentIndex(seite.sortierung.findData("datum"))
+    assert reihenfolge() == ["unter", "d.jpg", "b.jpg", "a.jpg", "c.jpg"]
+    assert konfiguration["ordner_sortierung"] == "datum"
+    seite.sortierung.setCurrentIndex(seite.sortierung.findData("sterne"))
+    assert reihenfolge() == ["unter", "b.jpg", "a.jpg", "d.jpg", "c.jpg"]
+    assert konfiguration["ordner_sortierung"] == "sterne"
+    # Die Auswahl bleibt beim Umsortieren an ihrem Bild
+    seite.liste.setCurrentIndex(seite.modell.index(reihenfolge().index("a.jpg")))
+    seite.sortierung.setCurrentIndex(seite.sortierung.findData("name"))
+    assert [os.path.basename(p) for p in seite.gewaehlte_bilder()] == ["a.jpg"]
+    seite.sortierung.setCurrentIndex(seite.sortierung.findData("sterne"))
+    # Eine neue Bewertung sortiert nicht sofort um - erst beim naechsten Einlesen
+    d = str(tmp_path / "d.jpg")
+    _klicken(seite, d, ("stern", 5))
+    _klicken(seite, d, ("stern", 4))
+    assert reihenfolge() == ["unter", "b.jpg", "a.jpg", "d.jpg", "c.jpg"]
+    assert "↻" in fenster.statusmeldung.text()
+    seite.neu_knopf.click()
+    _bewertungen_warten()
+    assert reihenfolge() == ["unter", "b.jpg", "d.jpg", "a.jpg", "c.jpg"]     # 5, 4, 2
+    _klicken(seite, str(tmp_path / "a.jpg"), ("stern", 4))                    # Gleichstand
+    seite.neu_knopf.click()
+    _bewertungen_warten()
+    assert reihenfolge() == ["unter", "b.jpg", "a.jpg", "d.jpg", "c.jpg"]     # 5, 4, 4, Ausschuss
+
+
+def test_bewertung_sortierwahl_mit_ungueltigem_wert(fenster, monkeypatch):
+    """Ein unbekannter Wert in silberkorn.json ergibt die Sortierung nach Name."""
+    from silberkorn import einstellungen
+    from silberkorn.ordner_seite import OrdnerSeite
+    for wert in ("zufall", 3, None, ["datum"], "DATUM"):
+        monkeypatch.setattr(einstellungen, "load_config",
+                            lambda w=wert: {"ordner_sortierung": w})
+        seite = OrdnerSeite(fenster)
+        try:
+            assert seite.sortierung.currentData() == "name"
+        finally:
+            seite.beenden()
+    monkeypatch.setattr(einstellungen, "load_config",
+                        lambda: {"ordner_sortierung": "sterne"})
+    seite = OrdnerSeite(fenster)
+    try:
+        assert seite.sortierung.currentData() == "sterne"
+    finally:
+        seite.beenden()
+
+
+def test_bewertung_zeichnen_hover_gesetzt_ausschuss(fenster, tmp_path, bewertung_umgebung):
+    """Ohne Bewertung und ohne Maus kein Overlay; mit Maus Sterne und Papierkorb; gesetzte
+    Sterne bleiben; Ausschuss blendet die Kachel ab. In beiden Farbschemata."""
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QColor
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    from silberkorn import bewertung, farben, ordner_seite
+    seite, _konfiguration = bewertung_umgebung
+    a = str(tmp_path / "a.jpg")
+    ansicht = seite.liste.viewport()
+
+    def bilder_da():
+        for pfad in seite.modell.pfade:                   # wie beim Zeichnen: anfordern
+            seite.modell.data(seite.modell.index(seite.modell.pfade.index(pfad)),
+                              ordner_seite.ZUSTAND_ROLLE)
+        return all(p in seite.modell._bilder for p in seite.modell.pfade[1:])
+
+    def foto():
+        """Bild der Liste samt Lage der Kachel von a.jpg (die wandert bei Ausschuss ans Ende)."""
+        QApplication.processEvents()
+        kachel = seite.liste.visualRect(seite.modell.index(seite.modell.pfade.index(a)))
+        flaeche = ordner_seite.bild_flaeche(kachel)
+        sterne, korb = ordner_seite.bewertung_felder(flaeche)
+        return ansicht.grab().toImage(), kachel, flaeche, sterne[0].united(korb)
+
+    def verschieden(x, y, bereich: QRect):
+        return sum(1 for i in range(bereich.left(), bereich.right(), 2)
+                   for j in range(bereich.top(), bereich.bottom(), 2)
+                   if x.pixel(i, j) != y.pixel(i, j))
+
+    def goldene(bild, bereich: QRect, schema):
+        gold = QColor(farben.THEMES[schema]["STERN"])
+        n = 0
+        for i in range(bereich.left(), bereich.right()):
+            for j in range(bereich.top(), bereich.bottom()):
+                farbe = QColor(bild.pixel(i, j))
+                if (abs(farbe.red() - gold.red()) < 12 and abs(farbe.green() - gold.green()) < 12
+                        and abs(farbe.blue() - gold.blue()) < 12):
+                    n += 1
+        return n
+
+    def neu_lesen():
+        seite.ordner_zeigen(str(tmp_path))
+        _bewertungen_warten()
+        assert _warten(bilder_da)
+
+    def weg_von_a():
+        QTest.mouseMove(ansicht, seite.liste.visualRect(seite.modell.index(0)).center())
+
+    assert _warten(bilder_da)
+    for schema in ("light", "dark"):
+        farben.CURRENT_THEME = schema
+        try:
+            bewertung.schreiben(a, 0)
+            neu_lesen()
+            weg_von_a()
+            leer, kachel, flaeche, feld = foto()
+            QTest.mouseMove(ansicht, flaeche.center())
+            assert verschieden(leer, foto()[0], feld) > 40    # Plakette, Sterne, Papierkorb
+            weg_von_a()
+            assert verschieden(leer, foto()[0], kachel) == 0  # ohne Maus wieder wie vorher
+
+            bewertung.schreiben(a, 3)
+            neu_lesen()
+            weg_von_a()
+            drei, _kachel, _flaeche, feld3 = foto()
+            assert goldene(drei, feld3, schema) > 30          # drei gefuellte Sterne bleiben
+            assert goldene(leer, feld, schema) == 0
+
+            bewertung.schreiben(a, -1)
+            neu_lesen()
+            weg_von_a()
+            aus, _kachel, flaeche_aus, feld_aus = foto()
+            assert goldene(aus, feld_aus, schema) == 0
+            # Ausschuss steht am Ende; das Foto ist dort abgeblendet (heller als vorher)
+            assert seite.modell.pfade[-1] == a
+            punkt = (flaeche.center().x(), flaeche.bottom() - 40)
+            punkt_aus = (flaeche_aus.center().x(), flaeche_aus.bottom() - 40)
+            assert QColor(aus.pixel(*punkt_aus)).lightness() > QColor(
+                leer.pixel(*punkt)).lightness() + 30
+        finally:
+            farben.CURRENT_THEME = "light"
+
+
+def test_bewertung_feld_im_reiter_bearbeiten(fenster, tmp_path, bewertung_umgebung,
+                                             monkeypatch):
+    """Das Feld „Bewertung“ nimmt die Sterne der eigenen Datei vor denen im Bild, zaehlt dabei
+    nicht als Aenderung, schreibt Aenderungen in die Datei zurueck und rührt fremde nie an;
+    Ausschuss steht als „–“. „Speichern unter“ nimmt die Sterne mit, Ausschuss nicht, und legt
+    keine Datei daneben an."""
+    from silberkorn import bewertung, bilddatei, einstellungen, metadaten
+    seite, _konfiguration = bewertung_umgebung
+    bearbeiten = fenster.bearbeiten
+    feld = bearbeiten.bewertung_wahl
+    a = str(tmp_path / "a.jpg")
+
+    def gespeichert(name):
+        ziel = str(tmp_path / name)
+        bearbeiten.sitzung.exportieren(ziel, 8)
+        daten = bilddatei.laden(ziel)
+        return metadaten.lesen(daten.exif, daten.xmp, daten.iptc).angaben.bewertung
+
+    # Eigene Datei mit 4 Sternen: vorbelegt, keine Aenderung, kein „bearbeitet“
+    bewertung.schreiben(a, 4)
+    bearbeiten.oeffnen(a)
+    assert feld.currentData() == 4 and bearbeiten.sitzung.angaben.bewertung == 4
+    assert not bearbeiten.sitzung.geaendert and not bearbeiten.sitzung.bearbeitet
+    assert gespeichert("aus-4.jpg") == 4
+    assert sorted(p.name for p in tmp_path.glob("aus-4*")) == ["aus-4.jpg"]    # keine Datei daneben
+    # Das Feld aendern schreibt die Datei; derselbe Wert in der Ordneransicht
+    feld.setCurrentIndex(feld.findData(2))
+    assert bewertung.lesen(a) == bewertung.Stand(2, "eigen")
+    assert _stand(seite, a).wert == 2
+    assert bearbeiten.sitzung.angaben.bewertung == 2 and not bearbeiten.sitzung.bearbeitet
+    assert gespeichert("aus-2.jpg") == 2
+    feld.setCurrentIndex(feld.findData(0))
+    assert bewertung.lesen(a) == bewertung.Stand(0, "eigen")
+    assert gespeichert("aus-0.jpg") == 0
+    # Ordneransicht aendert das offene Bild: das Feld folgt
+    from silberkorn import ordner_seite
+    assert ordner_seite.bewertung_setzen(fenster, a, 5)
+    assert feld.currentData() == 5 and bearbeiten.sitzung.angaben.bewertung == 5
+    assert not bearbeiten.sitzung.bearbeitet
+    # Ausschuss: Feld auf „–“, nimmt keine Sterne mit
+    assert ordner_seite.bewertung_setzen(fenster, a, bewertung.AUSSCHUSS)
+    assert feld.currentData() == 0 and bearbeiten.sitzung.angaben.bewertung == 0
+    assert gespeichert("aus-ausschuss.jpg") == 0
+    assert bewertung.lesen(a) == bewertung.Stand(-1, "eigen")      # die Datei bleibt Ausschuss
+    # Wer aus Ausschuss Sterne im Feld waehlt, hebt ihn auf
+    feld.setCurrentIndex(feld.findData(3))
+    assert bewertung.lesen(a) == bewertung.Stand(3, "eigen")
+    # Ohne Erlaubnis: nichts geschrieben, aber das Feld gilt fuer „Speichern unter“
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: False)
+    feld.setCurrentIndex(feld.findData(1))
+    assert bewertung.lesen(a) == bewertung.Stand(3, "eigen")
+    assert "nicht gespeichert" in fenster.statusmeldung.text()
+    assert gespeichert("aus-1.jpg") == 1
+    bearbeiten.schliessen()
+    bearbeiten._knoepfe_freischalten()
+    assert not [p for p in tmp_path.iterdir() if p.suffix == ".xmp" and p.name.startswith("aus-")]
+
+
+def test_bewertung_feld_fremde_datei_und_bild_ohne_datei(fenster, tmp_path, bewertung_umgebung):
+    """Ohne eigene Datei gilt die Bewertung im Bild; eine fremde XMP-Datei bestimmt das Feld
+    nicht und bleibt auch beim Aendern des Feldes unberuehrt."""
+    from silberkorn import bewertung
+    seite, _konfiguration = bewertung_umgebung
+    bearbeiten = fenster.bearbeiten
+    feld = bearbeiten.bewertung_wahl
+    b = str(tmp_path / "b.jpg")
+    fremd = tmp_path / "b.jpg.xmp"
+    fremd.write_bytes(FREMDES_XMP)
+    os.utime(fremd, ns=(10**18, 10**18))
+    vorher, zeit = fremd.read_bytes(), fremd.stat().st_mtime_ns
+    bearbeiten.oeffnen(b)
+    assert feld.currentData() == 0                         # das Bild hat keine Sterne
+    feld.setCurrentIndex(feld.findData(5))
+    assert "fremden XMP-Datei" in fenster.statusmeldung.text()
+    assert fremd.read_bytes() == vorher and fremd.stat().st_mtime_ns == zeit
+    assert bearbeiten.sitzung.angaben.bewertung == 5       # fuer „Speichern unter“ gilt es
+    feld.setCurrentIndex(feld.findData(0))
+    assert fremd.read_bytes() == vorher and fremd.stat().st_mtime_ns == zeit
+    # Erst Sterne, dann „–“: die eigene Datei bleibt mit 0 stehen; ohne Sterne entsteht keine
+    bearbeiten.oeffnen(str(tmp_path / "c.jpg"))
+    feld.setCurrentIndex(feld.findData(2))
+    feld.setCurrentIndex(feld.findData(0))
+    assert bewertung.lesen(str(tmp_path / "c.jpg")) == bewertung.Stand(0, "eigen")
+    bearbeiten.oeffnen(str(tmp_path / "a.jpg"))
+    feld.setCurrentIndex(feld.findData(0))
+    assert not (tmp_path / "a.jpg.xmp").exists()
+
+
+def _feld_waehlen(feld, sterne):
+    feld.setCurrentIndex(feld.findData(sterne))
+
+
+def test_bewertung_rueckgaengig_wiederholen_zuruecksetzen_fuehren_die_datei_mit(
+        fenster, tmp_path, bewertung_umgebung):
+    """Entscheidung A: Aendert Rueckgaengig, Wiederholen oder Zuruecksetzen das Feld, folgen
+    die eigene Datei und die Ordneransicht. Feld, Datei und Kachel zeigen dasselbe."""
+    from silberkorn import bewertung
+    seite, _konfiguration = bewertung_umgebung
+    bearbeiten = fenster.bearbeiten
+    feld = bearbeiten.bewertung_wahl
+    a = str(tmp_path / "a.jpg")
+    bewertung.schreiben(a, 2)
+    bearbeiten.oeffnen(a)
+    assert feld.currentData() == 2
+    _feld_waehlen(feld, 4)
+    assert bewertung.lesen(a).wert == 4 and _stand(seite, a).wert == 4
+    bearbeiten._festhalten(sofort=True)
+    bearbeiten.rueckgaengig()
+    assert feld.currentData() == 2 and bearbeiten.sitzung.angaben.bewertung == 2
+    assert bewertung.lesen(a) == bewertung.Stand(2, "eigen") and _stand(seite, a).wert == 2
+    bearbeiten.wiederholen()
+    assert feld.currentData() == 4
+    assert bewertung.lesen(a).wert == 4 and _stand(seite, a).wert == 4
+    # Zuruecksetzen stellt die Vorgabe her - nach dem Schreiben ist das der Wert der Datei
+    bearbeiten.angaben_zuruecksetzen()
+    assert feld.currentData() == 4 and bewertung.lesen(a).wert == 4
+
+
+def test_bewertung_zuruecksetzen_ohne_erlaubnis_schreibt_nichts_und_fremde_bleibt(
+        fenster, tmp_path, bewertung_umgebung, monkeypatch):
+    from silberkorn import bewertung, einstellungen
+    seite, _konfiguration = bewertung_umgebung
+    bearbeiten = fenster.bearbeiten
+    feld = bearbeiten.bewertung_wahl
+    a, b = str(tmp_path / "a.jpg"), str(tmp_path / "b.jpg")
+    bewertung.schreiben(a, 2)
+    bearbeiten.oeffnen(a)
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: False)
+    _feld_waehlen(feld, 5)                                 # nichts geschrieben
+    assert bewertung.lesen(a).wert == 2
+    assert "nicht gespeichert" in fenster.statusmeldung.text()
+    bearbeiten._festhalten(sofort=True)
+    bearbeiten.rueckgaengig()                              # Feld wieder 2, ohne Erlaubnis
+    assert feld.currentData() == 2 and bewertung.lesen(a).wert == 2
+    bearbeiten.wiederholen()
+    assert feld.currentData() == 5 and bewertung.lesen(a).wert == 2
+    bearbeiten.angaben_zuruecksetzen()                     # zurueck auf die Vorgabe (2)
+    assert feld.currentData() == 2 and bewertung.lesen(a).wert == 2
+    # Fremde Datei: Rueckgaengig und Zuruecksetzen lassen sie Byte fuer Byte stehen
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: True)
+    fremd = tmp_path / "b.jpg.xmp"
+    fremd.write_bytes(FREMDES_XMP)
+    vorher = fremd.read_bytes()
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+    bearbeiten.oeffnen(b)
+    _feld_waehlen(feld, 1)
+    bearbeiten._festhalten(sofort=True)
+    bearbeiten.rueckgaengig()
+    bearbeiten.wiederholen()
+    bearbeiten.angaben_zuruecksetzen()
+    assert fremd.read_bytes() == vorher
+    assert _stand(seite, b) == bewertung.Stand(4, "fremd")
+
+
+def test_bewertung_ausschuss_bleibt_bei_rueckgaengig_ohne_feldaenderung(
+        fenster, tmp_path, bewertung_umgebung):
+    """Ausschuss steht im Feld als „–“. Ein Rueckgaengig oder Zuruecksetzen, das das Feld
+    nur auf „–“ laesst, ueberschreibt ihn nicht mit 0."""
+    from silberkorn import bewertung
+    seite, _konfiguration = bewertung_umgebung
+    bearbeiten = fenster.bearbeiten
+    feld = bearbeiten.bewertung_wahl
+    a = str(tmp_path / "a.jpg")
+    bewertung.schreiben(a, bewertung.AUSSCHUSS)
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+    bearbeiten.oeffnen(a)
+    assert feld.currentData() == 0
+    # Eine andere Angabe aendern und zuruecknehmen: das Feld bleibt „–“
+    bearbeiten.angaben_felder["titel"].setText("Test")
+    bearbeiten.angaben_felder["titel"].textEdited.emit("Test")
+    bearbeiten._festhalten(sofort=True)
+    bearbeiten.rueckgaengig()
+    bearbeiten.wiederholen()
+    bearbeiten.angaben_zuruecksetzen()
+    assert feld.currentData() == 0
+    assert bewertung.lesen(a) == bewertung.Stand(-1, "eigen")
+    assert _stand(seite, a).wert == bewertung.AUSSCHUSS
+
+
+def test_bewertung_eigene_datei_mit_null_geht_vor_dem_bild(fenster, tmp_path,
+                                                           bewertung_umgebung):
+    """Entscheidung B: Die eigene Datei mit 0 gilt, nicht die 3 Sterne im Bild. Wer „–“ waehlt,
+    behaelt es auch nach „Zuruecksetzen“."""
+    from silberkorn import bewertung, bilddatei, metadaten
+    seite, _konfiguration = bewertung_umgebung
+    bearbeiten = fenster.bearbeiten
+    feld = bearbeiten.bewertung_wahl
+    a = str(tmp_path / "a.jpg")
+    # Ein Bild mit 3 Sternen im Bild: ueber das Feld speichern
+    bearbeiten.oeffnen(a)
+    _feld_waehlen(feld, 3)
+    ziel = str(tmp_path / "drei.jpg")
+    bearbeiten.sitzung.exportieren(ziel, 8)
+    bearbeiten.schliessen()
+    bearbeiten._knoepfe_freischalten()
+    daten = bilddatei.laden(ziel)
+    assert metadaten.lesen(daten.exif, daten.xmp, daten.iptc).angaben.bewertung == 3
+    assert not os.path.exists(ziel + ".xmp")
+    bewertung.schreiben(ziel, 0)
+    bearbeiten.oeffnen(ziel)
+    assert feld.currentData() == 0 and bearbeiten.sitzung.angaben.bewertung == 0
+    assert not bearbeiten.sitzung.geaendert
+    # Ohne eigene Datei gilt das Bild
+    os.remove(ziel + ".xmp")
+    bearbeiten.oeffnen(ziel)
+    assert feld.currentData() == 3
+    _feld_waehlen(feld, 0)                                 # „–“ legt die Datei mit 0 an
+    assert bewertung.lesen(ziel) == bewertung.Stand(0, "eigen")
+    bearbeiten.angaben_zuruecksetzen()
+    assert feld.currentData() == 0 and bewertung.lesen(ziel).wert == 0
+
+
+def test_bewertung_unlesbar_hat_eigenen_text_und_wird_zusammengefasst(
+        fenster, tmp_path, bewertung_umgebung):
+    from silberkorn import bewertung, ordner_seite
+    seite, _konfiguration = bewertung_umgebung
+    a, b = str(tmp_path / "a.jpg"), str(tmp_path / "b.jpg")
+    kaputt = tmp_path / "a.jpg.xmp"
+    kaputt.write_bytes(b"<x:xmpmeta")
+    (tmp_path / "b.jpg.xmp").write_bytes(FREMDES_XMP)
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+    assert _stand(seite, a) == bewertung.Stand(0, "unlesbar")
+    assert _stand(seite, b) == bewertung.Stand(4, "fremd")
+    assert "1 Bewertungsdatei" in fenster.statusmeldung.text()
+    za, zb = seite.modell.pfade.index(a), seite.modell.pfade.index(b)
+    text_a = seite.liste.tooltip_fuer(za, ("stern", 3))
+    text_b = seite.liste.tooltip_fuer(zb, ("stern", 3))
+    assert "nicht lesen" in text_a and "fremden XMP-Datei" in text_b and text_a != text_b
+    _klicken(seite, a, ("stern", 3))
+    assert "nicht lesen" in fenster.statusmeldung.text()
+    assert ordner_seite.bewertung_setzen(fenster, a, 2) is False
+    assert "nicht lesen" in fenster.statusmeldung.text()
+    assert kaputt.read_bytes() == b"<x:xmpmeta"
+    # Im Bearbeiten-Reiter: das Feld bleibt beim Bild, die Datei unberuehrt
+    fenster.bearbeiten.oeffnen(a)
+    assert fenster.bearbeiten.bewertung_wahl.currentData() == 0
+    _feld_waehlen(fenster.bearbeiten.bewertung_wahl, 3)
+    assert kaputt.read_bytes() == b"<x:xmpmeta"
+    assert "nicht lesen" in fenster.statusmeldung.text()
+
+
+def test_bewertung_veralteter_durchgang_aendert_nichts(fenster, tmp_path, bewertung_umgebung):
+    from silberkorn import bewertung
+    seite, _konfiguration = bewertung_umgebung
+    a = str(tmp_path / "a.jpg")
+    modell = seite.modell
+    alt = modell.durchgang
+    seite.ordner_zeigen(str(tmp_path))                     # neuer Durchgang
+    _bewertungen_warten()
+    vorher = dict(modell.bewertungen)
+    assert modell.staende_laden(alt, {a: bewertung.Stand(5, "eigen")}) is False
+    assert modell.bewertungen == vorher
+
+
+def test_bewertung_ordner_ohne_bilder_macht_den_durchgang_ungueltig(fenster, tmp_path,
+                                                                    bewertung_umgebung):
+    seite, _konfiguration = bewertung_umgebung
+    seite.ordner_zeigen(str(tmp_path / "unter"))
+    assert seite.bewertungen._aktuell == -1
+
+
+def test_sortierung_nach_datum_ohne_zeit_stuerzt_nicht_ab(tmp_path):
+    """Fehlt die Zeit eines Bildes (stat gescheitert), gilt es als das aelteste."""
+    from PIL import Image
+
+    from silberkorn import bewertung, ordner_seite
+    for name in ("a.jpg", "b.jpg"):
+        Image.new("RGB", (8, 8)).save(tmp_path / name)
+    _unter, bilder, zeiten = ordner_seite._durchsuchen(str(tmp_path))
+    zeiten.pop(str(tmp_path / "a.jpg"))
+    ergebnis = bewertung.sortiert(sorted(bilder), "datum", ordner_seite._nach_name, {}, zeiten)
+    assert ergebnis == [str(tmp_path / "b.jpg"), str(tmp_path / "a.jpg")]
+
+
+def test_bewertung_sterne_klick_zieht_kein_gummiband(fenster, tmp_path, bewertung_umgebung):
+    """Ein Klick auf einen Stern gehoert der Kachel: Bewegt sich die Maus mit gedrueckter
+    Taste, zieht Qt kein Gummiband ab dem vorigen Klick, die Auswahl bleibt, und danach
+    markiert eine Mausbewegung ohne Taste nichts."""
+    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    from silberkorn import bewertung
+    seite, _konfiguration = bewertung_umgebung
+    a, b, c = (str(tmp_path / n) for n in ("a.jpg", "b.jpg", "c.jpg"))
+    ansicht = seite.liste.viewport()
+    seite.liste.setSelectionMode(seite.liste.SelectionMode.ExtendedSelection)
+
+    def ausgewaehlt():
+        return sorted(os.path.basename(seite.modell.pfade[i.row()])
+                      for i in seite.liste.selectionModel().selectedIndexes())
+
+    QTest.mouseClick(ansicht, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                     _kachel_ort(seite, a))                # A waehlen: Druckposition setzen
+    assert ausgewaehlt() == ["a.jpg"]
+
+    def ereignis(art, ort, taste, tasten):
+        punkt = QPointF(ort)
+        QApplication.sendEvent(ansicht, QMouseEvent(
+            art, punkt, ansicht.mapToGlobal(punkt), taste, tasten,
+            Qt.KeyboardModifier.NoModifier))
+
+    start, ziel = _kachel_ort(seite, b, ("stern", 3)), _kachel_ort(seite, c)
+    links, keine = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    ereignis(QEvent.Type.MouseMove, start, keine, keine)
+    ereignis(QEvent.Type.MouseButtonPress, start, links, links)
+    for schritt in range(1, 6):
+        punkt = QPoint(start.x() + (ziel.x() - start.x()) * schritt // 5,
+                       start.y() + (ziel.y() - start.y()) * schritt // 5)
+        ereignis(QEvent.Type.MouseMove, punkt, links, links)
+        assert ausgewaehlt() == ["a.jpg"]                   # nie ein Gummiband
+    ereignis(QEvent.Type.MouseButtonRelease, ziel, links, keine)
+    assert ausgewaehlt() == ["a.jpg"]
+    assert _stand(seite, b) == bewertung.Stand(3, "eigen")
+    assert seite.liste.state() == seite.liste.State.NoState
+    ereignis(QEvent.Type.MouseMove, _kachel_ort(seite, a), keine, keine)
+    ereignis(QEvent.Type.MouseMove, _kachel_ort(seite, c), keine, keine)
+    assert ausgewaehlt() == ["a.jpg"]
