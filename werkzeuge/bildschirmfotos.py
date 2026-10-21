@@ -189,6 +189,9 @@ SERIE = [("Bergsee-01.jpg", 3, (0.2, 0.25)), ("Bergsee-02.jpg", 4, (0.35, 0.2)),
          ("Bergsee-03.jpg", 5, (0.55, 0.3)), ("Bergsee-04.jpg", 6, (0.8, 0.18)),
          ("Bergsee-05.jpg", 7, (0.65, 0.4)), ("Bergsee-06.jpg", 8, (0.45, 0.15))]
 UNTERORDNER = ("Abzüge", "Negative")
+# Bewertungen fuer die Ordneransicht: Name -> Sterne (-1 Ausschuss)
+BEWERTUNGEN = {"Bergsee-01.jpg": 5, "Bergsee-02.jpg": 4, "Bergsee-04.jpg": 3,
+               "Bergsee-05.jpg": 2, "Bergsee-06.jpg": -1}
 
 
 def serie_schreiben(ordner: str) -> str:
@@ -201,6 +204,9 @@ def serie_schreiben(ordner: str) -> str:
         bild = landschaft(600, 900, seed=seed, sonne=sonne)
         Image.fromarray((bild * 255 + 0.5).astype(np.uint8)).save(os.path.join(serie, name),
                                                                   quality=90)
+    from silberkorn import bewertung
+    for name, wert in BEWERTUNGEN.items():
+        bewertung.schreiben(os.path.join(serie, name), wert)
     shutil.copyfile(os.path.join(ordner, "negativ-rgbi.tif"),
                     os.path.join(serie, "Negativ-01.tif"))
     shutil.copyfile(os.path.join(ordner, "scannerplatte.jpg"),
@@ -276,7 +282,15 @@ def aufnehmen(sprache: str, motive: dict[str, str]):
         seite.wert_geaendert(name, wert)
     seite.zu_karte(0, weich=False)
     warten()
+    # Vergleich mit Trennlinie in der Mitte: links vorher, rechts nachher
+    seite.vergleich_knopf.setChecked(True)
+    seite.leinwand.trenner = 0.5
+    for _i in range(40):                       # die Vorher-Haelfte wird im Hintergrund gerechnet
+        warten()
+        time.sleep(0.05)
     _speichern(fenster.grab(), os.path.join(ordner, "hauptfenster.png"))
+    seite.vergleich_knopf.setChecked(False)
+    warten()
 
     # 2. Kartenauswahl aufgeklappt - die Liste ist ein eigenes Fenster, sie wird an ihrer
     # Stelle ins Fensterbild gezeichnet
@@ -347,6 +361,13 @@ def aufnehmen(sprache: str, motive: dict[str, str]):
     fenster.begleit_box.blockSignals(False)
     modell = ansicht.modell
     from silberkorn.ordner_seite import PFAD_ROLLE, ZUSTAND_ROLLE
+    # Sortierung "Nach Sternen" (die Einstellungsdatei ist abgeschirmt, nichts wird gesichert)
+    ansicht.sortierung.setCurrentIndex(ansicht.sortierung.findData("sterne"))
+    for _i in range(200):                      # bis der Hintergrunddienst die Sterne gelesen hat
+        app.processEvents()
+        if len(modell.bewertungen) >= len(BEWERTUNGEN):
+            break
+        time.sleep(0.05)
     for _i in range(600):                      # bis alle Vorschaubilder da sind, hoechstens 30 s
         app.processEvents()
         ansicht.liste.viewport().update()
@@ -359,9 +380,15 @@ def aufnehmen(sprache: str, motive: dict[str, str]):
         nummer = next(i for i in range(modell.rowCount())
                       if os.path.basename(modell.index(i).data(PFAD_ROLLE) or "") == name)
         auswahl.select(modell.index(nummer), auswahl.SelectionFlag.Select)
+    # Die Maus ueber der Kachel von Bergsee-03 (unbewertet): leere Sterne und Papierkorb
+    nummer = next(i for i in range(modell.rowCount())
+                  if os.path.basename(modell.index(i).data(PFAD_ROLLE) or "") == SERIE[2][0])
+    mitte = ansicht.liste.visualRect(modell.index(nummer)).center()
+    ansicht.liste._darueber(nummer, ansicht.liste.ziel_bei(mitte)[1])
     for _i in range(5):
         app.processEvents()
     _speichern(fenster.grab(), os.path.join(ordner, "ordneransicht.png"))
+    ansicht.liste._darueber(-1, None)
     fenster.begleit_box.blockSignals(True)
     fenster.begleit_box.setChecked(False)
     fenster.begleit_box.blockSignals(False)
