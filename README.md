@@ -60,6 +60,14 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 - **Gradationskurve** für die Helligkeit und für Rot, Grün und Blau einzeln, mit
   Histogramm im Hintergrund. Klicken setzt einen Punkt, Ziehen verschiebt ihn,
   Doppelklick entfernt ihn; die Helligkeitskurve verändert die Farben nicht.
+- **Histogramm und Warnung bei Über- und Unterbelichtung**: Über den Karten steht ein
+  Histogramm mit Rot, Grün, Blau und Helligkeit – immer vom ganzen Bild, auch in der
+  100-%-Ansicht. Die Dreiecke oben links (Tiefen) und oben rechts (Lichter) schalten
+  eine Warnung ein: Pixel, in denen ein Kanal 255 erreicht, sind im Bild rot, solche
+  bei 0 blau. Ein Dreieck füllt sich, sobald im Bild wirklich Pixel abgeschnitten sind.
+  Die Markierung ist nur Anzeige – sie landet nie in gespeicherten, gedruckten oder
+  veröffentlichten Bildern und fehlt bei „Vorher“ und in der linken Vergleichshälfte.
+  Taste `J` schaltet beide Warnungen; sie bleiben beim nächsten Start so.
 - **Klarheit**: mehr oder weniger lokaler Kontrast in den Mitteltönen.
 - **Dunst entfernen** nach dem Dark-Channel-Prior-Verfahren – auch umgekehrt, um
   Dunst hinzuzufügen.
@@ -334,6 +342,7 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
 | `Strg`+`Umschalt`+`C` / `V` | Einstellungen kopieren / auf ein anderes Bild einfügen |
 | `Strg`+`0` / `Strg`+`1` | eingepasst / 100 % |
 | `Y` | Vergleich Vorher/Nachher mit verschiebbarer Trennlinie ein- / ausschalten |
+| `J` | Warnung vor abgeschnittenen Tiefen und Lichtern (blau / rot) ein- / ausschalten |
 | Mausrad, Ziehen, Doppelklick | zoomen, verschieben, zwischen eingepasst und 100 % wechseln |
 | `Eingabe` / `Esc` | Zuschnitt übernehmen / abbrechen |
 

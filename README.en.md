@@ -58,6 +58,13 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 - **Tone curve** for luminance and for red, green and blue separately, with a histogram
   in the background. Click to add a point, drag to move it, double-click to remove it;
   the luminance curve leaves the colours untouched.
+- **Histogram and clipping warning**: a histogram of red, green, blue and luminance sits
+  above the cards – always for the whole image, also in the 100 % view. The triangles at
+  the top left (shadows) and top right (highlights) switch a warning on: pixels where a
+  channel reaches 255 are shown red in the image, those at 0 blue. A triangle fills with
+  colour as soon as pixels are really clipped. The marking is display only – it never
+  ends up in saved, printed or published images and is missing from "Before" and from the
+  left half of the comparison. Key `J` toggles both warnings; they stay as you left them.
 - **Clarity**: more or less local contrast in the midtones.
 - **Dehaze** using the dark channel prior – also in reverse, to add haze.
 - **Colour ranges (HSL)**: hue, saturation and luminance separately for red, orange,
@@ -292,6 +299,7 @@ RTX 5000 (Blackwell) also in FP4. The values are shown on the "About & copyright
 | `Ctrl`+`Shift`+`C` / `V` | copy settings / paste them onto another image |
 | `Ctrl`+`0` / `Ctrl`+`1` | fit / 100 % |
 | `Y` | turn the before/after comparison with a movable divider on / off |
+| `J` | turn the warning for clipped shadows and highlights (blue / red) on / off |
 | mouse wheel, drag, double-click | zoom, pan, toggle between fit and 100 % |
 | `Enter` / `Esc` | apply / cancel crop |
 

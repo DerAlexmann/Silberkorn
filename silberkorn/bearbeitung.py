@@ -77,6 +77,7 @@ import numpy as np
 from PIL import Image
 
 from . import (
+    abschneiden,
     anonym,
     begleitdatei,
     bilddatei,
@@ -115,17 +116,6 @@ BEGLEIT_VORSCHAU = 256         # laengste Kante des Vorschaubildes in der Beglei
 # a + s * d - eine Korrektur mit Staerke auflegen
 _auflegen = cp.ElementwiseKernel("float32 a, float32 d, float32 s", "float32 c",
                                  "c = a + s * d", "ne_auflegen")
-
-
-def histogramm_von(rgb_uint8):
-    """Histogramm der Helligkeit (Rec. 709 auf den sRGB-Werten), 256 Stufen.
-
-    Jeder vierte Pixel genuegt fuer die Form und spart drei Viertel der Arbeit.
-    """
-    gewichte = cp.asarray(filter.LUMA, dtype=cp.float32)
-    stichprobe = rgb_uint8[::2, ::2]
-    helligkeit = (stichprobe.astype(cp.float32) @ gewichte + 0.5).astype(cp.int32)
-    return cp.bincount(helligkeit.ravel(), minlength=256)[:256]
 
 
 @dataclass
@@ -171,7 +161,10 @@ class Sitzung:
         self.werte = Einstellungen()
         self.gespeicherte_werte = Einstellungen()
         self._speicher: dict = {}            # Zwischenergebnisse der Filter, je Bildgroesse
-        self._vollbild = None                 # (Einstellungen, fertiges Bild auf der GPU)
+        # (Einstellungen, fertiges Bild auf der GPU, Histogramme, Zahl abgeschnittener
+        # Pixel, Maske der abgeschnittenen Pixel)
+        self._vollbild = None
+        self.abgeschnitten = (0, 0)           # Pixel mit Lichtern / Tiefen am Anschlag
         # Vorher-Haelfte des Vergleichs: (Schluessel, uint8-Bild), Vorschau auf der CPU,
         # Vollbild auf der GPU. Der Schluessel kennt nur, was das Bild ohne Bearbeitung
         # bestimmt - Reglerbewegungen rechnen es nicht neu.
@@ -1196,12 +1189,15 @@ class Sitzung:
 
     def _rendern(self, werte: Einstellungen, voll: bool, speicher, bits: int = 8,
                  zeigen: bool = False, leinwand: bool = True, flicken: bool = True,
-                 mit_korn: bool = True, grau: bool = False):
+                 mit_korn: bool = True, grau: bool = False, klar: dict | None = None):
         """Die ganze Kette bis zum sRGB-Bild - mit eigenem Hintergrund, falls eingestellt.
         leinwand=False: ohne die Raender einer KI-Erweiterung, flicken=False: ohne
         entfernte Objekte (beides fuer „Vorher“), mit_korn=False: ohne Filmkorn (das
         kommt beim KI-Hochskalieren erst danach), grau=True: die Raender einer KI-Erweiterung
-        neutral grau statt erfunden (Vorher-Haelfte des Vergleichs)."""
+        neutral grau statt erfunden (Vorher-Haelfte des Vergleichs). klar: ein leeres dict;
+        liegen Farben der Maskenansicht, Tiefe, Staub oder Markierung im Ergebnis, steht
+        darin unter "bild" dasselbe Bild davor - so zaehlt die Abschneide-Warnung
+        nicht deren Farben."""
         massstab = 1.0 if voll else self.vorschau_massstab
         if not flicken and (self._flicken or self._staub is not None):
             speicher = {}       # die Zwischenstufen im Speicher enthalten die Flicken
@@ -1246,6 +1242,9 @@ class Sitzung:
             ergebnis = self._bokeh(ergebnis, werte, voll, hoechst)
         if mit_korn:
             ergebnis = korn.auflegen(ergebnis, werte, hoechst)
+        if klar is not None and (tiefe_zeigen or (zeigen and maske is not None)
+                                 or lokal_zeigen is not None or markierung is not None):
+            klar["bild"] = cp.clip(ergebnis + 0.5, 0, hoechst).astype(typ)
         if tiefe_zeigen:
             ergebnis = cp.repeat(self._tiefe_fuer(werte, voll)[..., None], 3, axis=2) * hoechst
         if zeigen and maske is not None:
@@ -1483,18 +1482,30 @@ class Sitzung:
         return bild
 
     def vorschau(self, unbearbeitet: bool = False, werte: Einstellungen | None = None,
-                 ohne_erweiterung: bool = False,
-                 ohne_flicken: bool = False) -> tuple[np.ndarray, float, np.ndarray]:
-        """Vorschau als sRGB-uint8, Rechenzeit in ms und Helligkeitshistogramm (256 Stufen).
+                 ohne_erweiterung: bool = False, ohne_flicken: bool = False,
+                 abschneiden_zeigen: tuple[bool, bool] = (False, False)
+                 ) -> tuple[np.ndarray, float, np.ndarray]:
+        """Vorschau als sRGB-uint8, Rechenzeit in ms und Histogramme (4 x 256: Rot, Gruen,
+        Blau, Helligkeit). Wie viele Pixel abgeschnitten sind, steht danach in
+        `abgeschnitten`.
         ohne_erweiterung: das Original ohne die von der KI erfundenen Raender,
-        ohne_flicken: ohne die entfernten Objekte."""
+        ohne_flicken: ohne die entfernten Objekte,
+        abschneiden_zeigen: (Lichter, Tiefen) rot und blau einfaerben - nur fuer die
+        Anzeige; wer speichert oder ausgibt, laesst es bei (False, False)."""
         beginn = time.perf_counter()
         if werte is None:
             werte = Einstellungen() if unbearbeitet else self.werte
+        klar: dict = {}
         bild = self._rendern(werte, False, self._speicher, zeigen=not unbearbeitet,
-                             leinwand=not ohne_erweiterung, flicken=not ohne_flicken)
-        histogramm = cp.asnumpy(histogramm_von(bild))
-        ergebnis = cp.asnumpy(bild)                     # wartet auf die GPU
+                             leinwand=not ohne_erweiterung, flicken=not ohne_flicken,
+                             klar=klar)
+        # Gezaehlt wird das Bild ohne Farben der Maskenansicht und Markierungen
+        quelle = klar.get("bild", bild)
+        histogramm = cp.asnumpy(abschneiden.histogramme(quelle, 2))
+        code = abschneiden.maske(quelle)
+        self.abgeschnitten = abschneiden.anzahlen(code)
+        del quelle, klar
+        ergebnis = cp.asnumpy(abschneiden.markieren(bild, code, *abschneiden_zeigen))
         return ergebnis, (time.perf_counter() - beginn) * 1000, histogramm
 
     def ausgabe_form(self, werte: Einstellungen | None = None,
@@ -1506,7 +1517,9 @@ class Sitzung:
 
     def ausschnitt(self, x0: int, y0: int, breite: int, hoehe: int,
                    werte: Einstellungen | None = None,
-                   ohne_flicken: bool = False) -> tuple[np.ndarray, float, np.ndarray]:
+                   ohne_flicken: bool = False,
+                   abschneiden_zeigen: tuple[bool, bool] = (False, False)
+                   ) -> tuple[np.ndarray, float, np.ndarray]:
         """Ausschnitt des fertigen Bildes in voller Aufloesung - fuer die 100-%-Ansicht.
 
         Gerechnet wird das ganze Bild, damit der Ausschnitt genau dem
@@ -1514,6 +1527,11 @@ class Sitzung:
         Bild schauen (Dunst, Klarheit). Das Ergebnis bleibt auf der GPU liegen,
         solange sich die Einstellungen nicht aendern; beim Verschieben wird
         nur noch ausgeschnitten und heruntergeladen.
+
+        Das Histogramm und die Zahl der abgeschnittenen Pixel gelten fuers ganze Bild
+        (das Histogramm gezaehlt auf einer Stichprobe) und liegen mit dem Vollbild im
+        Speicher. Die Markierung kommt erst auf den Ausschnitt, darum rechnet das
+        Umschalten der Warnung das Vollbild nicht neu.
         """
         beginn = time.perf_counter()
         werte = self.werte if werte is None else werte
@@ -1523,11 +1541,19 @@ class Sitzung:
                       self.lokal_zeigen)
         if self._vollbild is None or self._vollbild[0] != schluessel:
             self._vollbild = None                 # das alte Vollbild zuerst freigeben
+            klar: dict = {}
             bild = self._rendern(werte, True, self._speicher, zeigen=True,
-                                 flicken=not ohne_flicken)
-            self._vollbild = (schluessel, bild)
-        teil = self._vollbild[1][y0:y0 + hoehe, x0:x0 + breite]
-        histogramm = cp.asnumpy(histogramm_von(teil))
+                                 flicken=not ohne_flicken, klar=klar)
+            quelle = klar.get("bild", bild)
+            schritt = abschneiden.schrittweite(*quelle.shape[:2])
+            histogramm = cp.asnumpy(abschneiden.histogramme(quelle, schritt))
+            code = abschneiden.maske(quelle)
+            zahlen = abschneiden.anzahlen(code)
+            del quelle, klar
+            self._vollbild = (schluessel, bild, histogramm, zahlen, code)
+        _schluessel, vollbild, histogramm, self.abgeschnitten, code = self._vollbild
+        fenster = (slice(y0, y0 + hoehe), slice(x0, x0 + breite))
+        teil = abschneiden.markieren(vollbild[fenster], code[fenster], *abschneiden_zeigen)
         ergebnis = cp.asnumpy(teil)
         return ergebnis, (time.perf_counter() - beginn) * 1000, histogramm
 
