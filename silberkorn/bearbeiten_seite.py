@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
 from . import (
     VERSION,
     anonym,
+    automatik,
     begleitdatei,
     bilddatei,
     drucken,
@@ -496,7 +497,9 @@ class BearbeitenSeite(QWidget):
         self._zeichnen_angefordert = False
         self._zuschnitt_vorher = None         # Zuschnitt beim Betreten des Zuschnittmodus
         self._auswaehler: ki.Auswaehler | None = None   # SAM, solange der Klickmodus laeuft
-        self._klick_ziel: str | None = None   # "maske" oder "entfernen" im Klickmodus
+        # Ziel im Klickmodus: "maske", "entfernen", "lokal", "film", "fokus", "lokal_farbe",
+        # "wb" (Weissabgleich-Pipette)
+        self._klick_ziel: str | None = None
         self._klick_marken: dict[str, list] = {"maske": [], "entfernen": []}   # im fertigen Bild
         self._klick_geo: dict = {}            # Geometrie, in der je Ziel geklickt wurde
         self._maske_zeigen_vorher = False
@@ -687,6 +690,10 @@ class BearbeitenSeite(QWidget):
                     self._masken_bedienung(innen)
                 if regler.gruppe == "tiefe":
                     self._tiefe_bedienung(innen)
+                if regler.gruppe == "weissabgleich":
+                    self._wb_bedienung(innen)
+                if regler.gruppe == "licht":
+                    self._ton_bedienung(innen)
                 gitter = QGridLayout()
                 gitter.setVerticalSpacing(2)
                 gitter.setColumnStretch(0, 1)
@@ -1792,11 +1799,16 @@ class BearbeitenSeite(QWidget):
         self._film_anzeigen()
         self._erweitern_anzeigen()
         self._lokal_anzeigen()
+        self._auto_anzeigen()
         self.zeichnen_anfordern()
 
     def _bild_geklickt(self, x: float, y: float, dazu: bool):
         ziel = self._klick_ziel
         if ziel is None or self.sitzung is None or self._vorher:
+            return
+        if ziel == "wb":
+            if dazu:                             # die rechte Taste tut hier nichts
+                self._wb_geklickt(x, y)
             return
         quelle = self.sitzung.quelle_von(x, y)
         if quelle is None:
@@ -2158,6 +2170,188 @@ class BearbeitenSeite(QWidget):
         self._klick_ziel = "film"
         self.leinwand.klickmodus_setzen(True)
         self._film_anzeigen()
+
+    # ------------------------------------------------------------------
+    # Automatik: Auto-Ton, Auto-Weißabgleich, Weißabgleich-Pipette (automatik.py)
+    # ------------------------------------------------------------------
+
+    def _wb_bedienung(self, innen: QVBoxLayout):
+        """„Auto“ und „Pipette“ über den Reglern des Weißabgleichs."""
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.wb_auto_knopf = self._knopf(_("Auto"), self.auto_weissabgleich, "kanal")
+        self.fenster.beschriften(self.wb_auto_knopf.setToolTip, _(
+            "Stellt Temperatur und Tönung so ein, dass das Bild im Mittel neutral wird – "
+            "gemessen im Zuschnitt, ohne abgeschnittene Stellen. Nicht bei Schwarzweiß."))
+        self.wb_pipette_knopf = self._knopf(_("Pipette"), None, "kanal")
+        self.wb_pipette_knopf.setCheckable(True)
+        self.fenster.beschriften(self.wb_pipette_knopf.setToolTip, _(
+            "Eine Stelle im Bild anklicken, die neutral grau oder weiß sein soll; Esc "
+            "bricht ab. Nicht bei Schwarzweiß."))
+        self.wb_pipette_knopf.toggled.connect(self._wb_pipette_gedrueckt)
+        leiste.addWidget(self.wb_auto_knopf, 1)
+        leiste.addWidget(self.wb_pipette_knopf, 1)
+        innen.addLayout(leiste)
+
+    def _ton_bedienung(self, innen: QVBoxLayout):
+        """„Auto“ über den Reglern der Karte „Licht“."""
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.ton_auto_knopf = self._knopf(_("Auto"), self.auto_ton, "kanal")
+        self.fenster.beschriften(self.ton_auto_knopf.setToolTip, _(
+            "Stellt Belichtung, Kontrast, Lichter und Tiefen für ein ausgewogenes Bild ein – "
+            "gemessen im Zuschnitt. Alle anderen Regler bleiben."))
+        leiste.addWidget(self.ton_auto_knopf, 1)
+        leiste.addStretch(1)
+        innen.addLayout(leiste)
+
+    def _auto_anzeigen(self):
+        """Knöpfe frei, wenn ein Bild offen ist; Weißabgleich und Pipette nicht bei
+        Schwarzweiß (dort gäbe es nichts zu neutralisieren). Die Pipette rastet ein, solange
+        sie wartet."""
+        offen = self.sitzung is not None
+        farbig = offen and not self.sitzung.werte.sw
+        if not farbig and self._klick_ziel == "wb":
+            self.auswahl_beenden()                # ruft diese Funktion noch einmal auf
+            return
+        self.ton_auto_knopf.setEnabled(offen)
+        self.wb_auto_knopf.setEnabled(farbig)
+        self.wb_pipette_knopf.setEnabled(farbig)
+        wartet = self._klick_ziel == "wb"
+        if self.wb_pipette_knopf.isChecked() != wartet:
+            self.wb_pipette_knopf.blockSignals(True)
+            self.wb_pipette_knopf.setChecked(wartet)
+            self.wb_pipette_knopf.blockSignals(False)
+
+    def _auto_setzen(self, schritt: str, felder: dict[str, float]):
+        """Reglerwerte setzen - alle zusammen ein Schritt für „Rückgängig“. Es gibt keine
+        eigenen Einstellungen dafür: Begleitdatei und Voreinstellungen kennen nur die
+        Regler."""
+        self._festhalten(sofort=True)             # eine eben gemachte Änderung zuerst
+        self._schritt_name = schritt
+        for name, wert in felder.items():
+            setattr(self.sitzung.werte, name, wert)
+            self.zeilen[name].setzen(wert)
+        self.zeichnen_anfordern()
+
+    @staticmethod
+    def _werte_text(felder: dict[str, float]) -> str:
+        return ", ".join(
+            f"{regler_titel(name)} {wert_anzeige(filter.REGLER_NACH_NAME[name], wert)}"
+            for name, wert in felder.items())
+
+    def _automatik_fehler(self, fehler: Exception):
+        """Meldung, wenn die Automatik scheitert - erst nach dem Aufräumen zeigen."""
+        text = str(fehler) if isinstance(fehler, ki.KiFehler) else _(
+            "Für dieses Bild reicht der Grafikspeicher nicht.")
+        self._fehler(_("Die Automatik ließ sich nicht berechnen."), text)
+
+    @staticmethod
+    def _am_anschlag(felder: dict[str, float]) -> bool:
+        """Ist einer der Werte am Ende seines Reglers?"""
+        regler = filter.REGLER_NACH_NAME
+        return any(wert in (regler[name].minimum, regler[name].maximum)
+                   for name, wert in felder.items())
+
+    def auto_ton(self):
+        if self.sitzung is None:
+            return
+        self.zuschneiden(False)                   # gemessen wird im übernommenen Zuschnitt
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        fehler = None
+        try:
+            ton = self.sitzung.ton_automatisch()
+        except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as aufgetreten:
+            fehler = aufgetreten
+        finally:
+            QApplication.restoreOverrideCursor()
+            cp.get_default_memory_pool().free_all_blocks()
+        if fehler is not None:
+            self._automatik_fehler(fehler)
+            return
+        felder = ton.felder()
+        bisher = [getattr(self.sitzung.werte, name) for name in felder]
+        self._auto_setzen("auto_ton", felder)
+        gesetzt = {name: wert for name, wert in felder.items() if wert}
+        if gesetzt:
+            text = _("Auto-Ton: {werte}").format(werte=self._werte_text(gesetzt))
+        elif any(bisher):
+            text = _("Auto-Ton: Belichtung, Kontrast, Lichter und Tiefen zurückgesetzt – "
+                     "das Bild braucht keine Korrektur.")
+        else:
+            text = _("Auto-Ton: Das Bild braucht keine Korrektur.")
+        if abs(ton.belichtung) == automatik.EV_GRENZE:
+            text += " " + _("– am Ende des Reglers, ganz ausgleichen lässt es sich nicht.")
+        self.fenster.melden(text)
+
+    def auto_weissabgleich(self):
+        if self.sitzung is None or self.sitzung.werte.sw:
+            return
+        self.zuschneiden(False)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        fehler = None
+        try:
+            ergebnis = self.sitzung.weissabgleich_auto()
+        except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as aufgetreten:
+            fehler = aufgetreten
+        finally:
+            QApplication.restoreOverrideCursor()
+            cp.get_default_memory_pool().free_all_blocks()
+        if fehler is not None:
+            self._automatik_fehler(fehler)
+            return
+        if ergebnis is None:
+            self.fenster.melden(_("Auto-Weißabgleich: Im Bild ist nichts Neutrales zu messen."))
+            return
+        felder = {"temperatur": ergebnis[0], "toenung": ergebnis[1]}
+        self._auto_setzen("auto_wb", felder)
+        text = _("Auto-Weißabgleich: {werte}").format(werte=self._werte_text(felder))
+        if self._am_anschlag(felder):
+            text += " " + _("– am Ende des Reglers, ganz ausgleichen lässt es sich nicht.")
+        self.fenster.melden(text)
+
+    def _wb_pipette_gedrueckt(self, an: bool):
+        if not an:
+            if self._klick_ziel == "wb":
+                self.auswahl_beenden()
+            return
+        if self.sitzung is None or self.sitzung.werte.sw:
+            self._auto_anzeigen()
+            return
+        self.zuschneiden(False)
+        self.pinsel_beenden()
+        self.auswahl_beenden()
+        self._klick_ziel = "wb"
+        self.leinwand.klickmodus_setzen(True)
+        self._auto_anzeigen()
+        self.fenster.melden(_("Eine Stelle anklicken, die neutral grau oder weiß sein soll."))
+
+    def _wb_geklickt(self, x: float, y: float):
+        """Der Klick der Pipette (x, y im fertigen Bild): ein Klick genügt, auch wenn die
+        Messung scheitert."""
+        self.auswahl_beenden()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        fehler = None
+        try:
+            ergebnis = self.sitzung.weissabgleich_punkt(x, y)
+        except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as aufgetreten:
+            fehler = aufgetreten
+        finally:
+            QApplication.restoreOverrideCursor()
+            cp.get_default_memory_pool().free_all_blocks()
+        if fehler is not None:
+            self._automatik_fehler(fehler)
+            return
+        if ergebnis is None:
+            self.fenster.melden(_("Dort lässt sich nichts messen – zu dunkel oder "
+                                  "abgeschnitten. Eine andere Stelle anklicken."), fehler=True)
+            return
+        felder = {"temperatur": ergebnis[0], "toenung": ergebnis[1]}
+        self._auto_setzen("wb_pipette", felder)
+        text = _("Weißabgleich: {werte}").format(werte=self._werte_text(felder))
+        if self._am_anschlag(felder):
+            text += " " + _("– am Ende des Reglers, ganz ausgleichen lässt es sich nicht.")
+        self.fenster.melden(text)
 
     # ------------------------------------------------------------------
     # Objekte entfernen: markieren per Klick oder Pinsel, fuellen mit LaMa
@@ -3962,6 +4156,7 @@ class BearbeitenSeite(QWidget):
         self.ton_vorlage_wahl.setCurrentIndex(self.ton_vorlage_wahl.findData(vorlage)
                                               if vorlage is not None else -1)
         self.ton_vorlage_wahl.setEnabled(offen)
+        self._auto_anzeigen()                     # Auto-Weißabgleich und Pipette: nicht bei S/W
 
     def _sw_filter_gewaehlt(self, nummer: int):
         if self.sitzung is None:
@@ -4089,6 +4284,7 @@ class BearbeitenSeite(QWidget):
         self._anonym_anzeigen()
         self._objektiv_anzeigen()
         self._metadaten_anzeigen()
+        self._auto_anzeigen()
         self._verlauf_anzeigen()
 
     # ------------------------------------------------------------------
@@ -4367,6 +4563,12 @@ class BearbeitenSeite(QWidget):
             return _("Schwarzweiß-Filter")
         if name == "ton_vorlage":
             return _("Tönungsvorlage")
+        if name == "auto_ton":
+            return _("Auto-Ton")
+        if name == "auto_wb":
+            return _("Auto-Weißabgleich")
+        if name == "wb_pipette":
+            return _("Weißabgleich-Pipette")
         teile = dict(vorher.teile), dict(nachher.teile)
         felder = verlauf.unterschied(vorher, nachher)
         # Eine KI-Berechnung sagt mehr als der Regler, den sie dabei mitstellt - das

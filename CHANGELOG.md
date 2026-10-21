@@ -29,6 +29,19 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Warnungen steht in `silberkorn.json`, nicht in der Begleitdatei oder den
   Voreinstellungen und nicht im Rückgängig-Verlauf.
 
+- **Automatik**: Die Karte „Licht“ bekommt einen Knopf „Auto“, die Karte „Weißabgleich“
+  die Knöpfe „Auto“ und „Pipette“. *Auto-Ton* setzt Belichtung, Kontrast, Lichter und
+  Tiefen: der Median kommt auf Mittelgrau (höchstens ±2 EV, ohne die Lichter weit über
+  das Weiß zu schieben), Lichter und Tiefen holen zugelaufene Stellen zurück, flaue Bilder
+  bekommen Kontrast; ein gut belichtetes Bild bleibt fast unverändert. *Auto-Weißabgleich*
+  macht das Bild im Mittel neutral (Grauwelt ohne abgeschnittene Stellen, nur die am
+  wenigsten bunten Pixel, damit große farbige Flächen nicht ziehen). Die *Pipette*
+  (Fadenkreuz, ein Klick, Esc bricht ab) macht die angeklickte Stelle neutral – gemittelt
+  über 5 × 5 Pixel. Gemessen wird im Zuschnitt, mit den vier Tonwerten bzw. Temperatur und
+  Tönung auf 0 gerechnet: mehrfaches Drücken gibt dasselbe. Jede Aktion ist ein Schritt für
+  „Rückgängig“; es gibt keine neuen Einstellungen, Begleitdatei und Voreinstellungen
+  kennen nur die Reglerwerte. Bei Schwarzweiß sind Auto-Weißabgleich und Pipette gesperrt.
+
 ### Geändert
 
 - Das Histogramm der Gradationskurve zeigt die Helligkeit des ganzen Bildes (bisher nur

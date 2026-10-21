@@ -79,6 +79,7 @@ from PIL import Image
 from . import (
     abschneiden,
     anonym,
+    automatik,
     begleitdatei,
     bilddatei,
     film,
@@ -1096,6 +1097,44 @@ class Sitzung:
         if "helligkeit" in noetig or "farbe" in noetig:
             quellen.update(self._lokal_bildquellen(werte, voll))
         return quellen
+
+    # ------------------------------------------------------------------
+    # Automatik: Auto-Ton, Auto-Weissabgleich, Pipette (automatik.py)
+    # ------------------------------------------------------------------
+
+    def ton_automatisch(self) -> automatik.Ton:
+        """Belichtung, Kontrast, Lichter und Tiefen fuer ein ausgewogenes Bild - gemessen
+        am fertigen Vorschaubild im Zuschnitt, mit allem anderen, wie es eingestellt ist,
+        und den vier Werten auf 0 (so gibt jedes Druecken dasselbe). Aendert die Werte
+        der Sitzung nicht."""
+        werte = self.werte
+        speicher: dict = {}      # eigene Zwischenstufen: die der Vorschau bleiben gueltig
+
+        def rendern(ton: automatik.Ton):
+            return self._rendern(dataclasses.replace(werte, **ton.felder()), False, speicher,
+                                 zeigen=False, mit_korn=False)
+        return automatik.ton_automatisch(rendern)
+
+    def _weiss_bild(self):
+        """Das Bild so, wie es in den Weissabgleich geht (linear, nach Negativ-Umkehr, KI und
+        Flicken), aber nach der Geometrie: gemessen wird im Zuschnitt. Der Weissabgleich ist
+        ein Faktor je Kanal und vertauscht darum mit der Geometrie."""
+        werte = self.werte
+        eingang = self._anonymisieren(self._ausgang(werte, False), werte, False, True)
+        return geometrie.anwenden(eingang, geometrie.aus(werte))
+
+    def weissabgleich_auto(self) -> tuple[float, float] | None:
+        """(Temperatur, Toenung), die das Bild im Zuschnitt neutral machen, oder None, wenn
+        nichts Messbares da ist. Unabhaengig von den jetzigen Werten."""
+        return automatik.weissabgleich_auto(self._weiss_bild())
+
+    def weissabgleich_punkt(self, x: float, y: float) -> tuple[float, float] | None:
+        """Dasselbe fuer die Umgebung des Punktes (x, y) im fertigen Bild (Pixel in voller
+        Aufloesung): Dieser Punkt wird neutral."""
+        bild = self._weiss_bild()
+        hoehe, breite = self.ausgabe_form()
+        return automatik.weissabgleich_punkt(bild, x * bild.shape[1] / breite,
+                                             y * bild.shape[0] / hoehe)
 
     def farbton_an(self, x: float, y: float) -> float | None:
         """Farbton (OkLCh, Grad) um den Punkt (x, y) im Original - nach Buntheit gemittelt;

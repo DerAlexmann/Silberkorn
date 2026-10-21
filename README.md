@@ -68,6 +68,11 @@ RTX 5000 (Blackwell) auch FP4. Die Werte stehen auf dem Reiter „Info & Copyrig
   Die Markierung ist nur Anzeige – sie landet nie in gespeicherten, gedruckten oder
   veröffentlichten Bildern und fehlt bei „Vorher“ und in der linken Vergleichshälfte.
   Taste `J` schaltet beide Warnungen; sie bleiben beim nächsten Start so.
+- **Automatik**: „Auto“ in der Karte Licht stellt Belichtung, Kontrast, Lichter und
+  Tiefen für ein ausgewogenes Bild ein; „Auto“ und „Pipette“ in der Karte Weißabgleich
+  machen das Bild im Mittel neutral oder die angeklickte Stelle grau. Gemessen wird im
+  Zuschnitt, jede Aktion ist ein Schritt für „Rückgängig“, alle anderen Regler bleiben.
+  Weißabgleich-Automatik und Pipette gibt es bei Schwarzweiß nicht.
 - **Klarheit**: mehr oder weniger lokaler Kontrast in den Mitteltönen.
 - **Dunst entfernen** nach dem Dark-Channel-Prior-Verfahren – auch umgekehrt, um
   Dunst hinzuzufügen.
