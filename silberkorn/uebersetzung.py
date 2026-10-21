@@ -392,6 +392,14 @@ TRANSLATIONS = {
         "B": "B",
         "Klicken setzt einen Punkt, Ziehen verschiebt ihn, Doppelklick entfernt ihn.":
             "Click to add a point, drag to move it, double-click to remove it.",
+        "Warnung vor abgeschnittenen Tiefen: färbt sie im Bild blau "
+        "(Taste J schaltet beide Warnungen)":
+            "Shadow clipping warning: marks clipped shadows in blue in the image "
+            "(key J toggles both warnings)",
+        "Warnung vor abgeschnittenen Lichtern: färbt sie im Bild rot "
+        "(Taste J schaltet beide Warnungen)":
+            "Highlight clipping warning: marks clipped highlights in red in the image "
+            "(key J toggles both warnings)",
         "Klarheit": "Clarity",
         "Dunst entfernen": "Dehaze",
         "Rauschminderung": "Noise reduction",

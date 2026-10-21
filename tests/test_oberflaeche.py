@@ -395,7 +395,8 @@ def test_lokale_bereiche_und_pipette(fenster, tmp_path, monkeypatch):
 
 def test_kartenwahl_springt_und_laeuft_mit(fenster):
     """Die Auswahl ueber den Karten nennt jede Karte, springt zu ihr und zeigt beim Rollen
-    die oberste. Leinwand und erste Karte beginnen auf derselben Hoehe."""
+    die oberste. Die Leinwand beginnt auf der Hoehe des Histogramms, die erste Karte
+    darunter."""
     from PySide6.QtWidgets import QApplication, QFrame
 
     seite = fenster.bearbeiten
@@ -406,7 +407,8 @@ def test_kartenwahl_springt_und_laeuft_mit(fenster):
     assert len(seite.karten) == len(karten) == wahl.count() >= 20
     assert [wahl.itemText(i) for i in range(wahl.count())] == [
         seite._karten_titel[k] for k in seite.karten]
-    assert seite.leinwand.y() == leiste.y()
+    assert seite.leinwand.y() == seite.histogramm.y()
+    assert seite.histogramm.geometry().bottom() < leiste.y()
     balken = leiste.verticalScrollBar()
     try:
         for nummer in (5, wahl.count() - 1, 0):
@@ -840,5 +842,120 @@ def test_vergleich_knopf_bleibt_beim_bildwechsel_an(fenster, tmp_path):
         assert seite.vergleich_knopf.isChecked() and seite.leinwand.vergleich
     finally:
         seite.vergleich_knopf.setChecked(False)
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_histogramm_warnung_taste_j_und_gemerkter_zustand(fenster, tmp_path, monkeypatch):
+    """Das Histogramm steht fest ueber den Karten, J schaltet beide Warnungen, der Zustand
+    landet in der Einstellungsdatei - und „Vorher“ zeigt nie die Markierung."""
+    from PIL import Image
+    from PySide6.QtGui import QShortcut
+    from PySide6.QtWidgets import QApplication
+
+    from silberkorn import einstellungen
+    from silberkorn.bearbeiten_seite import REGLERLEISTE_BREITE
+    gemerkt: dict = {}
+    monkeypatch.setattr(einstellungen, "load_config", lambda: dict(gemerkt))
+    monkeypatch.setattr(einstellungen, "save_config",
+                        lambda daten: gemerkt.update(daten) or True)
+    def warnung():
+        return {k: v for k, v in gemerkt.items() if k.startswith("warnung")}
+
+    seite = fenster.bearbeiten
+    feld = seite.histogramm
+    assert feld.width() == REGLERLEISTE_BREITE and not feld.isEnabled()
+    assert not seite.reglerleiste.isAncestorOf(feld)          # rollt nicht mit
+    assert feld.geometry().bottom() < seite.reglerleiste.geometry().top()
+    taste_j = next(k for k in seite.findChildren(QShortcut) if k.key().toString() == "J")
+    taste_j.activated.emit()                                  # ohne Bild: nichts
+    assert not feld.lichter and gemerkt == {}
+    pfad = str(tmp_path / "bild.png")
+    Image.new("RGB", (64, 48), (255, 120, 0)).save(pfad)
+    seite.oeffnen(pfad)
+    aufrufe = []
+    echt = seite.sitzung.vorschau
+
+    def merken(*args, **kwargs):
+        aufrufe.append(kwargs.get("abschneiden_zeigen"))
+        return echt(*args, **kwargs)
+
+    monkeypatch.setattr(seite.sitzung, "vorschau", merken)
+    try:
+        QApplication.processEvents()
+        assert feld.isEnabled() and feld.abgeschnitten == (48 * 64, 48 * 64)   # R 255 und B 0
+        taste_j.activated.emit()
+        QApplication.processEvents()
+        assert feld.lichter and feld.tiefen
+        assert warnung() == {"warnung_lichter": True, "warnung_tiefen": True}
+        assert aufrufe[-1] == (True, True)
+        seite.vorher_knopf.pressed.emit()
+        QApplication.processEvents()
+        assert aufrufe[-1] == (False, False)
+        seite.vorher_knopf.released.emit()
+        QApplication.processEvents()
+        assert aufrufe[-1] == (True, True)
+        feld.warnung_setzen(True, False, melden=True)         # wie ein Klick aufs Dreieck
+        assert warnung() == {"warnung_lichter": True, "warnung_tiefen": False}
+        taste_j.activated.emit()                              # nicht beide an: beide an
+        assert feld.lichter and feld.tiefen
+        taste_j.activated.emit()
+        assert not feld.lichter and not feld.tiefen
+        assert warnung() == {"warnung_lichter": False, "warnung_tiefen": False}
+    finally:
+        feld.warnung_setzen(False, False)
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+    assert not feld.isEnabled() and feld.abgeschnitten == (0, 0)
+
+
+def test_histogramm_und_warnung_in_der_100_prozent_ansicht(fenster, tmp_path, monkeypatch):
+    """Die 100-%-Ansicht fragt den Ausschnitt mit der Wahl der Warnung an, bei gedrueckter
+    „Vorher“-Taste ohne; beide Histogramme (Karten und Feld) bekommen ihre Daten."""
+    import numpy as np
+    from PIL import Image
+    from PySide6.QtWidgets import QApplication
+
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "load_config", lambda: {})
+    monkeypatch.setattr(einstellungen, "save_config", lambda daten: True)
+    seite = fenster.bearbeiten
+    pfad = str(tmp_path / "bild.png")
+    Image.new("RGB", (64, 48), (255, 120, 0)).save(pfad)
+    seite.oeffnen(pfad)
+    aufrufe = []
+    echt = seite.sitzung.ausschnitt
+
+    def merken(*args, **kwargs):
+        aufrufe.append(kwargs.get("abschneiden_zeigen"))
+        return echt(*args, **kwargs)
+
+    try:
+        QApplication.processEvents()
+        # Eingepasst: die Form der Daten beider Histogramme
+        assert seite.kurven.flaeche.histogramm.shape == (256,)
+        assert seite.histogramm.abgeschnitten == (48 * 64, 48 * 64)
+        monkeypatch.setattr(seite.sitzung, "ausschnitt", merken)
+        seite.histogramm.warnung_setzen(True, True)
+        seite.leinwand.zoom_setzen(1.0)                       # 100 %
+        QApplication.processEvents()
+        seite._zeichnen()
+        assert seite.leinwand.zoom == 1.0
+        assert aufrufe and aufrufe[-1] == (True, True)
+        assert seite.kurven.flaeche.histogramm.shape == (256,)
+        assert seite.histogramm.abgeschnitten == (48 * 64, 48 * 64)
+        seite.vorher_knopf.pressed.emit()
+        QApplication.processEvents()
+        assert aufrufe[-1] == (False, False)
+        seite.vorher_knopf.released.emit()
+        QApplication.processEvents()
+        assert aufrufe[-1] == (True, True)
+        seite.histogramm.warnung_setzen(True, False)
+        seite._zeichnen()
+        assert aufrufe[-1] == (True, False)
+        assert isinstance(seite.kurven.flaeche.histogramm, np.ndarray)
+    finally:
+        seite.histogramm.warnung_setzen(False, False)
+        seite.leinwand.zoom_setzen(None)
         seite.schliessen()
         seite._knoepfe_freischalten()

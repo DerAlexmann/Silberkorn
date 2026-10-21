@@ -74,6 +74,7 @@ from .bearbeitung import Sitzung
 from .cuda import cupy as cp
 from .drucken_dialog import DruckenDialog
 from .geometrie import VOLLER_ZUSCHNITT
+from .histogramm import HistogrammFeld
 from .kurveneditor import KurvenEditor
 from .leinwand import Leinwand, rahmen_mit_verhaeltnis
 from .metadaten_dialog import MetadatenDialog
@@ -509,14 +510,15 @@ class BearbeitenSeite(QWidget):
         self._verlauf_uhr = QTimer(self, singleShot=True, interval=VERLAUF_PAUSE_MS)
         self._verlauf_uhr.timeout.connect(self._festhalten)
 
-        # Raster: oben Werkzeugleiste und Kartenauswahl, darunter Leinwand und Karten -
-        # so beginnen Leinwand und erste Karte auf derselben Hoehe
+        # Raster: oben Werkzeugleiste und Kartenauswahl; rechts darunter das Histogramm, das
+        # nicht mitrollt, und die Karten. Die Leinwand nimmt links beide Zeilen ein und
+        # behaelt so ihre Hoehe.
         aufbau = QGridLayout(self)
         aufbau.setContentsMargins(0, 12, 0, 0)
         aufbau.setHorizontalSpacing(12)
         aufbau.setVerticalSpacing(8)
         aufbau.setColumnStretch(0, 1)
-        aufbau.setRowStretch(1, 1)
+        aufbau.setRowStretch(2, 1)
         aufbau.addLayout(self._werkzeugleiste(), 0, 0)
         self.leinwand = Leinwand()
         fenster.beschriften(self.leinwand.leer.setText, _("Noch kein Bild geöffnet."))
@@ -530,8 +532,13 @@ class BearbeitenSeite(QWidget):
         self.leinwand.lokal_loeschen.connect(self.lokal_teil_loeschen)
         self.leinwand.lokal_gemalt.connect(self._lokal_gemalt)
         self.leinwand.vergleich_gebraucht.connect(self.zeichnen_anfordern)
-        aufbau.addWidget(self.leinwand, 1, 0)
-        aufbau.addWidget(self._reglerleiste(), 1, 1)
+        aufbau.addWidget(self.leinwand, 1, 0, 2, 1)
+        self.histogramm = HistogrammFeld(REGLERLEISTE_BREITE)
+        warnung = einstellungen.warnung_gemerkt()
+        self.histogramm.warnung_setzen(*warnung)
+        self.histogramm.warnung_geaendert.connect(self._warnung_geaendert)
+        aufbau.addWidget(self.histogramm, 1, 1)
+        aufbau.addWidget(self._reglerleiste(), 2, 1)
         self.kartenwahl = self._kartenwahl()
         aufbau.addWidget(self.kartenwahl, 0, 1)
 
@@ -547,6 +554,7 @@ class BearbeitenSeite(QWidget):
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, self.wiederholen)
         QShortcut(QKeySequence(Qt.Key.Key_O), self, self._lokal_zeigen_taste)
         QShortcut(QKeySequence(Qt.Key.Key_Y), self, self._vergleich_taste)
+        QShortcut(QKeySequence(Qt.Key.Key_J), self, self._warnung_taste)
         QShortcut(QKeySequence(Qt.Key.Key_BracketLeft), self,
                   lambda: self._malen_groesse_schritt(-1))
         QShortcut(QKeySequence(Qt.Key.Key_BracketRight), self,
@@ -4055,6 +4063,9 @@ class BearbeitenSeite(QWidget):
 
     def _knoepfe_freischalten(self):
         offen = self.sitzung is not None
+        self.histogramm.setEnabled(offen)
+        if not offen:
+            self.histogramm.daten_setzen(None)
         for widget in (self.speichern_knopf, self.veroeffentlichen_knopf, self.drucken_knopf,
                        self.vorher_knopf, self.vergleich_knopf, self.zuruecksetzen_knopf):
             widget.setEnabled(offen)
@@ -4123,6 +4134,7 @@ class BearbeitenSeite(QWidget):
         if self.sitzung is None:
             self.leinwand.zeigen(None)
             self.kurven.histogramm_zeigen(None)
+            self.histogramm.daten_setzen(None)
             self.fenster.rechenzeit_zeigen(None)
             return
         werte = filter.Einstellungen() if self._vorher else self.sitzung.werte
@@ -4150,10 +4162,14 @@ class BearbeitenSeite(QWidget):
         # Die linke Haelfte des Vergleichs: das Original in der Geometrie des bearbeiteten
         # Bildes. Die Sitzung rechnet sie nur neu, wenn sich die Geometrie aendert.
         vergleich = self.leinwand.vergleich_gilt()
+        # Die Markierung abgeschnittener Pixel ist nur Anzeige - und zeigt nicht das Original
+        warnung = (False, False) if self._vorher else (self.histogramm.lichter,
+                                                       self.histogramm.tiefen)
         if self.leinwand.zoom is None:
             bild, ms, histogramm = self.sitzung.vorschau(werte=werte,
                                                          ohne_erweiterung=ohne_raender,
-                                                         ohne_flicken=self._vorher)
+                                                         ohne_flicken=self._vorher,
+                                                         abschneiden_zeigen=warnung)
             self.leinwand.zeigen(bild, self.sitzung.vorher_vorschau(werte) if vergleich else None)
         else:
             bereich = self.leinwand.sichtbarer_bereich()
@@ -4161,11 +4177,13 @@ class BearbeitenSeite(QWidget):
                 return
             x0, y0, breite, hoehe = bereich
             bild, ms, histogramm = self.sitzung.ausschnitt(x0, y0, breite, hoehe, werte,
-                                                           ohne_flicken=self._vorher)
+                                                           ohne_flicken=self._vorher,
+                                                           abschneiden_zeigen=warnung)
             vorher = self.sitzung.vorher_ausschnitt(x0, y0, breite, hoehe, werte) \
                 if vergleich else None
             self.leinwand.zeigen_ausschnitt(bild, x0, y0, vorher)
-        self.kurven.histogramm_zeigen(histogramm)
+        self.kurven.histogramm_zeigen(histogramm[3])      # die Helligkeit
+        self.histogramm.daten_setzen(histogramm, self.sitzung.abgeschnitten)
         self.fenster.rechenzeit_zeigen(ms)
         self._ki_anzeigen()
         self._ki_bild_anzeigen()
@@ -4181,6 +4199,15 @@ class BearbeitenSeite(QWidget):
         self.leinwand.vergleich = an
         self.leinwand.update()
         self.zeichnen_anfordern()
+
+    def _warnung_taste(self):
+        if self.sitzung is not None:
+            self.histogramm.beide_umschalten()
+
+    def _warnung_geaendert(self, lichter: bool, tiefen: bool):
+        einstellungen.warnung_merken(lichter, tiefen)
+        if self.sitzung is not None:
+            self.zeichnen_anfordern()
 
     def _vergleich_taste(self):
         if self.vergleich_knopf.isEnabled():

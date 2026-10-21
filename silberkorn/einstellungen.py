@@ -179,3 +179,16 @@ def begleitdateien_setzen(erlaubt: bool) -> bool:
     daten = load_config()
     daten["begleitdateien"] = bool(erlaubt)
     return save_config(daten)
+
+
+def warnung_gemerkt() -> tuple[bool, bool]:
+    """Waren die Abschneide-Warnungen zuletzt an? (Lichter, Tiefen)"""
+    daten = load_config()
+    return (daten.get("warnung_lichter") is True, daten.get("warnung_tiefen") is True)
+
+
+def warnung_merken(lichter: bool, tiefen: bool) -> bool:
+    daten = load_config()
+    daten["warnung_lichter"] = bool(lichter)
+    daten["warnung_tiefen"] = bool(tiefen)
+    return save_config(daten)

@@ -16,8 +16,24 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   pausieren den Vergleich. Das Originalbild wird nur neu gerechnet, wenn sich die
   Geometrie ändert, nicht bei jedem Reglerschritt.
 
+- **Histogramm und Warnung bei Über- und Unterbelichtung**: Über den Karten steht ein
+  festes Histogramm mit Rot, Grün, Blau (halbtransparent, überlagert) und Helligkeit,
+  immer vom ganzen Bild – auch in der 100-%-Ansicht, dort aus einer Stichprobe des
+  zwischengespeicherten Vollbilds, nicht nur vom sichtbaren Ausschnitt. Die Dreiecke
+  oben links (Tiefen) und oben rechts (Lichter) schalten je eine Warnung ein, Taste `J`
+  beide gemeinsam: Pixel, in denen ein Kanal 255 erreicht, sind im Bild rot, bei 0 blau.
+  Ein Dreieck füllt sich, sobald Pixel abgeschnitten sind, auch bei ausgeschalteter
+  Warnung. Die Markierung ist nur Anzeige: Sie fehlt beim Speichern, Exportieren,
+  Drucken, bei „Für Veröffentlichung“, bei „Vorher“ und in der linken Vergleichshälfte;
+  Farben der Masken- und Staubansicht zählen nicht als abgeschnitten. Der Zustand der
+  Warnungen steht in `silberkorn.json`, nicht in der Begleitdatei oder den
+  Voreinstellungen und nicht im Rückgängig-Verlauf.
+
 ### Geändert
 
+- Das Histogramm der Gradationskurve zeigt die Helligkeit des ganzen Bildes (bisher nur
+  des sichtbaren Ausschnitts in der 100-%-Ansicht) und ohne die Farben von Masken- und
+  Staubansicht.
 - Die Symbolknöpfe der Werkzeugleiste (🖶, ⤢, ◧) und deren Abstände sind etwas
   schmaler, damit das Fenster mit dem neuen Knopf weiterhin auf 1366 × 768 bei 125 %
   Skalierung passt.
