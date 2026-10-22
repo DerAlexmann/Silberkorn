@@ -3,6 +3,19 @@
 Das Format folgt [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Geändert
+
+- Die README ist kürzer und neu gegliedert; die ausführliche Funktionsliste, der
+  Datenschutz und die KI-Modelle stehen in `docs/`. Das ZIP enthält diese Seiten und
+  `SECURITY.md` (wie man eine Sicherheitslücke meldet) jetzt neben der EXE.
+
+### Behoben
+
+- `SECURITY.md` nennt jetzt auch die Objektivdatenbank als einzige Verbindung ohne
+  hinterlegte Prüfsumme und alles, was in `silberkorn.json` steht.
+
 ## [0.11.0] – 2026-10-21
 
 ### Neu
@@ -616,6 +629,7 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Rechengenauigkeit (FP16, FP8 ab Ada, FP4 ab Blackwell).
 - Programmsymbol, Marken- und Lizenzhinweise (NOTICE).
 
+[Unveröffentlicht]: https://github.com/DerAlexmann/Silberkorn/compare/v0.11.0...HEAD
 [0.11.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.11.0
 [0.10.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.10.0
 [0.9.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.9.0
