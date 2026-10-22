@@ -6,9 +6,10 @@ Aufruf ueber build.cmd, das die saubere Umgebung .venv-build anlegt. Ergebnis:
     dist/Silberkorn/                      der Programmordner (onedir)
     dist/Silberkorn-<Version>-win64.zip   derselbe Ordner zum Verteilen
 
-Neben die EXE kommen LICENSE, NOTICE, LICENSES/ und der Ordner lizenzen/ mit
-den Lizenztexten aller Pakete, die PyInstaller tatsaechlich eingepackt hat,
-dazu DRITTANBIETER.txt mit Paket, Fassung und Lizenz. Der Bau bricht ab, wenn
+Neben die EXE kommen LICENSE, NOTICE, LICENSES/, die READMEs samt docs/*.md
+(ohne Bilder) und der Ordner lizenzen/ mit den Lizenztexten aller Pakete, die
+PyInstaller tatsaechlich eingepackt hat, dazu DRITTANBIETER.txt mit Paket,
+Fassung und Lizenz. Der Bau bricht ab, wenn
 NVIDIA-Bibliotheken oder libheif im Ordner landen.
 
 Licensed under MIT License
@@ -295,11 +296,48 @@ allows distribution without restriction.
             shutil.copyfile(datei.locate(), unter)
 
 
-def projekt_dateien():
+def projekt_dateien(wurzel: str = WURZEL, ordner: str = ORDNER):
     for name in ("LICENSE", "NOTICE", "README.md", "README.en.md", "CHANGELOG.md"):
-        shutil.copyfile(os.path.join(WURZEL, name), os.path.join(ORDNER, name))
-    shutil.copytree(os.path.join(WURZEL, "LICENSES"), os.path.join(ORDNER, "LICENSES"),
+        shutil.copyfile(os.path.join(wurzel, name), os.path.join(ordner, name))
+    shutil.copytree(os.path.join(wurzel, "LICENSES"), os.path.join(ordner, "LICENSES"),
                     dirs_exist_ok=True)
+    # Die README verweist auf docs/*.md (Funktionen, Datenschutz, KI-Modelle); ohne sie
+    # liefen die Links im ZIP ins Leere. Die Bildschirmfotos bleiben draussen - zu gross
+    # fuer das, was sie im entpackten Ordner nuetzen.
+    docs = os.path.join(ordner, "docs")
+    os.makedirs(docs, exist_ok=True)
+    for name in sorted(os.listdir(os.path.join(wurzel, "docs"))):
+        if name.endswith(".md"):
+            shutil.copyfile(os.path.join(wurzel, "docs", name), os.path.join(docs, name))
+
+
+# Linkziele der READMEs, die bewusst nicht ins ZIP kommen: Entwicklerdokumente, die auf
+# GitHub gelesen werden. Bilder werden ohnehin nicht geprueft (siehe projekt_dateien).
+NUR_IM_REPOSITORY = {"CONTRIBUTING.md", "SECURITY.md"}
+_LINK = re.compile(r"(!?)\[[^\]]*\]\(<?([^)>\s]+)>?(?:\s+\"[^\"]*\")?\)"   # [text](ziel)
+                   r"|^\[[^\]]+\]:\s*<?([^>\s]+)", re.M)                     # [ref]: ziel
+
+
+def tote_links(ordner: str = ORDNER) -> list[str]:
+    """Relative Links der READMEs und docs/*.md, deren Ziel im Programmordner fehlt."""
+    dateien = ["README.md", "README.en.md"]
+    if os.path.isdir(os.path.join(ordner, "docs")):
+        dateien += [f"docs/{n}" for n in sorted(os.listdir(os.path.join(ordner, "docs")))
+                    if n.endswith(".md")]
+    tot = []
+    for name in dateien:
+        with open(os.path.join(ordner, name), encoding="utf-8") as datei:
+            text = re.sub(r"```.*?```", "", datei.read(), flags=re.S)
+        for bild, inline, referenz in _LINK.findall(text):
+            ziel = (inline or referenz).split("#", 1)[0]
+            if bild or not ziel or re.match(r"[a-z][a-z0-9+.-]*:", ziel, re.I):
+                continue
+            pfad = os.path.normpath(os.path.join(os.path.dirname(name), ziel))
+            if pfad.replace(os.sep, "/") in NUR_IM_REPOSITORY:
+                continue
+            if not os.path.exists(os.path.join(ordner, pfad)):
+                tot.append(f"{name} -> {ziel}")
+    return tot
 
 
 def packen() -> str:
@@ -331,6 +369,10 @@ def main():
     liste = lizenzen_beilegen()
     drittanbieter_schreiben(liste)
     projekt_dateien()
+    tot = tote_links()
+    if tot:
+        sys.exit("Diese Links liefen im ZIP ins Leere (Datei mitgeben oder Link "
+                 "anpassen):\n  " + "\n  ".join(tot))
     zip_pfad = packen()
     print(f"\nOrdner: {ORDNER} ({groesse(ORDNER) / 2**20:.0f} MB)")
     print(f"ZIP:    {zip_pfad} ({os.path.getsize(zip_pfad) / 2**20:.0f} MB)")
