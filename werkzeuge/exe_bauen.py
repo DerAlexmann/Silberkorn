@@ -6,7 +6,7 @@ Aufruf ueber build.cmd, das die saubere Umgebung .venv-build anlegt. Ergebnis:
     dist/Silberkorn/                      der Programmordner (onedir)
     dist/Silberkorn-<Version>-win64.zip   derselbe Ordner zum Verteilen
 
-Neben die EXE kommen LICENSE, NOTICE, LICENSES/, die READMEs samt docs/*.md
+Neben die EXE kommen LICENSE, NOTICE, LICENSES/, SECURITY.md, die READMEs samt docs/*.md
 (ohne Bilder) und der Ordner lizenzen/ mit den Lizenztexten aller Pakete, die
 PyInstaller tatsaechlich eingepackt hat, dazu DRITTANBIETER.txt mit Paket,
 Fassung und Lizenz. Der Bau bricht ab, wenn
@@ -297,7 +297,7 @@ allows distribution without restriction.
 
 
 def projekt_dateien(wurzel: str = WURZEL, ordner: str = ORDNER):
-    for name in ("LICENSE", "NOTICE", "README.md", "README.en.md", "CHANGELOG.md"):
+    for name in ("LICENSE", "NOTICE", "README.md", "README.en.md", "CHANGELOG.md", "SECURITY.md"):
         shutil.copyfile(os.path.join(wurzel, name), os.path.join(ordner, name))
     shutil.copytree(os.path.join(wurzel, "LICENSES"), os.path.join(ordner, "LICENSES"),
                     dirs_exist_ok=True)
@@ -313,14 +313,15 @@ def projekt_dateien(wurzel: str = WURZEL, ordner: str = ORDNER):
 
 # Linkziele der READMEs, die bewusst nicht ins ZIP kommen: Entwicklerdokumente, die auf
 # GitHub gelesen werden. Bilder werden ohnehin nicht geprueft (siehe projekt_dateien).
-NUR_IM_REPOSITORY = {"CONTRIBUTING.md", "SECURITY.md"}
+NUR_IM_REPOSITORY = {"CONTRIBUTING.md"}
 _LINK = re.compile(r"(!?)\[[^\]]*\]\(<?([^)>\s]+)>?(?:\s+\"[^\"]*\")?\)"   # [text](ziel)
                    r"|^\[[^\]]+\]:\s*<?([^>\s]+)", re.M)                     # [ref]: ziel
 
 
 def tote_links(ordner: str = ORDNER) -> list[str]:
-    """Relative Links der READMEs und docs/*.md, deren Ziel im Programmordner fehlt."""
-    dateien = ["README.md", "README.en.md"]
+    """Relative Links der READMEs, SECURITY.md und docs/*.md, deren Ziel im Programmordner
+    fehlt."""
+    dateien = ["README.md", "README.en.md", "SECURITY.md"]
     if os.path.isdir(os.path.join(ordner, "docs")):
         dateien += [f"docs/{n}" for n in sorted(os.listdir(os.path.join(ordner, "docs")))
                     if n.endswith(".md")]
@@ -335,7 +336,8 @@ def tote_links(ordner: str = ORDNER) -> list[str]:
             pfad = os.path.normpath(os.path.join(os.path.dirname(name), ziel))
             if pfad.replace(os.sep, "/") in NUR_IM_REPOSITORY:
                 continue
-            if not os.path.exists(os.path.join(ordner, pfad)):
+            # Ausserhalb des Programmordners gibt es im entpackten ZIP nichts
+            if pfad.split(os.sep)[0] == ".." or not os.path.exists(os.path.join(ordner, pfad)):
                 tot.append(f"{name} -> {ziel}")
     return tot
 
