@@ -1,4 +1,5 @@
-"""Automatik: Auto-Ton, Auto-Weißabgleich und Pipette (nur die Rechenfunktionen)."""
+"""Automatik: Auto-Ton, Auto-Weißabgleich, Pipette und Auto-Begradigen (nur die
+Rechenfunktionen)."""
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import pytest
 
 from silberkorn import automatik as a
 from silberkorn import filter as f
+from silberkorn import geometrie
 
 
 def _cupy():
@@ -342,3 +344,92 @@ def test_ton_ausgebranntes_weiss_holt_lichter_zurueck():
     ton = a.ton_automatisch(renderer(bild))
     assert ton.lichter < 0
     assert wirkung(bild, ton).weiss < wirkung(bild, a.Ton()).weiss
+
+
+# --------------------------------------------------------------------------
+# Begradigen
+# --------------------------------------------------------------------------
+
+def gerade_szene(n_hoehe: int = 480, n_breite: int = 640, seed: int = 0):
+    """Gerade Rechtecke verschiedener Helligkeit auf einem Grund - wie Fassaden und Fenster."""
+    rng = np.random.default_rng(seed)
+    bild = np.full((n_hoehe, n_breite, 3), 0.2, np.float32)
+    for _ in range(25):
+        y, x = rng.integers(0, n_hoehe - 80), rng.integers(0, n_breite - 80)
+        h, b = rng.integers(30, 160), rng.integers(30, 160)
+        bild[y:y + h, x:x + b] = rng.uniform(0.05, 0.9, 3)
+    return bild
+
+
+def schief(winkel: float, **geom):
+    """Die gerade Szene, um `winkel` Grad gedreht (so wie begradigen=winkel sie drehen würde)."""
+    return geometrie.anwenden(gerade_szene(), geometrie.Geometrie(begradigen=winkel, **geom))
+
+
+@pytest.mark.parametrize("winkel", [-7.0, -2.0, 3.5, 12.0, 19.0])
+def test_neigung_findet_den_gegenwinkel(winkel):
+    """Begradigen=-winkel stellt das um `winkel` gedrehte Bild wieder gerade."""
+    gemessen = a.neigung(schief(winkel))
+    assert gemessen is not None
+    assert gemessen == pytest.approx(-winkel, abs=0.4)
+    schritt = f.REGLER_NACH_NAME["begradigen"].schritt
+    assert gemessen / schritt == pytest.approx(round(gemessen / schritt), abs=1e-6)
+
+
+def test_neigung_gerades_bild_ist_null():
+    assert a.neigung(gerade_szene()) == pytest.approx(0.0, abs=0.2)
+
+
+def test_neigung_ueber_dem_suchbereich_wird_nicht_erkannt():
+    assert a.neigung(schief(30.0)) is None
+
+
+def test_neigung_ohne_linien():
+    assert a.neigung(np.full((300, 400, 3), 0.3, np.float32)) is None
+    rauschen = np.random.default_rng(1).random((300, 400, 3), dtype=np.float32)
+    assert a.neigung(rauschen) is None
+    assert a.neigung(np.zeros((0, 0, 3), np.float32)) is None
+
+
+def test_neigung_zu_kleines_bild():
+    assert a.neigung(np.full((15, 400, 3), 0.5, np.float32)) is None
+    assert a.neigung(np.full((400, 15, 3), 0.5, np.float32)) is None
+
+
+def test_neigung_ungerade_masse_ueber_einer_megapixel():
+    bild = geometrie.anwenden(gerade_szene(1001, 1333), geometrie.Geometrie(begradigen=-4.0))
+    assert bild.shape[0] * bild.shape[1] > 1_000_000
+    assert a.neigung(bild) == pytest.approx(4.0, abs=0.4)
+
+
+def test_neigung_ist_stabil_und_unabhaengig_vom_zoom():
+    bild = schief(-5.0)
+    assert a.neigung(bild) == a.neigung(bild)
+    gross = geometrie.anwenden(gerade_szene(960, 1280), geometrie.Geometrie(begradigen=-5.0))
+    assert a.neigung(gross) == pytest.approx(a.neigung(bild), abs=0.3)
+
+
+@pytest.mark.parametrize("spiegeln", [False, True])
+@pytest.mark.parametrize("drehung90", [0, 1, 2, 3])
+def test_begradigen_rundlauf_mit_geometrie(spiegeln, drehung90):
+    """Mit dem Ergebnis (umgerechnet fürs Spiegeln) ist das Bild nach der echten Geometrie
+    gerade - auch gespiegelt und um 90 Grad gedreht."""
+    quelle = schief(7.0)
+    winkel = a.neigung(quelle)
+    regler = a.begradigen_fuer(winkel, spiegeln)
+    ergebnis = geometrie.anwenden(quelle, geometrie.Geometrie(
+        begradigen=regler, spiegeln=spiegeln, drehung90=drehung90))
+    assert abs(a.neigung(ergebnis)) < 0.5
+    # Ohne Umrechnung wäre das Spiegelbild doppelt so schief
+    if spiegeln:
+        falsch = geometrie.anwenden(quelle, geometrie.Geometrie(
+            begradigen=winkel, spiegeln=True, drehung90=drehung90))
+        assert abs(a.neigung(falsch)) > 10
+
+
+def test_neigung_numpy_und_cupy_gleich():
+    cp = _cupy()
+    for winkel in (-7.0, 3.5, 0.0):
+        bild = schief(winkel)
+        assert a.neigung(cp.asarray(bild)) == pytest.approx(a.neigung(bild), abs=0.2)
+    assert a.neigung(cp.full((300, 400, 3), 0.3, cp.float32)) is None

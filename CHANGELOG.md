@@ -5,6 +5,13 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 
 ## [Unveröffentlicht]
 
+### Neu
+
+- **Auto-Begradigen**: Der Knopf „Auto“ auf der Karte „Geometrie“ erkennt die Neigung
+  des Bildes an den waagrechten und senkrechten Linien und stellt „Begradigen“ ein
+  (bis ±20°). Ein Schritt für „Rückgängig“; ein zweiter Klick ergibt dasselbe. Ohne klare
+  Linien (Wolken, Rauschen) bleibt der Regler, und die Statuszeile sagt es.
+
 ### Geändert
 
 - Die README ist kürzer und neu gegliedert; die ausführliche Funktionsliste, der

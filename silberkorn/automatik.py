@@ -1,11 +1,12 @@
 """
-Automatik: Auto-Ton, Auto-Weissabgleich und Weissabgleich-Pipette
+Automatik: Auto-Ton, Auto-Weissabgleich, Weissabgleich-Pipette und Auto-Begradigen
 
 Reine Rechenfunktionen ohne Qt und ohne Sitzung - die Oberflaeche ruft sie auf und
 setzt nur die vorhandenen Reglerwerte. Eine neue Bildformel gibt es hier nicht: Der
 Auto-Ton fragt ueber `render` die echte Filterkette der Sitzung und schliesst aus den
 Ergebnissen auf Belichtung, Kontrast, Lichter und Tiefen; der Weissabgleich misst nur
-und kehrt die Formel von `filter.weissabgleich` um.
+und kehrt die Formel von `filter.weissabgleich` um; das Begradigen misst die Richtung
+der Kanten und findet den Winkel, bei dem Waagrechte und Senkrechte gerade stehen.
 
 Alles rechnet mit NumPy oder CuPy (`filter.xp_von`); die Ergebnisse sind Zahlen auf dem
 Reglerraster, damit mehrfaches Druecken dasselbe ergibt.
@@ -243,3 +244,93 @@ def ton_automatisch(render: Callable[[Ton], object]) -> Ton:
         nach = _messen(render(ton))
         ton = dataclasses.replace(ton, belichtung=_belichtung_fuer(nach, belichtung))
     return ton
+
+
+# ---------------------------------------------------------------------------
+# Begradigen
+# ---------------------------------------------------------------------------
+
+NEIGUNG_BEREICH = 20.0           # so weit darf das Bild schief sein (Grad), mehr wird nicht gesucht
+NEIGUNG_PIXEL = 1_000_000        # auf so viele Pixel wird zum Messen verkleinert
+NEIGUNG_GLAETTEN = 1.0           # Unschaerfe vor den Kanten (Pixel des verkleinerten Bildes)
+NEIGUNG_STUFE = 0.25             # Breite eines Histogrammfachs (Grad)
+NEIGUNG_FENSTER = 1.5            # um den Gipfel zaehlt dieser Abstand (Grad)
+NEIGUNG_KANTE = 0.25             # nur Kanten ab diesem Anteil der 99. Perzentil-Staerke zaehlen
+NEIGUNG_KANTE_MIN = 0.02         # und mindestens so stark (Unterschied in sRGB-Helligkeit)
+NEIGUNG_MIN_PIXEL = 500          # so viele Kantenpixel braucht es mindestens
+NEIGUNG_MIN_ANTEIL = 0.002       # ... und so viel Anteil an allen Pixeln
+NEIGUNG_KLAR = 4.0               # der Gipfel muss so viel mal ueber dem Durchschnitt liegen
+
+
+def _verkleinern(bild):
+    """Blockmittel auf etwa NEIGUNG_PIXEL - mittelt statt auszulassen, damit feine Linien
+    nicht zu Treppen werden."""
+    hoehe, breite = bild.shape
+    schritt = max(1, math.ceil(math.sqrt(hoehe * breite / NEIGUNG_PIXEL)))
+    if schritt == 1:
+        return bild
+    h, b = hoehe // schritt * schritt, breite // schritt * schritt
+    return bild[:h, :b].reshape(h // schritt, schritt, b // schritt, schritt).mean(axis=(1, 3))
+
+
+def neigung(rgb_linear) -> float | None:
+    """Winkel fuer den Regler `begradigen`, der das Bild gerade stellt, oder None.
+
+    Gemessen wird die Richtung der Kanten, gewichtet nach Staerke; was waagrecht oder
+    senkrecht sein soll, haeuft sich um den Winkel der Schieflage (beide Richtungen zaehlen
+    zusammen). Gesucht wird nur bis ±NEIGUNG_BEREICH. Der Wert gilt fuer das Bild, wie es
+    ist: ohne Drehen und Spiegeln (die rechnet die Sitzung um) und ohne Perspektive.
+    rgb_linear: (H, W, 3), linear.
+
+    None, wenn zu wenig Kanten da sind oder sich keine Richtung deutlich haeuft (Wolken,
+    Rauschen, Muster in alle Richtungen).
+    """
+    if min(rgb_linear.shape[:2]) < 16:
+        return None
+    xp = f.xp_von(rgb_linear)
+    hell = f.linear_zu_srgb(xp.clip(f.luminanz(rgb_linear.astype(xp.float32)), 0, 1))
+    hell = f.gauss(_verkleinern(hell), NEIGUNG_GLAETTEN)
+    # Sobel
+    gx = (hell[:-2, 2:] + 2 * hell[1:-1, 2:] + hell[2:, 2:]
+          - hell[:-2, :-2] - 2 * hell[1:-1, :-2] - hell[2:, :-2]) / 8
+    gy = (hell[2:, :-2] + 2 * hell[2:, 1:-1] + hell[2:, 2:]
+          - hell[:-2, :-2] - 2 * hell[:-2, 1:-1] - hell[:-2, 2:]) / 8
+    staerke = xp.sqrt(gx * gx + gy * gy)
+    grenze = max(NEIGUNG_KANTE_MIN, NEIGUNG_KANTE * float(xp.percentile(staerke, 99)))
+    stark = staerke > grenze
+    anzahl = int(stark.sum())
+    if anzahl < max(NEIGUNG_MIN_PIXEL, NEIGUNG_MIN_ANTEIL * staerke.size):
+        return None
+    # Richtung der Linie (y nach unten) ist senkrecht zum Verlauf; Abstand zur naechsten
+    # Waagrechten oder Senkrechten in [-45, 45)
+    linie = xp.degrees(xp.arctan2(gx[stark], -gy[stark]))
+    abweichung = (linie + 45.0) % 90.0 - 45.0
+    abweichung = np.asarray(xp.asnumpy(abweichung) if xp is not np else abweichung,
+                            dtype=np.float64)
+    gewicht = np.asarray(xp.asnumpy(staerke[stark]) if xp is not np else staerke[stark],
+                         dtype=np.float64)
+    faecher = np.arange(-45.0, 45.0 + NEIGUNG_STUFE, NEIGUNG_STUFE)
+    histogramm, _ = np.histogram(abweichung, bins=faecher, weights=gewicht)
+    mitten = (faecher[:-1] + faecher[1:]) / 2
+    breite = max(1, round(NEIGUNG_FENSTER / NEIGUNG_STUFE))
+    summe = np.convolve(histogramm, np.ones(2 * breite + 1), mode="same")
+    erlaubt = np.abs(mitten) <= NEIGUNG_BEREICH
+    if not erlaubt.any():
+        return None
+    gipfel = int(np.argmax(np.where(erlaubt, summe, -1.0)))
+    mitte = float(mitten[gipfel])
+    nah = np.abs(abweichung - mitte) <= NEIGUNG_FENSTER
+    anteil = float(gewicht[nah].sum()) / float(gewicht.sum())
+    gleichverteilt = 2 * NEIGUNG_FENSTER / 90.0
+    if anteil < NEIGUNG_KLAR * gleichverteilt:
+        return None
+    schief = float(np.average(abweichung[nah], weights=gewicht[nah]))
+    return _auf_regler("begradigen", -schief)
+
+
+def begradigen_fuer(winkel: float, spiegeln: bool) -> float:
+    """Der Reglerwert, der ein Bild mit der Schieflage `winkel` (aus `neigung`) gerade
+    stellt, wenn es gespiegelt wird. Begradigen wirkt vor dem Spiegeln und der Drehung um
+    90 Grad (geometrie._rueckwaerts): Im Spiegelbild steht die Schieflage andersherum, die
+    Vierteldrehung aendert sie nicht."""
+    return _auf_regler("begradigen", -winkel if spiegeln else winkel)
