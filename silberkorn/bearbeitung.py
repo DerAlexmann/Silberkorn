@@ -1153,6 +1153,19 @@ class Sitzung:
         nichts Messbares da ist. Unabhaengig von den jetzigen Werten."""
         return automatik.weissabgleich_auto(self._weiss_bild())
 
+    def begradigen_auto(self) -> float | None:
+        """Winkel fuer den Regler `begradigen`, der das Bild gerade stellt, oder None, wenn
+        keine klaren Linien da sind. Gemessen wird das Bild vor der Geometrie (ohne die
+        grauen Raender einer KI-Erweiterung), darum ist der Winkel absolut und ein zweiter
+        Aufruf liefert dasselbe."""
+        werte = self.werte
+        eingang = self._anonymisieren(self._ausgang(werte, False, leinwand=False), werte,
+                                      False, False)
+        winkel = automatik.neigung(eingang)
+        if winkel is None:
+            return None
+        return automatik.begradigen_fuer(winkel, werte.spiegeln)
+
     def weissabgleich_punkt(self, x: float, y: float) -> tuple[float, float] | None:
         """Dasselbe fuer die Umgebung des Punktes (x, y) im fertigen Bild (Pixel in voller
         Aufloesung): Dieser Punkt wird neutral."""

@@ -137,7 +137,8 @@
   knows it.
 - **Geometry**: rotate by 90°, flip, straighten, vertical and horizontal perspective, crop
   with a frame and fixed aspect ratios. Empty corners after straightening are cropped
-  away automatically.
+  away automatically. "Auto" sets the straightening from the horizontal and vertical lines
+  in the image (up to ±20°); without clear lines the slider stays as it is.
 - **Lens**: correct distortion, vignetting and colour fringes (chromatic aberration) – by
   hand or automatically with **lens profiles** from the [lensfun](https://lensfun.github.io)
   database (CC BY-SA 3.0). Camera, lens, focal length and aperture are read from the

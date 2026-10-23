@@ -987,7 +987,8 @@ def test_automatik_ohne_bild_gesperrt_und_keine_neuen_einstellungen(fenster):
     from silberkorn import filter as f
     seite = fenster.bearbeiten
     assert seite.sitzung is None
-    for knopf in (seite.ton_auto_knopf, seite.wb_auto_knopf, seite.wb_pipette_knopf):
+    for knopf in (seite.ton_auto_knopf, seite.wb_auto_knopf, seite.wb_pipette_knopf,
+                  seite.gerade_auto_knopf):
         assert not knopf.isEnabled()
     # Die Automatik setzt nur vorhandene Reglerwerte - kein eigenes Feld in den Einstellungen
     namen = {feld.name for feld in dataclasses.fields(f.Einstellungen)}
@@ -1034,6 +1035,197 @@ def test_auto_ton_ein_schritt_und_stabil(fenster, tmp_path, monkeypatch):
         mit_saettigung = dataclasses.replace(seite.sitzung.werte)
         seite.ton_auto_knopf.click()
         assert seite.sitzung.werte.saettigung == mit_saettigung.saettigung == 20
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_auto_begradigen_ein_schritt_stabil_und_auch_bei_schwarzweiss(fenster, tmp_path,
+                                                                       monkeypatch):
+    import dataclasses
+
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import einstellungen, geometrie
+    from silberkorn import filter as f
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    rng = np.random.default_rng(5)
+    gerade = np.full((240, 320, 3), 0.2, np.float32)
+    for _ in range(20):
+        y, x = rng.integers(0, 160), rng.integers(0, 240)
+        gerade[y:y + rng.integers(20, 80), x:x + rng.integers(20, 80)] = rng.uniform(0.05, 0.9, 3)
+    schief = geometrie.anwenden(gerade, geometrie.Geometrie(begradigen=4.0))
+    pfad = str(tmp_path / "schief.png")
+    Image.fromarray(np.asarray(f.nach_8bit(schief))).save(pfad)
+    leer = str(tmp_path / "leer.png")
+    Image.fromarray(np.full((60, 80, 3), 90, np.uint8)).save(leer)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert seite.gerade_auto_knopf.isEnabled()
+        assert seite.gerade_auto_knopf.accessibleName()
+        vorher = dataclasses.replace(seite.sitzung.werte)
+        seite.gerade_auto_knopf.click()
+        werte = seite.sitzung.werte
+        assert werte.begradigen == pytest.approx(-4.0, abs=0.5)
+        assert seite.zeilen["begradigen"].wert() == werte.begradigen
+        assert "Auto-Begradigen" in fenster.statusmeldung.text()
+        _nur_geaendert(seite, vorher, ("begradigen",))
+        seite._festhalten(sofort=True)
+        assert "Auto-Begradigen" in seite.rueckgaengig_knopf.toolTip()
+        erster = dataclasses.replace(werte)
+        seite.gerade_auto_knopf.click()                           # absolut: dasselbe
+        seite._festhalten(sofort=True)
+        assert seite.sitzung.werte == erster
+        seite.rueckgaengig()
+        assert seite.sitzung.werte == vorher and not seite.rueckgaengig_knopf.isEnabled()
+        # Schwarzweiß sperrt den Knopf nicht
+        seite.sw_box.setChecked(True)
+        assert seite.gerade_auto_knopf.isEnabled()
+        seite.gerade_auto_knopf.click()
+        assert seite.sitzung.werte.begradigen == pytest.approx(-4.0, abs=0.5)
+        seite.sw_box.setChecked(False)
+        # Ohne klare Linien bleibt der Wert, und die Statuszeile sagt es
+        seite.schliessen()
+        seite.oeffnen(leer)
+        seite.gerade_auto_knopf.click()
+        assert seite.sitzung.werte.begradigen == 0.0
+        assert "Keine klaren Linien" in fenster.statusmeldung.text()
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def _schiefes_bild(pfad: str, winkel: float = 4.0):
+    """Gerade Rechtecke, um `winkel` Grad gedreht, als PNG."""
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import filter as f
+    from silberkorn import geometrie
+    rng = np.random.default_rng(5)
+    gerade = np.full((240, 320, 3), 0.2, np.float32)
+    for _ in range(20):
+        y, x = rng.integers(0, 160), rng.integers(0, 240)
+        gerade[y:y + rng.integers(20, 80), x:x + rng.integers(20, 80)] = rng.uniform(0.05, 0.9, 3)
+    schief = geometrie.anwenden(gerade, geometrie.Geometrie(begradigen=winkel))
+    Image.fromarray(np.asarray(f.nach_8bit(schief))).save(pfad)
+
+
+def _gerendert_schief(seite) -> float:
+    """Neigung des Bildes, wie die Sitzung es fertig rendert."""
+    from silberkorn import automatik
+    from silberkorn import filter as f
+    return automatik.neigung(f.von_8bit(seite.sitzung.vorschau()[0]))
+
+
+def test_begradigen_auto_spiegeln_und_drehen_in_der_sitzung(fenster, tmp_path, monkeypatch):
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "schief.png")
+    _schiefes_bild(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        werte = seite.sitzung.werte
+        ungespiegelt = seite.sitzung.begradigen_auto()
+        assert ungespiegelt == pytest.approx(-4.0, abs=0.5)
+        for spiegeln, drehung90 in ((True, 0), (True, 1), (False, 1)):
+            werte.spiegeln, werte.drehung90 = spiegeln, drehung90
+            winkel = seite.sitzung.begradigen_auto()
+            assert winkel == (-ungespiegelt if spiegeln else ungespiegelt)
+            werte.begradigen = winkel
+            assert abs(_gerendert_schief(seite)) < 0.7, (spiegeln, drehung90)
+        # Gegenprobe: mit dem Wert des ungespiegelten Bildes bliebe das Spiegelbild schief
+        werte.spiegeln, werte.drehung90, werte.begradigen = True, 0, ungespiegelt
+        assert abs(_gerendert_schief(seite)) > 5
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_begradigen_auto_ignoriert_den_jetzigen_wert_und_misst_im_zuschnitt(
+        fenster, tmp_path, monkeypatch):
+    from silberkorn import einstellungen
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "schief.png")
+    _schiefes_bild(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        werte = seite.sitzung.werte
+        bei_null = seite.sitzung.begradigen_auto()
+        werte.begradigen = 10.0
+        assert seite.sitzung.begradigen_auto() == bei_null
+        werte.zuschnitt = (0.1, 0.1, 0.9, 0.9)
+        seite.gerade_auto_knopf.click()               # mit Zuschnitt kein Absturz
+        assert seite.sitzung.werte.begradigen == pytest.approx(bei_null, abs=0.5)
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_auto_begradigen_am_anschlag_und_sperre_nach_schliessen(fenster, tmp_path, monkeypatch):
+    from silberkorn import automatik, einstellungen
+    from silberkorn import filter as f
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "schief.png")
+    _schiefes_bild(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        # _auf_regler klemmt auf den Reglerbereich (±45), nicht auf den Suchbereich (±20)
+        regler = f.REGLER_NACH_NAME["begradigen"]
+        assert automatik._auf_regler("begradigen", 99) == regler.maximum == 45.0
+        assert automatik._auf_regler("begradigen", -99) == regler.minimum
+        assert automatik._auf_regler("begradigen", 25) == 25.0
+        monkeypatch.setattr(seite.sitzung, "begradigen_auto", lambda: regler.maximum)
+        seite.gerade_auto_knopf.click()
+        assert seite.sitzung.werte.begradigen == regler.maximum
+        assert "am Ende des Reglers" in fenster.statusmeldung.text()
+        seite.schliessen()
+        seite._knoepfe_freischalten()                 # wie nach dem Schließen im Programm
+        assert not seite.gerade_auto_knopf.isEnabled()
+        fenster.melden("unberührt")
+        seite.auto_begradigen()                       # ohne Bild: tut nichts
+        assert fenster.statusmeldung.text() == "unberührt"
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+@pytest.mark.parametrize("art", ["ki", "speicher"])
+def test_auto_begradigen_fehler_meldet_und_aendert_nichts(fenster, tmp_path, monkeypatch, art):
+    import dataclasses
+
+    import cupy as cp
+    from PySide6.QtWidgets import QApplication
+
+    from silberkorn import einstellungen, ki
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "schief.png")
+    _schiefes_bild(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        seite._festhalten(sofort=True)
+        tooltip = seite.rueckgaengig_knopf.toolTip()
+        vorher = dataclasses.replace(seite.sitzung.werte)
+        fehler = (ki.KiFehler("kaputt") if art == "ki"
+                  else cp.cuda.memory.OutOfMemoryError(1, 1))
+
+        def werfen():
+            raise fehler
+        monkeypatch.setattr(seite.sitzung, "begradigen_auto", werfen)
+        gemeldet = []
+        monkeypatch.setattr(seite, "_fehler", lambda text, einzelheiten: gemeldet.append(text))
+        seite.gerade_auto_knopf.click()
+        seite._festhalten(sofort=True)
+        assert gemeldet
+        assert seite.sitzung.werte == vorher
+        assert seite.rueckgaengig_knopf.toolTip() == tooltip
+        assert QApplication.overrideCursor() is None
     finally:
         seite.schliessen()
         seite._knoepfe_freischalten()
@@ -1313,6 +1505,8 @@ def test_pipette_trifft_den_geklickten_punkt_mit_geometrie(fenster, tmp_path, mo
     ("auto_weissabgleich", "weissabgleich_auto", "ki"),
     ("pipette", "weissabgleich_punkt", "speicher"),
     ("pipette", "weissabgleich_punkt", "ki"),
+    ("auto_begradigen", "begradigen_auto", "speicher"),
+    ("auto_begradigen", "begradigen_auto", "ki"),
 ])
 def test_automatik_fehlerweg_aendert_nichts(fenster, tmp_path, monkeypatch, aufruf, methode,
                                             fehler):

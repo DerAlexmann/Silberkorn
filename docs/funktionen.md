@@ -161,7 +161,9 @@
   Angabe wählt der Dialog Papier in 10 × 15 cm, wenn der Drucker es kennt.
 - **Geometrie**: um 90° drehen, spiegeln, begradigen, Perspektive senkrecht
   und waagrecht, Zuschneiden mit Rahmen und festen Seitenverhältnissen. Leere
-  Ecken nach dem Begradigen werden automatisch weggeschnitten.
+  Ecken nach dem Begradigen werden automatisch weggeschnitten. „Auto“ stellt das
+  Begradigen an den waagrechten und senkrechten Linien im Bild ein (bis ±20°); ohne
+  klare Linien bleibt der Regler, wie er ist.
 - **Objektiv**: Verzeichnung, Vignette und Farbsäume (chromatische Aberration)
   ausgleichen – von Hand oder automatisch mit **Objektivprofilen** aus der
   Datenbank von [lensfun](https://lensfun.github.io) (CC BY-SA 3.0). Kamera,

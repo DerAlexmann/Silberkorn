@@ -1283,6 +1283,15 @@ TRANSLATIONS = {
         "gemessen im Zuschnitt. Alle anderen Regler bleiben.":
             "Sets exposure, contrast, highlights and shadows for a balanced image – measured "
             "in the crop. All other sliders stay as they are.",
+        "Richtet das Bild an waagrechten und senkrechten Linien aus und stellt „Begradigen“ "
+        "ein (bis ±20°). Perspektive bleibt unberührt.":
+            "Aligns the image to horizontal and vertical lines and sets “Straighten” "
+            "(up to ±20°). Perspective is left alone.",
+        "Automatisch begradigen": "Straighten automatically",
+        "Auto-Begradigen": "Auto straighten",
+        "Auto-Begradigen: {werte}": "Auto straighten: {werte}",
+        "Auto-Begradigen: Keine klaren Linien gefunden.":
+            "Auto straighten: no clear lines found.",
         "Auto-Ton": "Auto tone",
         "Auto-Weißabgleich": "Auto white balance",
         "Weißabgleich-Pipette": "White balance picker",

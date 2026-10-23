@@ -849,6 +849,18 @@ class BearbeitenSeite(QWidget):
         self.erweitern_knopf = self._knopf("", self.erweitern, "kanal")
         innen.addWidget(self.erweitern_knopf)
 
+        leiste = QHBoxLayout()
+        leiste.setSpacing(4)
+        self.gerade_auto_knopf = self._knopf(_("Auto"), self.auto_begradigen, "kanal")
+        self.fenster.beschriften(self.gerade_auto_knopf.setToolTip, _(
+            "Richtet das Bild an waagrechten und senkrechten Linien aus und stellt „Begradigen“ "
+            "ein (bis ±20°). Perspektive bleibt unberührt."))
+        self.fenster.beschriften(self.gerade_auto_knopf.setAccessibleName,
+                                 _("Automatisch begradigen"))
+        leiste.addWidget(self.gerade_auto_knopf, 1)
+        leiste.addStretch(1)
+        innen.addLayout(leiste)
+
     # ------------------------------------------------------------------
     # Objektivprofil (lensfun)
     # ------------------------------------------------------------------
@@ -2216,6 +2228,7 @@ class BearbeitenSeite(QWidget):
             self.auswahl_beenden()                # ruft diese Funktion noch einmal auf
             return
         self.ton_auto_knopf.setEnabled(offen)
+        self.gerade_auto_knopf.setEnabled(offen)
         self.wb_auto_knopf.setEnabled(farbig)
         self.wb_pipette_knopf.setEnabled(farbig)
         wartet = self._klick_ziel == "wb"
@@ -2307,6 +2320,32 @@ class BearbeitenSeite(QWidget):
         felder = {"temperatur": ergebnis[0], "toenung": ergebnis[1]}
         self._auto_setzen("auto_wb", felder)
         text = _("Auto-Weißabgleich: {werte}").format(werte=self._werte_text(felder))
+        if self._am_anschlag(felder):
+            text += " " + _("– am Ende des Reglers, ganz ausgleichen lässt es sich nicht.")
+        self.fenster.melden(text)
+
+    def auto_begradigen(self):
+        if self.sitzung is None:
+            return
+        self.zuschneiden(False)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        fehler = None
+        try:
+            winkel = self.sitzung.begradigen_auto()
+        except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as aufgetreten:
+            fehler = aufgetreten
+        finally:
+            QApplication.restoreOverrideCursor()
+            cp.get_default_memory_pool().free_all_blocks()
+        if fehler is not None:
+            self._automatik_fehler(fehler)
+            return
+        if winkel is None:
+            self.fenster.melden(_("Auto-Begradigen: Keine klaren Linien gefunden."))
+            return
+        felder = {"begradigen": winkel}
+        self._auto_setzen("auto_gerade", felder)
+        text = _("Auto-Begradigen: {werte}").format(werte=self._werte_text(felder))
         if self._am_anschlag(felder):
             text += " " + _("– am Ende des Reglers, ganz ausgleichen lässt es sich nicht.")
         self.fenster.melden(text)
@@ -4628,6 +4667,8 @@ class BearbeitenSeite(QWidget):
             return _("Auto-Ton")
         if name == "auto_wb":
             return _("Auto-Weißabgleich")
+        if name == "auto_gerade":
+            return _("Auto-Begradigen")
         if name == "wb_pipette":
             return _("Weißabgleich-Pipette")
         teile = dict(vorher.teile), dict(nachher.teile)
