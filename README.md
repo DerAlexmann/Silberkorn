@@ -29,14 +29,15 @@ Unterstützt Hardwarebeschleunigung über NVIDIA CUDA und Grafikkarten der RTX-S
 - **KI-Werkzeuge**: Hochskalieren, Motiv und Hintergrund (BiRefNet), Objekt per Klick
   (SAM 2), Objekte entfernen (LaMa), Tiefe und Bokeh (Depth Anything V2), Kolorieren
   und Erweitern.
-- **Geometrie und Objektiv**: Zuschnitt, Drehen, Begradigen, Perspektive und
-  Objektivkorrektur.
+- **Geometrie und Objektiv**: Zuschnitt, Drehen, Begradigen (auch automatisch),
+  Perspektive und Objektivkorrektur.
 - **16 Bit, RAW, Scan und Film**: RAW-Entwicklung auf der GPU, TIFF und PNG mit 16 Bit,
   Negative aus Scanner oder Kamera ins Positiv wandeln, Staub über den Infrarotkanal
   entfernen.
 - **Abgeben**: Anonymisieren, Metadaten bereinigen, für die Veröffentlichung speichern und
   Drucken.
-- **Arbeiten mit vielen Bildern**: Ordneransicht, Bewertung, Stapel und Voreinstellungen.
+- **Arbeiten mit vielen Bildern**: Ordneransicht, Bewertung, Stapel, Kontaktbogen und
+  Voreinstellungen.
 - **Nicht-destruktiv**: Rückgängig und Wiederholen, Einstellungen liegen in einer
   Begleitdatei neben dem Bild, das Original bleibt unverändert.
 

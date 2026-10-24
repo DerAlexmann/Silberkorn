@@ -5,6 +5,8 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 
 ## [Unveröffentlicht]
 
+## [0.12.0] – 2026-10-24
+
 ### Neu
 
 - **Auto-Begradigen**: Der Knopf „Auto“ auf der Karte „Geometrie“ erkennt die Neigung
@@ -648,7 +650,8 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Rechengenauigkeit (FP16, FP8 ab Ada, FP4 ab Blackwell).
 - Programmsymbol, Marken- und Lizenzhinweise (NOTICE).
 
-[Unveröffentlicht]: https://github.com/DerAlexmann/Silberkorn/compare/v0.11.0...HEAD
+[Unveröffentlicht]: https://github.com/DerAlexmann/Silberkorn/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.12.0
 [0.11.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.11.0
 [0.10.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.10.0
 [0.9.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.9.0

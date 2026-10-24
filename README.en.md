@@ -29,12 +29,13 @@ Supports hardware acceleration via NVIDIA CUDA / RTX series GPUs.
   (Restormer) and film grain with adjustable strength and size.
 - **AI tools**: upscaling, subject and background (BiRefNet), object by click (SAM 2),
   remove objects (LaMa), depth and bokeh (Depth Anything V2), colourise and extend.
-- **Geometry and lens**: crop, rotate, straighten, perspective and lens correction.
+- **Geometry and lens**: crop, rotate, straighten (also automatically), perspective and lens
+  correction.
 - **16-bit, RAW, scan and film**: RAW development on the GPU, 16-bit TIFF and PNG,
   negatives from a scanner or camera turned into positives, dust removed via the
   infrared channel.
 - **Hand-off**: anonymise, clean metadata, save for publishing and print.
-- **Working with many images**: folder view, ratings, batch and presets.
+- **Working with many images**: folder view, ratings, batch, contact sheet and presets.
 - **Non-destructive**: undo and redo; settings live in a sidecar file next to the image
   and the original stays untouched.
 
