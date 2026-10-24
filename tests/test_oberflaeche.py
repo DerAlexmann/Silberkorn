@@ -2689,3 +2689,213 @@ def test_monitorprofil_erst_kaputt_dann_gut(fenster, monitor):
     assert "Kaputt.icc" not in fenster.monitor_box.toolTip()
     fenster.monitor_box.setChecked(True)
     assert anzeigeprofil.aktiv() is not None
+
+
+# --------------------------------------------------------------------------
+# Kontaktbogen
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def bogen(fenster, bewertung_umgebung, tmp_path, monkeypatch):
+    """Der Dialog nimmt sofort an, mit PDF; gespeichert wird unter tmp_path/ziel."""
+    from PySide6.QtWidgets import QDialog, QFileDialog
+
+    from silberkorn import kontaktbogen_dialog
+    from silberkorn.drucken_dialog import PDF
+    seite, konfiguration = bewertung_umgebung
+    ablauf = {"annehmen": True, "ziel": str(tmp_path / "ziel" / "bogen"), "dialog": None}
+    (tmp_path / "ziel").mkdir()
+
+    def ausfuehren(dialog):
+        ablauf["dialog"] = dialog
+        dialog.drucker_wahl.setCurrentIndex(dialog.drucker_wahl.findData(PDF))
+        return QDialog.DialogCode.Accepted if ablauf["annehmen"] else QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(kontaktbogen_dialog.KontaktbogenDialog, "exec", ausfuehren)
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *_a, **_k: (ablauf["ziel"], "")))
+    return seite, konfiguration, ablauf
+
+
+def _reste(ordner):
+    return [n for n in os.listdir(ordner) if n.endswith(".teil")]
+
+
+def test_kontaktbogen_als_pdf(fenster, bogen, tmp_path):
+    from PySide6.QtPdf import QPdfDocument
+    seite, konfiguration, ablauf = bogen
+    assert seite.bogen_knopf.isEnabled()
+    assert seite.bogen_knopf.accessibleName() == "Kontaktbogen"
+    seite.kontaktbogen_starten()
+    assert [os.path.basename(p) for p, _s in ablauf["dialog"]._alle] == ["a.jpg", "b.jpg",
+                                                                         "c.jpg"]
+    ziel = tmp_path / "ziel" / "bogen.pdf"                  # die Endung kommt dazu
+    dokument = QPdfDocument()
+    dokument.load(str(ziel))
+    assert dokument.pageCount() == 1
+    assert _reste(tmp_path / "ziel") == []
+    assert "gespeichert" in fenster.statusmeldung.text()
+    assert konfiguration["kontaktbogen"]["drucker"] == ":pdf:"
+
+
+def test_kontaktbogen_nur_die_auswahl(fenster, bogen, tmp_path, monkeypatch):
+    from silberkorn import kontaktbogen
+    seite, _konfiguration, _ablauf = bogen
+    _klicken(seite, str(tmp_path / "b.jpg"))
+    erhalten = []
+    monkeypatch.setattr(kontaktbogen, "ausgeben",
+                        lambda drucker, gitter, eintraege, *_a: erhalten.extend(eintraege) or [])
+    seite.kontaktbogen_starten()
+    assert [os.path.basename(p) for p, _s in erhalten] == ["b.jpg"]
+
+
+def test_kontaktbogen_abbrechen_gibt_nichts_aus(fenster, bogen, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QProgressDialog
+    seite, _konfiguration, ablauf = bogen
+    ziel = tmp_path / "ziel" / "bogen.pdf"
+    ziel.write_bytes(b"alt")
+    ablauf["ziel"] = str(ziel)
+    monkeypatch.setattr(QProgressDialog, "wasCanceled", lambda self: True)
+    seite.kontaktbogen_starten()
+    assert ziel.read_bytes() == b"alt"
+    assert _reste(tmp_path / "ziel") == []
+    assert "abgebrochen" in fenster.statusmeldung.text()
+
+
+def test_kontaktbogen_fehler_beim_ausgeben(fenster, bogen, tmp_path, monkeypatch):
+    from silberkorn import kontaktbogen
+    seite, _konfiguration, _ablauf = bogen
+
+    def kaputt(*_a):
+        raise OSError("Platte voll")
+
+    monkeypatch.setattr(kontaktbogen, "ausgeben", kaputt)
+    seite.kontaktbogen_starten()
+    assert not (tmp_path / "ziel" / "bogen.pdf").exists()
+    assert _reste(tmp_path / "ziel") == []
+    assert "Platte voll" in fenster.statusmeldung.text()
+    assert fenster.statusmeldung.objectName() == "warnung"
+
+
+def test_kontaktbogen_dialog_abgebrochen(fenster, bogen, tmp_path, monkeypatch):
+    from silberkorn import kontaktbogen
+    seite, konfiguration, ablauf = bogen
+    ablauf["annehmen"] = False
+    monkeypatch.setattr(kontaktbogen, "ausgeben", lambda *_a: pytest.fail("ausgegeben"))
+    seite.kontaktbogen_starten()
+    assert "kontaktbogen" not in konfiguration
+    assert os.listdir(tmp_path / "ziel") == []
+
+
+def test_kontaktbogen_nicht_ladbares_bild_wird_genannt(fenster, bogen, tmp_path):
+    seite, _konfiguration, _ablauf = bogen
+    (tmp_path / "c.jpg").write_bytes(b"kein Bild mehr")
+    seite.kontaktbogen_starten()
+    assert (tmp_path / "ziel" / "bogen.pdf").is_file()
+    assert "c.jpg" in fenster.statusmeldung.text()
+    assert fenster.statusmeldung.objectName() == "warnung"
+
+
+def test_kontaktbogen_knopf_ohne_bilder_gesperrt(fenster, bewertung_umgebung, tmp_path):
+    seite, _konfiguration = bewertung_umgebung
+    seite.ordner_zeigen(str(tmp_path / "unter"))
+    assert not seite.bogen_knopf.isEnabled()
+
+
+def test_kontaktbogen_ziel_nicht_beschreibbar(fenster, bogen, tmp_path, monkeypatch):
+    import tempfile
+
+    from silberkorn import kontaktbogen
+    seite, _konfiguration, _ablauf = bogen
+
+    def verboten(*_a, **_k):
+        raise PermissionError("Zugriff verweigert")
+
+    monkeypatch.setattr(tempfile, "mkstemp", verboten)
+    monkeypatch.setattr(kontaktbogen, "ausgeben", lambda *_a: pytest.fail("ausgegeben"))
+    seite.kontaktbogen_starten()
+    assert "Zugriff verweigert" in fenster.statusmeldung.text()
+    assert fenster.statusmeldung.objectName() == "warnung"
+
+
+def test_kontaktbogen_folgt_der_sortierung(fenster, bogen, tmp_path, monkeypatch):
+    """Ganzer Ordner und Auswahl kommen in der Reihenfolge der Ansicht - nicht in der
+    Reihenfolge der Klicks; die Sterne kommen aus der Ordneransicht."""
+    from PySide6.QtCore import QItemSelectionModel
+
+    from silberkorn import bewertung, kontaktbogen
+    seite, _konfiguration, _ablauf = bogen
+    bewertung.schreiben(str(tmp_path / "a.jpg"), 2)
+    bewertung.schreiben(str(tmp_path / "c.jpg"), 5)
+    seite.ordner_zeigen(str(tmp_path))
+    _bewertungen_warten()
+    seite.sortierung.setCurrentIndex(seite.sortierung.findData("sterne"))
+    erhalten = []
+    monkeypatch.setattr(kontaktbogen, "ausgeben",
+                        lambda drucker, gitter, eintraege, *_a: erhalten.append(eintraege) or [])
+    seite.kontaktbogen_starten()
+    assert [(os.path.basename(p), s.wert) for p, s in erhalten[-1]] == [
+        ("c.jpg", 5), ("a.jpg", 2), ("b.jpg", 0)]
+    auswahl = seite.liste.selectionModel()
+    auswahl.clearSelection()
+    for name in ("a.jpg", "c.jpg"):                      # erst a, dann c geklickt
+        zeile = [os.path.basename(p) for p in seite.modell.pfade].index(name)
+        auswahl.select(seite.modell.index(zeile), QItemSelectionModel.SelectionFlag.Select)
+    seite.kontaktbogen_starten()
+    assert [os.path.basename(p) for p, _s in erhalten[-1]] == ["c.jpg", "a.jpg"]
+
+
+def test_kontaktbogen_ersetzt_vorhandene_pdf(fenster, bogen, tmp_path):
+    seite, _konfiguration, ablauf = bogen
+    ziel = tmp_path / "ziel" / "bogen.pdf"
+    ziel.write_bytes(b"alt")
+    ablauf["ziel"] = str(ziel)
+    seite.kontaktbogen_starten()
+    assert ziel.read_bytes().startswith(b"%PDF")
+    assert _reste(tmp_path / "ziel") == []
+
+
+def test_kontaktbogen_ohne_zielwahl(fenster, bogen, tmp_path, monkeypatch):
+    from silberkorn import kontaktbogen
+    seite, konfiguration, ablauf = bogen
+    ablauf["ziel"] = ""
+    monkeypatch.setattr(kontaktbogen, "ausgeben", lambda *_a: pytest.fail("ausgegeben"))
+    seite.kontaktbogen_starten()
+    assert konfiguration["kontaktbogen"]["drucker"] == ":pdf:"   # die Wahl bleibt gemerkt
+    assert os.listdir(tmp_path / "ziel") == []
+
+
+def test_kontaktbogen_an_den_drucker(fenster, bogen, tmp_path, monkeypatch):
+    """Ein Drucker statt PDF: kein Speichern-Dialog, keine Zwischendatei."""
+    from PySide6.QtPrintSupport import QPrinter
+    from PySide6.QtWidgets import QFileDialog
+
+    from silberkorn import kontaktbogen_dialog
+    seite, _konfiguration, _ablauf = bogen
+    ausdruck = tmp_path / "spooler.pdf"
+    drucker = QPrinter(QPrinter.PrinterMode.HighResolution)
+    drucker.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+    drucker.setOutputFileName(str(ausdruck))
+    drucker.setFullPage(True)
+    monkeypatch.setattr(kontaktbogen_dialog.KontaktbogenDialog, "ist_pdf", lambda self: False)
+    monkeypatch.setattr(kontaktbogen_dialog.KontaktbogenDialog, "drucker",
+                        lambda self: drucker)
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *_a, **_k: pytest.fail("gefragt")))
+    seite.kontaktbogen_starten()
+    assert ausdruck.read_bytes().startswith(b"%PDF")
+    assert "an den Drucker geschickt" in fenster.statusmeldung.text()
+    assert _reste(tmp_path) == [] and _reste(tmp_path / "ziel") == []
+
+
+def test_kontaktbogen_unerwarteter_fehler_wird_gemeldet(fenster, bogen, tmp_path, monkeypatch):
+    from silberkorn import kontaktbogen
+    seite, _konfiguration, _ablauf = bogen
+
+    def kaputt(*_a):
+        raise RuntimeError("unerwartet")
+
+    monkeypatch.setattr(kontaktbogen, "ausgeben", kaputt)
+    seite.kontaktbogen_starten()
+    assert "unerwartet" in fenster.statusmeldung.text()
+    assert _reste(tmp_path / "ziel") == []

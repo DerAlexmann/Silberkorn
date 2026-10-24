@@ -18,6 +18,11 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   auf einen anderen Bildschirm gilt dessen Profil. Gespeicherte und gedruckte Bilder
   sowie das Histogramm bleiben sRGB. Anfangs aus; ausgegraut, wenn Windows kein Profil
   meldet oder es sRGB entspricht.
+- **Kontaktbogen**: Der Knopf 🖶 in der Ordneransicht druckt die gewählten Bilder –
+  sonst alle des Ordners – als Raster mit Dateinamen und Sternen, auf einen Drucker
+  oder als PDF. 2 bis 8 Spalten, Hoch- oder Querformat, Ausschuss auf Wunsch weg; die
+  Bilder tragen ihre Bearbeitung aus der Begleitdatei. Mit Vorschau zum Blättern;
+  Abbrechen gibt nichts aus, eine vorhandene PDF bleibt dann unberührt.
 
 ### Geändert
 

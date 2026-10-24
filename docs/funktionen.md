@@ -236,6 +236,13 @@
   KI-Entrauschen, -Schärfen, -Kolorieren und KI-Hochskalieren. Vorhandene Dateien
   werden nie überschrieben. Ein Bild nach dem anderen, abbrechbar; ein Fehler
   betrifft nur sein Bild, am Ende steht ein Bericht.
+- **Kontaktbogen**: Der Knopf 🖶 in der Ordneransicht legt die gewählten Bilder –
+  sonst alle des Ordners – in der Reihenfolge der Ansicht als Raster auf Papier:
+  2 bis 8 Spalten, jedes Bild ganz, darunter Dateiname und Sterne, oben Ordner und
+  Seitenzahl. Hoch- oder Querformat, auf einen Drucker oder als PDF-Datei;
+  Ausschuss lässt sich weglassen. Die Bilder kommen mit ihrer Bearbeitung aus der
+  Begleitdatei (ohne KI-Ergebnisse), in 300 dpi für ihre Zelle. Die Vorschau zeigt
+  die Seiten mit den Kacheln; Abbrechen gibt nichts aus.
 - **Voreinstellungen**: Einstellungen unter einem Namen sichern und auf andere
   Bilder legen – mit Auswahl, was mitgeht: Grundregler, Kurven, Farbbereiche,
   Schwarzweiß & Tönung, LUT, Rauschminderung, Filmkorn und Film sind vorgewählt, Geometrie, Anonymisieren und

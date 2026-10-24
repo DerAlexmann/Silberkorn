@@ -1288,6 +1288,47 @@ TRANSLATIONS = {
             "Aligns the image to horizontal and vertical lines and sets “Straighten” "
             "(up to ±20°). Perspective is left alone.",
         "Automatisch begradigen": "Straighten automatically",
+        "Kontaktbogen": "Contact sheet",
+        "Kontaktbogen: die gewählten Bilder – sonst alle des Ordners – als Raster mit "
+        "Dateinamen und Sternen drucken oder als PDF speichern.":
+            "Contact sheet: print the selected images – otherwise all in the folder – as a grid "
+            "with file names and stars, or save it as a PDF.",
+        "PDF-Datei": "PDF file",
+        "Lage": "Orientation",
+        "Hochformat": "Portrait",
+        "Querformat": "Landscape",
+        "Spalten": "Columns",
+        "Wie viele Bilder nebeneinander stehen – mehr Spalten, kleinere Bilder, weniger Seiten.":
+            "How many images sit side by side – more columns, smaller images, fewer pages.",
+        "Ausschuss weglassen": "Leave out rejects",
+        "Bilder, die in der Ordneransicht als Ausschuss markiert sind, kommen nicht auf den "
+        "Bogen.":
+            "Images marked as rejects in the folder view are left off the sheet.",
+        "Vorige Seite": "Previous page",
+        "Nächste Seite": "Next page",
+        "Seite {nummer}/{anzahl}": "Page {nummer}/{anzahl}",
+        "1 Bild": "1 image",
+        "{anzahl} Bilder": "{anzahl} images",
+        "1 Seite": "1 page",
+        "{seiten} Seiten": "{seiten} pages",
+        "{bilder} auf {seiten} · je Bild bis {kante}": "{bilder} on {seiten} · each up to {kante}",
+        "Als PDF speichern …": "Save as PDF …",
+        "Kontaktbogen speichern": "Save contact sheet",
+        "Kontaktbogen {ordner}.pdf": "Contact sheet {ordner}.pdf",
+        "Lege {name} auf …": "Placing {name} …",
+        "Kontaktbogen abgebrochen – nichts ausgegeben.":
+            "Contact sheet cancelled – nothing was output.",
+        "Der Kontaktbogen ließ sich nicht ausgeben: {grund}":
+            "The contact sheet could not be output: {grund}",
+        "Kontaktbogen mit {seiten} ausgegeben; nicht zu laden und darum grau: {namen} "
+        "({grund})":
+            "Contact sheet with {seiten} output; could not be loaded and left grey: {namen} "
+            "({grund})",
+        "Die PDF-Datei blieb leer.": "The PDF file stayed empty.",
+        "Kontaktbogen mit {seiten} gespeichert: {datei}":
+            "Contact sheet with {seiten} saved: {datei}",
+        "Kontaktbogen mit {seiten} an den Drucker geschickt.":
+            "Contact sheet with {seiten} sent to the printer.",
         "Monitorprofil": "Monitor profile",
         "Das Farbprofil {name} ließ sich nicht lesen; die Anzeige bleibt sRGB.":
             "The colour profile {name} could not be read; the display stays sRGB.",
