@@ -201,6 +201,13 @@
   sharpen, colourise and AI upscaling. Existing files are never overwritten. One image
   at a time, cancellable; an error only affects its own image, and a report follows at
   the end.
+- **Contact sheet**: the 🖶 button in the folder view lays the selected images – otherwise
+  all in the folder – onto paper as a grid, in the order of the view: 2 to 8 columns,
+  each image in full, with file name and stars below, folder and page number at the top.
+  Portrait or landscape, to a printer or as a PDF file; rejects can be left out. The
+  images carry their edit from the sidecar file (without AI results), at 300 dpi for
+  their cell. The preview shows the pages with the thumbnails; cancelling outputs
+  nothing.
 - **Presets**: save settings under a name and apply them to other images – choosing
   what to include: basic adjustments, curves, colour ranges, black & white & toning,
   LUT, noise reduction, film grain and film are preselected; geometry, anonymisation and metadata usually belong to one image

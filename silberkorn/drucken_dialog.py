@@ -36,6 +36,112 @@ from .drucken import Platz, Vorgaben
 from .uebersetzung import _
 
 VORSCHAU = 380                 # Kante der Vorschau des Blattes in Pixeln
+PDF = ":pdf:"                  # "Drucker" fuer die Ausgabe als PDF-Datei
+PDF_PAPIERE = (QPageSize.PageSizeId.A4, QPageSize.PageSizeId.A3, QPageSize.PageSizeId.A5,
+               QPageSize.PageSizeId.Letter, QPageSize.PageSizeId.Legal)
+
+
+class DruckerWahl:
+    """Drucker und Papier: zwei Auswahlfelder und der passend eingerichtete QPrinter -
+    fuer den Druckdialog und den Kontaktbogen. pdf: zusaetzlich „PDF-Datei“ anbieten.
+    bevorzugt(Breite, Hoehe in mm): welches Papier gilt, wenn das gemerkte fehlt."""
+
+    def __init__(self, bevorzugt, pdf: bool = False):
+        self._bevorzugt = bevorzugt
+        self.drucker_wahl = QComboBox()
+        for name in QPrinterInfo.availablePrinterNames():
+            self.drucker_wahl.addItem(name, name)
+        if pdf:
+            self.drucker_wahl.addItem(_("PDF-Datei"), PDF)
+        self.papier_wahl = QComboBox()
+        self._drucker: QPrinter | None = None
+        self._drucker_name = None
+
+    def setzen(self, drucker: str, papier: str):
+        nummer = self.drucker_wahl.findData(drucker) if drucker else -1
+        if nummer < 0:
+            nummer = self.drucker_wahl.findData(QPrinterInfo.defaultPrinterName())
+        self.drucker_wahl.setCurrentIndex(max(0, nummer))
+        self.papiere_fuellen(papier)
+
+    def ist_pdf(self) -> bool:
+        return self.drucker_wahl.currentData() == PDF
+
+    def papiere_fuellen(self, gewuenscht: str):
+        """Papiergroessen des Druckers - gewaehlt das gewuenschte, sonst das bevorzugte,
+        sonst das des Druckers."""
+        if self.ist_pdf():
+            info, groessen = QPrinterInfo(), [QPageSize(kennung) for kennung in PDF_PAPIERE]
+        else:
+            info = QPrinterInfo.printerInfo(self.drucker_wahl.currentData() or "")
+            groessen = info.supportedPageSizes() if not info.isNull() else []
+        if not groessen:
+            groessen = [QPageSize(QPageSize.PageSizeId.A4)]
+        self.papier_wahl.blockSignals(True)
+        self.papier_wahl.clear()
+        for groesse in groessen:
+            self.papier_wahl.addItem(groesse.name(), groesse)
+        nummer = self.papier_wahl.findText(gewuenscht) if gewuenscht else -1
+        if nummer < 0:
+            nummer = next((i for i, g in enumerate(groessen) if self._bevorzugt(*mm(g))), -1)
+        if nummer < 0 and not info.isNull():
+            nummer = self.papier_wahl.findText(info.defaultPageSize().name())
+        self.papier_wahl.setCurrentIndex(max(0, nummer))
+        self.papier_wahl.blockSignals(False)
+
+    def drucker(self) -> QPrinter | None:
+        """Der QPrinter fuer die Wahl - einer je Drucker, damit seine Einstellungen bleiben;
+        None ohne Drucker."""
+        name = self.drucker_wahl.currentData()
+        if not name:
+            return None
+        if self._drucker is None or self._drucker_name != name:
+            if name == PDF:
+                self._drucker = QPrinter(QPrinter.PrinterMode.HighResolution)
+                self._drucker.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+            else:
+                self._drucker = QPrinter(QPrinterInfo.printerInfo(name),
+                                         QPrinter.PrinterMode.HighResolution)
+            self._drucker_name = name
+        return self._drucker
+
+    def einrichten(self, drucker: QPrinter, quer: bool, randlos: bool = False,
+                   exemplare: int = 1):
+        drucker.setFullPage(True)                 # gerechnet wird ab der Ecke des Blattes
+        groesse = self.papier_wahl.currentData()
+        if groesse is not None:
+            drucker.setPageSize(groesse)
+        drucker.setPageOrientation(QPageLayout.Orientation.Landscape if quer else
+                                   QPageLayout.Orientation.Portrait)
+        lage = drucker.pageLayout()
+        if randlos:
+            lage.setMode(QPageLayout.Mode.FullPageMode)
+            lage.setMargins(QMarginsF(0, 0, 0, 0))
+        else:
+            lage.setMode(QPageLayout.Mode.StandardMode)
+            lage.setMargins(lage.minimumMargins())   # so knapp, wie der Drucker kann
+        drucker.setPageLayout(lage)
+        drucker.setCopyCount(exemplare)
+
+    def blatt(self, drucker: QPrinter | None, quer: bool
+              ) -> tuple[tuple[float, float], tuple[float, ...]]:
+        """Groesse des Blattes und sein bedruckbarer Bereich in mm."""
+        if drucker is not None:
+            lage = drucker.pageLayout()
+        else:
+            # Ohne Drucker: das gewaehlte Papier ohne Rand - nur fuer die Vorschau
+            lage = QPageLayout(self.papier_wahl.currentData() or QPageSize(QPageSize.PageSizeId.A4),
+                               QPageLayout.Orientation.Landscape if quer else
+                               QPageLayout.Orientation.Portrait, QMarginsF(0, 0, 0, 0))
+        voll = lage.fullRect(QPageLayout.Unit.Millimeter)
+        innen = lage.paintRect(QPageLayout.Unit.Millimeter)
+        return ((voll.width(), voll.height()),
+                (innen.x(), innen.y(), innen.width(), innen.height()))
+
+
+def mm(groesse: QPageSize) -> tuple[float, float]:
+    mass = groesse.size(QPageSize.Unit.Millimeter)
+    return mass.width(), mass.height()
 
 
 def format_titel() -> list[tuple[str, str]]:
@@ -98,8 +204,7 @@ class DruckenDialog(QDialog):
         self.setWindowTitle(_("Drucken"))
         self._hoehe, self._breite = volle_form
         self._ki_moeglich = ki_moeglich
-        self._drucker: QPrinter | None = None
-        self._drucker_name = None
+        self._wahl = DruckerWahl(drucken.passt_zur_vorgabe)
         self._platz: Platz | None = None
 
         aufbau = QVBoxLayout(self)
@@ -148,12 +253,9 @@ class DruckenDialog(QDialog):
         gitter.setColumnStretch(1, 1)
         gitter.setVerticalSpacing(6)
 
-        self.drucker_wahl = QComboBox()
-        for name in QPrinterInfo.availablePrinterNames():
-            self.drucker_wahl.addItem(name, name)
+        self.drucker_wahl, self.papier_wahl = self._wahl.drucker_wahl, self._wahl.papier_wahl
         gitter.addWidget(QLabel(_("Drucker")), 0, 0)
         gitter.addWidget(self.drucker_wahl, 0, 1, 1, 2)
-        self.papier_wahl = QComboBox()
         gitter.addWidget(QLabel(_("Papier")), 1, 0)
         gitter.addWidget(self.papier_wahl, 1, 1, 1, 2)
 
@@ -217,11 +319,7 @@ class DruckenDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _setzen(self, vorgaben: Vorgaben):
-        nummer = self.drucker_wahl.findData(vorgaben.drucker)
-        if nummer < 0:
-            nummer = self.drucker_wahl.findData(QPrinterInfo.defaultPrinterName())
-        self.drucker_wahl.setCurrentIndex(max(0, nummer))
-        self._papiere_fuellen(vorgaben.papier)
+        self._wahl.setzen(vorgaben.drucker, vorgaben.papier)
         self.groesse_wahl.setCurrentIndex(max(0, self.groesse_wahl.findData(vorgaben.groesse)))
         self.eigen_breite.setValue(vorgaben.eigen_breite)
         self.eigen_hoehe.setValue(vorgaben.eigen_hoehe)
@@ -251,33 +349,8 @@ class DruckenDialog(QDialog):
             box.toggled.connect(self._aktualisieren)
 
     def _drucker_gewechselt(self, *_args):
-        self._papiere_fuellen(self.papier_wahl.currentText())
+        self._wahl.papiere_fuellen(self.papier_wahl.currentText())
         self._aktualisieren()
-
-    def _papiere_fuellen(self, gewuenscht: str):
-        """Papiergroessen des Druckers - gewaehlt das gewuenschte, sonst 10 x 15 cm, sonst
-        das des Druckers."""
-        info = QPrinterInfo.printerInfo(self.drucker_wahl.currentData() or "")
-        groessen = info.supportedPageSizes() if not info.isNull() else []
-        if not groessen:
-            groessen = [QPageSize(QPageSize.PageSizeId.A4)]
-        self.papier_wahl.blockSignals(True)
-        self.papier_wahl.clear()
-        for groesse in groessen:
-            self.papier_wahl.addItem(groesse.name(), groesse)
-        nummer = self.papier_wahl.findText(gewuenscht) if gewuenscht else -1
-        if nummer < 0:
-            nummer = next((i for i, g in enumerate(groessen)
-                           if drucken.passt_zur_vorgabe(*self._mm(g))), -1)
-        if nummer < 0 and not info.isNull():
-            nummer = self.papier_wahl.findText(info.defaultPageSize().name())
-        self.papier_wahl.setCurrentIndex(max(0, nummer))
-        self.papier_wahl.blockSignals(False)
-
-    @staticmethod
-    def _mm(groesse: QPageSize) -> tuple[float, float]:
-        mass = groesse.size(QPageSize.Unit.Millimeter)
-        return mass.width(), mass.height()
 
     # ------------------------------------------------------------------
     # Drucker und Lage
@@ -285,49 +358,14 @@ class DruckenDialog(QDialog):
 
     def drucker(self) -> QPrinter | None:
         """Der eingerichtete Drucker: Papier, Lage passend zum Bild, Raender, Exemplare."""
-        name = self.drucker_wahl.currentData()
-        if not name:
-            return None
-        if self._drucker is None or self._drucker_name != name:
-            self._drucker = QPrinter(QPrinterInfo.printerInfo(name),
-                                     QPrinter.PrinterMode.HighResolution)
-            self._drucker_name = name
-        self._einrichten(self._drucker)
-        return self._drucker
-
-    def _einrichten(self, drucker: QPrinter):
-        drucker.setFullPage(True)                 # gerechnet wird ab der Ecke des Blattes
-        groesse = self.papier_wahl.currentData()
-        if groesse is not None:
-            drucker.setPageSize(groesse)
-        quer = self._breite > self._hoehe
-        drucker.setPageOrientation(QPageLayout.Orientation.Landscape if quer else
-                                   QPageLayout.Orientation.Portrait)
-        lage = drucker.pageLayout()
-        if self.randlos.isChecked():
-            lage.setMode(QPageLayout.Mode.FullPageMode)
-            lage.setMargins(QMarginsF(0, 0, 0, 0))
-        else:
-            lage.setMode(QPageLayout.Mode.StandardMode)
-            lage.setMargins(lage.minimumMargins())   # so knapp, wie der Drucker kann
-        drucker.setPageLayout(lage)
-        drucker.setCopyCount(self.exemplare.value())
+        drucker = self._wahl.drucker()
+        if drucker is not None:
+            self._wahl.einrichten(drucker, self._breite > self._hoehe,
+                                  self.randlos.isChecked(), self.exemplare.value())
+        return drucker
 
     def _blatt(self) -> tuple[tuple[float, float], tuple[float, ...]]:
-        """Groesse des Blattes und sein bedruckbarer Bereich in mm."""
-        drucker = self.drucker()
-        if drucker is not None:
-            lage = drucker.pageLayout()
-        else:
-            # Ohne Drucker: das gewaehlte Papier ohne Rand - nur fuer die Vorschau
-            quer = self._breite > self._hoehe
-            lage = QPageLayout(self.papier_wahl.currentData() or QPageSize(QPageSize.PageSizeId.A4),
-                               QPageLayout.Orientation.Landscape if quer else
-                               QPageLayout.Orientation.Portrait, QMarginsF(0, 0, 0, 0))
-        voll = lage.fullRect(QPageLayout.Unit.Millimeter)
-        innen = lage.paintRect(QPageLayout.Unit.Millimeter)
-        return ((voll.width(), voll.height()),
-                (innen.x(), innen.y(), innen.width(), innen.height()))
+        return self._wahl.blatt(self.drucker(), self._breite > self._hoehe)
 
     def platz(self) -> Platz:
         return self._platz

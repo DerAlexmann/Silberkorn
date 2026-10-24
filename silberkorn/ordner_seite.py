@@ -20,6 +20,7 @@ import math
 import os
 import re
 import stat
+import tempfile
 import threading
 
 import numpy as np
@@ -1054,6 +1055,13 @@ class OrdnerSeite(QWidget):
             "mit Strg oder Umschalt."))
         self.stapel_knopf.clicked.connect(self.stapel_starten)
         self.stapel_knopf.setEnabled(False)
+        self.bogen_knopf = QPushButton("🖶", objectName="zoomsymbol")
+        fenster.beschriften(self.bogen_knopf.setToolTip, _(
+            "Kontaktbogen: die gewählten Bilder – sonst alle des Ordners – als Raster mit "
+            "Dateinamen und Sternen drucken oder als PDF speichern."))
+        fenster.beschriften(self.bogen_knopf.setAccessibleName, _("Kontaktbogen"))
+        self.bogen_knopf.clicked.connect(self.kontaktbogen_starten)
+        self.bogen_knopf.setEnabled(False)
         self.cache_knopf = QPushButton()
         fenster.beschriften(self.cache_knopf.setText, _("Vorschau-Cache …"))
         fenster.beschriften(self.cache_knopf.setToolTip, _(
@@ -1065,6 +1073,7 @@ class OrdnerSeite(QWidget):
         leiste.addWidget(self.ort, 1)
         leiste.addWidget(self.sortierung)
         leiste.addWidget(self.stapel_knopf)
+        leiste.addWidget(self.bogen_knopf)
         leiste.addWidget(self.cache_knopf)
         aufbau.addLayout(leiste)
 
@@ -1126,6 +1135,7 @@ class OrdnerSeite(QWidget):
         self.liste.setVisible(bool(ordner))
         self.leer.setVisible(not ordner)
         self.neu_knopf.setEnabled(bool(ordner))
+        self.bogen_knopf.setEnabled(bool(pfade))
         self.hoch_knopf.setEnabled(bool(ordner) and os.path.dirname(ordner) != ordner)
         if ordner and melden:
             text = _("1 Bild in {ordner}") if len(pfade) == 1 else _("{anzahl} Bilder in {ordner}")
@@ -1223,6 +1233,117 @@ class OrdnerSeite(QWidget):
         if offen is not None and os.path.isfile(offen):
             bearbeiten.oeffnen(offen)
             self.fenster.reiter.setCurrentWidget(self)
+
+    # ------------------------------------------------------------------
+    # Kontaktbogen
+    # ------------------------------------------------------------------
+
+    def _kachel(self, pfad: str) -> QPixmap | None:
+        """Die Kachel eines Bildes fuer die Vorschau des Kontaktbogens; fragt sie an, wenn
+        sie noch fehlt."""
+        zeile = self.modell._zeile(pfad)
+        if zeile < 0:
+            return None
+        bild = self.modell.data(self.modell.index(zeile), Qt.ItemDataRole.DecorationRole)
+        return bild if isinstance(bild, QPixmap) else None
+
+    def kontaktbogen_starten(self):
+        from . import kontaktbogen
+        from .kontaktbogen_dialog import KontaktbogenDialog, seite_anzahl, seite_text
+        pfade = self.gewaehlte_bilder() or [p for p in self.modell.pfade
+                                            if p not in self.modell.unterordner]
+        if not pfade:
+            return
+        eintraege = [(p, self.modell.bewertungen.get(p, bewertung.KEINE)) for p in pfade]
+        vorgaben = kontaktbogen.Vorgaben.aus_dict(einstellungen.load_config().get("kontaktbogen"))
+        dialog = KontaktbogenDialog(self, eintraege, self.ordner, vorgaben, self._kachel)
+        # Kacheln, die waehrend des Dialogs ankommen, erscheinen in der Vorschau
+        self.modell.dataChanged.connect(dialog.bogen.update)
+        try:
+            angenommen = dialog.exec() == QDialog.DialogCode.Accepted
+        finally:
+            self.modell.dataChanged.disconnect(dialog.bogen.update)
+        if not angenommen:
+            return
+        _speichern(kontaktbogen=dialog.vorgaben().als_dict())
+        drucker, gitter, eintraege = dialog.drucker(), dialog.raster(), dialog.eintraege()
+        ziel = zwischen = None
+        if dialog.ist_pdf():
+            name = os.path.basename(self.ordner) or "Silberkorn"
+            ziel, _filter = QFileDialog.getSaveFileName(
+                self, _("Kontaktbogen speichern"),
+                os.path.join(self.ordner, _("Kontaktbogen {ordner}.pdf").format(ordner=name)),
+                "PDF (*.pdf)")
+            if not ziel:
+                return
+            if not ziel.lower().endswith(".pdf"):
+                ziel += ".pdf"
+            # Erst fertig, dann unter dem gewaehlten Namen: ein Abbruch laesst eine vorhandene
+            # Datei unberuehrt
+            try:
+                griff, zwischen = tempfile.mkstemp(".teil", ".kontaktbogen-",
+                                                   os.path.dirname(ziel))
+            except OSError as fehler:
+                self.fenster.melden(_("Der Kontaktbogen ließ sich nicht ausgeben: {grund}")
+                                    .format(grund=str(fehler)), fehler=True)
+                return
+            os.close(griff)
+            drucker.setOutputFileName(zwischen)
+        try:
+            fehlt = self._kontaktbogen_rechnen(drucker, gitter, eintraege, seite_text)
+            if zwischen is not None:
+                if os.path.getsize(zwischen) == 0:
+                    raise OSError(_("Die PDF-Datei blieb leer."))
+                os.replace(zwischen, ziel)
+                zwischen = None
+        except kontaktbogen.Abbruch:
+            self.fenster.melden(_("Kontaktbogen abgebrochen – nichts ausgegeben."))
+            return
+        except Exception as fehler:             # noqa: BLE001 - jeder Fehler gehoert gemeldet
+            self.fenster.melden(_("Der Kontaktbogen ließ sich nicht ausgeben: {grund}").format(
+                grund=str(fehler) or type(fehler).__name__), fehler=True)
+            return
+        finally:
+            if zwischen is not None:
+                try:
+                    os.remove(zwischen)           # nur die eigene, unfertige Zwischendatei
+                except OSError:
+                    pass                          # gesperrt: der eigentliche Fehler zaehlt mehr
+        seiten = seite_anzahl(gitter.seiten(len(eintraege)))
+        if fehlt:
+            self.fenster.melden(_("Kontaktbogen mit {seiten} ausgegeben; nicht zu laden und "
+                                  "darum grau: {namen} ({grund})").format(
+                seiten=seiten, namen=", ".join(os.path.basename(p) for p, _g in fehlt),
+                grund=fehlt[0][1]), fehler=True)
+        elif ziel is not None:
+            self.fenster.melden(_("Kontaktbogen mit {seiten} gespeichert: {datei}").format(
+                seiten=seiten, datei=os.path.basename(ziel)))
+        else:
+            self.fenster.melden(_("Kontaktbogen mit {seiten} an den Drucker geschickt.").format(
+                seiten=seiten))
+
+    def _kontaktbogen_rechnen(self, drucker, gitter, eintraege, seite_text
+                              ) -> list[tuple[str, str]]:
+        from . import kontaktbogen
+        anzeige = QProgressDialog("", _("Abbrechen"), 0, 1000, self)
+        anzeige.setWindowTitle(_("Kontaktbogen"))
+        anzeige.setWindowModality(Qt.WindowModality.WindowModal)
+        anzeige.setMinimumDuration(0)
+        anzeige.setMinimumWidth(420)
+
+        def fortschritt(name: str, anteil: float) -> bool:
+            anzeige.setLabelText(_("Lege {name} auf …").format(name=name))
+            anzeige.setValue(min(999, round(anteil * 1000)))
+            QApplication.processEvents()
+            return not anzeige.wasCanceled()
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            return kontaktbogen.ausgeben(drucker, gitter, eintraege, self.ordner, seite_text,
+                                         fortschritt)
+        finally:
+            QApplication.restoreOverrideCursor()
+            anzeige.close()
 
     def _stapel_rechnen(self, bearbeiten, auftrag: Auftrag, pfade: list[str]):
         anzeige = QProgressDialog("", _("Abbrechen"), 0, 1000, self)
