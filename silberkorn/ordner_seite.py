@@ -22,6 +22,7 @@ import re
 import stat
 import threading
 
+import numpy as np
 from PySide6.QtCore import (
     QAbstractListModel,
     QDir,
@@ -67,6 +68,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
+    anzeigeprofil,
     bewertung,
     einstellungen,
     farben,
@@ -371,10 +373,9 @@ class BewertungsDienst(QObject):
 
 
 def _qimage(bild) -> QImage:
-    rgb = bild.convert("RGB")
-    daten = rgb.tobytes()
-    return QImage(daten, rgb.width, rgb.height, rgb.width * 3,
-                  QImage.Format.Format_RGB888).copy()
+    rgb = np.ascontiguousarray(anzeigeprofil.umrechnen(np.asarray(bild.convert("RGB"))))
+    hoehe, breite = rgb.shape[:2]
+    return QImage(rgb.data, breite, hoehe, breite * 3, QImage.Format.Format_RGB888).copy()
 
 
 # --------------------------------------------------------------------------
@@ -387,6 +388,9 @@ class KachelModell(QAbstractListModel):
         self.dienst = dienst
         self.pfade: list[str] = []
         self.durchgang = 0
+        # Eigener Zaehler der Kacheln: ein neues Monitorprofil laedt die Bilder neu, die
+        # gerade gelesenen Bewertungen desselben Ordners sollen dabei nicht verfallen
+        self._kachelstand = 0
         self._bilder: collections.OrderedDict[str, tuple[QPixmap, bool]] = \
             collections.OrderedDict()
         self._angefragt: set[str] = set()
@@ -401,6 +405,7 @@ class KachelModell(QAbstractListModel):
     def setzen(self, pfade: list[str], unterordner: list[str] = ()):
         self.beginResetModel()
         self.durchgang += 1
+        self._kachelstand += 1
         self.dienst.verwerfen()
         self.pfade = [*unterordner, *pfade]
         self.unterordner = set(unterordner)
@@ -460,6 +465,17 @@ class KachelModell(QAbstractListModel):
             stelle = self.index(self.pfade.index(pfad))
             self.dataChanged.emit(stelle, stelle)
 
+    def alle_neu_laden(self):
+        """Die Anzeige hat sich geaendert (Monitorprofil): alle Kacheln neu anfragen. Ein
+        neuer Kachelstand verwirft, was noch mit dem alten Profil unterwegs ist."""
+        self._kachelstand += 1
+        self.dienst.verwerfen()
+        self._bilder.clear()
+        self._angefragt.clear()
+        self._fehlend.clear()
+        if self.pfade:
+            self.dataChanged.emit(self.index(0), self.index(len(self.pfade) - 1))
+
     def rowCount(self, eltern=None):                   # noqa: N802 - Qt-Name
         return 0 if eltern is not None and eltern.isValid() else len(self.pfade)
 
@@ -489,12 +505,12 @@ class KachelModell(QAbstractListModel):
                 return {ZUSTAND_ROLLE: "fehlt", BEARBEITET_ROLLE: False}.get(rolle)
             if pfad not in self._angefragt:
                 self._angefragt.add(pfad)
-                self.dienst.anfordern(self.durchgang, pfad)
+                self.dienst.anfordern(self._kachelstand, pfad)
             return {ZUSTAND_ROLLE: "laedt", BEARBEITET_ROLLE: False}.get(rolle)
         return None
 
-    def _fertig(self, durchgang: int, pfad: str, bild: QImage, bearbeitet: bool):
-        if durchgang != self.durchgang or pfad not in self.pfade:
+    def _fertig(self, stand: int, pfad: str, bild: QImage, bearbeitet: bool):
+        if stand != self._kachelstand or pfad not in self.pfade:
             return
         self._bilder[pfad] = (QPixmap.fromImage(bild), bearbeitet)
         while len(self._bilder) > IM_SPEICHER:
@@ -504,8 +520,8 @@ class KachelModell(QAbstractListModel):
         stelle = self.index(self.pfade.index(pfad))
         self.dataChanged.emit(stelle, stelle)
 
-    def _fehlt(self, durchgang: int, pfad: str):
-        if durchgang == self.durchgang and pfad in self.pfade:
+    def _fehlt(self, stand: int, pfad: str):
+        if stand == self._kachelstand and pfad in self.pfade:
             self._fehlend.add(pfad)
             self._angefragt.discard(pfad)
             stelle = self.index(self.pfade.index(pfad))
@@ -1261,6 +1277,10 @@ class OrdnerSeite(QWidget):
         """Die Begleitdatei eines Bildes ist neu oder weg: Kachel neu, Cache vergessen."""
         self.dienst.befehl("vergessen", pfad)
         self.modell.neu_laden(pfad)
+
+    def anzeige_geaendert(self):
+        """Ein anderes Monitorprofil: die Kacheln neu zeichnen."""
+        self.modell.alle_neu_laden()
 
     def _cache_stand_merken(self, stand):
         self._cache_stand = stand

@@ -194,6 +194,17 @@ def warnung_merken(lichter: bool, tiefen: bool) -> bool:
     return save_config(daten)
 
 
+def monitorprofil() -> bool:
+    """Soll die Anzeige in das Farbprofil des Bildschirms umgerechnet werden?"""
+    return load_config().get("monitorprofil") is True
+
+
+def monitorprofil_setzen(an: bool) -> bool:
+    daten = load_config()
+    daten["monitorprofil"] = bool(an)
+    return save_config(daten)
+
+
 ORDNER_SORTIERUNGEN = ("name", "datum", "sterne")
 
 

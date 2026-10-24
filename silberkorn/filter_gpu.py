@@ -445,6 +445,39 @@ _ausgabe = {
 }
 
 
+_anzeige = cp.ElementwiseKernel(
+    "raw uint8 quelle, raw float32 lut, int32 lut_n, raw float32 lut_bereich",
+    "raw uint8 ziel",
+    r"""
+    float r = dekodieren(quelle[3 * i] / 255.0f), g = dekodieren(quelle[3 * i + 1] / 255.0f),
+          b = dekodieren(quelle[3 * i + 2] / 255.0f);
+    lut_anwenden(r, g, b, &lut[0], lut_n, &lut_bereich[0], 1.0f);
+    ziel[3 * i] = (unsigned char)(kodieren(fminf(fmaxf(r, 0.0f), 1.0f)) * 255.0f + 0.5f);
+    ziel[3 * i + 1] = (unsigned char)(kodieren(fminf(fmaxf(g, 0.0f), 1.0f)) * 255.0f + 0.5f);
+    ziel[3 * i + 2] = (unsigned char)(kodieren(fminf(fmaxf(b, 0.0f), 1.0f)) * 255.0f + 0.5f);
+    """,
+    "silberkorn_anzeige", preamble=_GEMEINSAM)
+
+
+def anzeige_umrechnen(rgb: np.ndarray, tabelle) -> np.ndarray:
+    """sRGB-uint8 mit der Farbtabelle des Monitorprofils - wie anzeigeprofil.umrechnen()
+    mit NumPy. Die Tabelle bleibt je Profil auf der Grafikkarte liegen."""
+    if _anzeige_tabelle[0] is not tabelle:
+        _anzeige_tabelle[:] = [tabelle, cp.asarray(tabelle.tabelle.ravel()),
+                               cp.asarray(np.concatenate([tabelle.unten,
+                                                          tabelle.oben - tabelle.unten]),
+                                          dtype=cp.float32)]
+    _quelle, daten, bereich = _anzeige_tabelle
+    quelle = cp.asarray(rgb)
+    ziel = cp.empty_like(quelle)
+    _anzeige(quelle, daten, cp.int32(tabelle.groesse), bereich, ziel,
+             size=rgb.shape[0] * rgb.shape[1])
+    return cp.asnumpy(ziel)
+
+
+_anzeige_tabelle: list = [None, None, None]
+
+
 def _verstaerkungen(werte: f.Einstellungen) -> list[float]:
     """Weissabgleich und Belichtung als ein Faktor je Kanal - wie in filter.py."""
     k = werte.temperatur / 100 * 0.35

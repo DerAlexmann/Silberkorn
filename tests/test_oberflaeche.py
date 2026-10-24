@@ -2417,3 +2417,275 @@ def test_bewertung_sterne_klick_zieht_kein_gummiband(fenster, tmp_path, bewertun
     ereignis(QEvent.Type.MouseMove, _kachel_ort(seite, a), keine, keine)
     ereignis(QEvent.Type.MouseMove, _kachel_ort(seite, c), keine, keine)
     assert ausgewaehlt() == ["a.jpg"]
+
+
+# --------------------------------------------------------------------------
+# Monitorprofil
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def monitor(fenster, monkeypatch):
+    """Ein vorgegebenes Profil statt des echten Bildschirms; danach wieder aus."""
+    from silberkorn import anzeigeprofil, einstellungen
+    gemerkt = []
+    monkeypatch.setattr(einstellungen, "monitorprofil_setzen", gemerkt.append)
+    gelesen = {"profil": None}
+
+    def lesen(_fenster):
+        if isinstance(gelesen["profil"], Exception):
+            raise gelesen["profil"]
+        return gelesen["profil"]
+
+    monkeypatch.setattr(anzeigeprofil, "profil_lesen", lesen)
+    yield gelesen, gemerkt
+    fenster.monitor_box.blockSignals(True)
+    fenster.monitor_box.setChecked(False)
+    fenster.monitor_box.blockSignals(False)
+    fenster.monitor_pruefen()
+    assert anzeigeprofil.aktiv() is None
+
+
+def _adobe():
+    from test_icc import adobe_rgb_profil
+    return "Breit.icc", adobe_rgb_profil()
+
+
+def test_monitorprofil_ohne_profil_ausgegraut(fenster, monitor):
+    from silberkorn import anzeigeprofil
+    fenster.monitor_pruefen()
+    assert not fenster.monitor_box.isEnabled()
+    assert "kein Farbprofil" in fenster.monitor_box.toolTip()
+    assert anzeigeprofil.aktiv() is None
+
+
+def test_monitorprofil_srgb_ausgegraut_mit_name(fenster, monitor):
+    from PIL import ImageCms
+
+    from silberkorn import anzeigeprofil
+    gelesen, _gemerkt = monitor
+    gelesen["profil"] = ("sRGB Color Space Profile.icm",
+                         ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes())
+    fenster.monitor_box.setChecked(True)
+    assert not fenster.monitor_box.isEnabled()
+    assert "sRGB Color Space Profile.icm" in fenster.monitor_box.toolTip()
+    assert "entspricht sRGB" in fenster.monitor_box.toolTip()
+    assert anzeigeprofil.aktiv() is None
+
+
+def test_monitorprofil_ein_und_aus(fenster, monitor, monkeypatch):
+    """Einschalten merkt die Wahl, rechnet die Leinwand um und laedt die Kacheln neu;
+    die Bewertungen des Ordners bleiben gueltig."""
+    import numpy as np
+
+    from silberkorn import anzeigeprofil
+    gelesen, gemerkt = monitor
+    gelesen["profil"] = _adobe()
+    fenster.monitor_pruefen()
+    assert fenster.monitor_box.isEnabled() and not fenster.monitor_box.isChecked()
+    assert "Breit.icc" in fenster.monitor_box.toolTip()
+    assert anzeigeprofil.aktiv() is None
+    zeichnen = []
+    monkeypatch.setattr(fenster.bearbeiten, "zeichnen_anfordern", lambda: zeichnen.append(1))
+    modell = fenster.ordner.modell
+    stand, durchgang = modell._kachelstand, modell.durchgang
+    leinwand = fenster.bearbeiten.leinwand
+    gruen = np.zeros((4, 4, 3), np.uint8)
+    gruen[..., 1] = 255
+
+    fenster.monitor_box.setChecked(True)
+    assert gemerkt == [True]
+    assert anzeigeprofil.aktiv() is not None and anzeigeprofil.aktiv().name == "Breit.icc"
+    assert zeichnen == [1]
+    assert modell._kachelstand == stand + 1 and modell.durchgang == durchgang
+    leinwand._setzen(gruen)
+    farbe = leinwand._bild.pixelColor(0, 0)
+    assert farbe.red() > 100 and farbe.blue() > 30
+
+    fenster.monitor_box.setChecked(False)
+    assert gemerkt == [True, False]
+    assert anzeigeprofil.aktiv() is None
+    assert zeichnen == [1, 1] and modell._kachelstand == stand + 2
+    leinwand._setzen(gruen)
+    farbe = leinwand._bild.pixelColor(0, 0)
+    assert (farbe.red(), farbe.green(), farbe.blue()) == (0, 255, 0)
+    leinwand._setzen(None)
+
+
+def test_monitorprofil_gleiches_profil_zeichnet_nicht_neu(fenster, monitor, monkeypatch):
+    """Ein erneutes Pruefen (etwa ein Wechsel auf einen Bildschirm mit demselben Profil)
+    laedt weder Leinwand noch Kacheln neu; ein anderes Profil schon."""
+    from silberkorn import anzeigeprofil
+    gelesen, _gemerkt = monitor
+    gelesen["profil"] = _adobe()
+    fenster.monitor_box.setChecked(True)
+    profil = anzeigeprofil.aktiv()
+    zeichnen = []
+    monkeypatch.setattr(fenster.bearbeiten, "zeichnen_anfordern", lambda: zeichnen.append(1))
+    monkeypatch.setattr(fenster.ordner, "anzeige_geaendert", lambda: zeichnen.append(2))
+    fenster.monitor_pruefen()
+    assert zeichnen == [] and anzeigeprofil.aktiv() is profil
+    _name, daten = _adobe()
+    gelesen["profil"] = ("Anderes.icc", daten)
+    fenster.monitor_pruefen()
+    assert zeichnen == [1, 2] and anzeigeprofil.aktiv().name == "Anderes.icc"
+
+
+def test_monitorprofil_kaputtes_profil(fenster, monitor):
+    from silberkorn import anzeigeprofil
+    gelesen, _gemerkt = monitor
+    gelesen["profil"] = _adobe()
+    fenster.monitor_box.setChecked(True)
+    assert anzeigeprofil.aktiv() is not None
+    gelesen["profil"] = ("Kaputt.icc", b"\x00" * 300)
+    fenster.monitor_pruefen()
+    assert anzeigeprofil.aktiv() is None
+    assert not fenster.monitor_box.isEnabled()
+    assert "Kaputt.icc" in fenster.monitor_box.toolTip()
+    assert "Kaputt.icc" in fenster.statusmeldung.text()
+    assert fenster.statusmeldung.objectName() == "warnung"
+
+
+def test_monitorprofil_unlesbare_datei_wie_kaputtes_profil(fenster, monitor):
+    from silberkorn import anzeigeprofil
+    gelesen, _gemerkt = monitor
+    gelesen["profil"] = anzeigeprofil.ProfilFehler("Weg.icc")
+    fenster.monitor_box.setChecked(True)
+    assert anzeigeprofil.aktiv() is None
+    assert "Weg.icc" in fenster.monitor_box.toolTip()
+
+
+def test_monitorprofil_bildschirmwechsel_prueft_neu(fenster, monitor):
+    from silberkorn import anzeigeprofil
+    gelesen, _gemerkt = monitor
+    gelesen["profil"] = _adobe()
+    fenster.monitor_box.setChecked(True)
+    gelesen["profil"] = None                          # der andere Bildschirm hat keines
+    fenster.windowHandle().screenChanged.emit(fenster.screen())
+    assert anzeigeprofil.aktiv() is None
+    assert not fenster.monitor_box.isEnabled()
+
+
+def test_monitorprofil_tooltip_englisch(fenster, monitor):
+    from silberkorn.uebersetzung import _
+    gelesen, _gemerkt = monitor
+    gelesen["profil"] = _adobe()
+    fenster.monitor_pruefen()
+    _.language = "en"
+    fenster.texte_auffrischen()
+    try:
+        assert fenster.monitor_box.text() == "Monitor profile"
+        assert "Breit.icc" in fenster.monitor_box.toolTip()
+        assert "umrechnen" not in fenster.monitor_box.toolTip()
+    finally:
+        _.language = "de"
+        fenster.texte_auffrischen()
+
+
+def test_monitorprofil_gilt_fuer_kacheln_und_dialogvorschauen(fenster, monitor):
+    import numpy as np
+    from PIL import Image
+
+    from silberkorn import drucken_dialog, ordner_seite, trennen_dialog
+    gelesen, _gemerkt = monitor
+    gelesen["profil"] = _adobe()
+    fenster.monitor_box.setChecked(True)
+    gruen = np.zeros((64, 64, 3), np.uint8)
+    gruen[..., 1] = 255
+    bilder = [ordner_seite._qimage(Image.fromarray(gruen)),
+              trennen_dialog._pixmap(gruen).toImage(),
+              drucken_dialog.Blatt(gruen)._bild]
+    for bild in bilder:
+        farbe = bild.pixelColor(bild.width() // 2, bild.height() // 2)
+        assert farbe.red() > 100 and farbe.blue() > 30
+
+
+def test_monitorprofil_alte_kacheln_verfallen_bewertungen_bleiben(fenster, monitor,
+                                                                   bewertung_umgebung, tmp_path):
+    """Kacheln, die noch mit dem alten Profil unterwegs sind, werden verworfen; die Sterne
+    des Ordners und ein noch laufendes Lesen der Bewertungen bleiben gueltig."""
+    from PySide6.QtGui import QImage
+
+    from silberkorn import bewertung
+    seite, _konfiguration = bewertung_umgebung
+    modell = seite.modell
+    a, b = str(tmp_path / "a.jpg"), str(tmp_path / "b.jpg")
+    modell.stand_setzen(a, bewertung.Stand(4, "eigen"))
+    _stand(seite, a)                                     # Kachel anfragen
+    _warten(lambda: a in modell._bilder)
+    gelesen, _gemerkt = monitor
+    gelesen["profil"] = _adobe()
+    alt = modell._kachelstand
+    fenster.monitor_box.setChecked(True)
+    assert modell._kachelstand == alt + 1
+    assert not modell._bilder and not modell._angefragt and not modell._fehlend
+    assert _stand(seite, a) == bewertung.Stand(4, "eigen")
+    bild = QImage(4, 4, QImage.Format.Format_RGB888)
+    modell._fertig(alt, b, bild, False)
+    modell._fehlt(alt, a)
+    assert b not in modell._bilder and a not in modell._fehlend
+    assert modell.staende_laden(modell.durchgang, {b: bewertung.Stand(2, "fremd")})
+    assert _stand(seite, b) == bewertung.Stand(2, "fremd")
+    _warten(lambda: a in modell._bilder)                 # neu geladen, mit dem neuen Profil
+
+
+def test_monitorprofil_aendert_vorschau_und_histogramm_nicht(fenster, monitor, tmp_path):
+    """Die Sitzung liefert weiter sRGB - umgerechnet wird erst beim Zeigen. Speichern,
+    Druck und Histogramm rechnen aus diesen Werten."""
+    import numpy as np
+    from PIL import Image
+
+    gruen = np.zeros((48, 64, 3), np.uint8)
+    gruen[..., 1] = 230
+    pfad = tmp_path / "gruen.png"
+    Image.fromarray(gruen).save(pfad)
+    seite = fenster.bearbeiten
+    seite.oeffnen(str(pfad))
+    try:
+        ohne, _ms, histogramm_ohne = seite.sitzung.vorschau()
+        gelesen, _gemerkt = monitor
+        gelesen["profil"] = _adobe()
+        fenster.monitor_box.setChecked(True)
+        mit, _ms, histogramm_mit = seite.sitzung.vorschau()
+        assert np.array_equal(ohne, mit) and np.array_equal(histogramm_ohne, histogramm_mit)
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_monitorprofil_veroeffentlichen_vorschau(fenster, monitor):
+    import numpy as np
+
+    from silberkorn.veroeffentlichen import Vorlage
+    from silberkorn.veroeffentlichen_dialog import VeroeffentlichenDialog
+    gruen = np.zeros((300, 450, 3), np.uint8)
+    gruen[..., 1] = 255
+
+    def mitte():
+        dialog = VeroeffentlichenDialog(None, gruen, (300, 450), Vorlage(format=".png"))
+        bild = dialog.bild.pixmap().toImage()
+        farbe = bild.pixelColor(bild.width() // 2, bild.height() // 2)
+        dialog.deleteLater()
+        return farbe.red(), farbe.green(), farbe.blue()
+
+    assert mitte() == (0, 255, 0)
+    gelesen, _gemerkt = monitor
+    gelesen["profil"] = _adobe()
+    fenster.monitor_box.setChecked(True)
+    rot, _gruen, blau = mitte()
+    assert rot > 100 and blau > 30
+
+
+def test_monitorprofil_erst_kaputt_dann_gut(fenster, monitor):
+    from silberkorn import anzeigeprofil
+    gelesen, _gemerkt = monitor
+    fenster.melden("Bereit.")
+    gelesen["profil"] = ("Kaputt.icc", b"\x00" * 300)
+    fenster.monitor_pruefen()                            # ausgeschaltet: keine Meldung
+    assert "Kaputt.icc" in fenster.monitor_box.toolTip()
+    assert "Kaputt.icc" not in fenster.statusmeldung.text()
+    gelesen["profil"] = _adobe()
+    fenster.monitor_pruefen()
+    assert fenster.monitor_box.isEnabled()
+    assert "Kaputt.icc" not in fenster.monitor_box.toolTip()
+    fenster.monitor_box.setChecked(True)
+    assert anzeigeprofil.aktiv() is not None

@@ -11,6 +11,13 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   des Bildes an den waagrechten und senkrechten Linien und stellt „Begradigen“ ein
   (bis ±20°). Ein Schritt für „Rückgängig“; ein zweiter Klick ergibt dasselbe. Ohne klare
   Linien (Wolken, Rauschen) bleibt der Regler, und die Statuszeile sagt es.
+- **Monitorprofil**: Die neue Wahl oben rechnet alle Anzeigen – Leinwand, Kacheln der
+  Ordneransicht und die Vorschauen in Drucken, Veröffentlichen und Trennen – in das
+  Farbprofil des Bildschirms um, auf dem das Fenster steht. Bildschirme mit großem
+  Farbraum (Display P3, Adobe RGB) zeigen Farben dann nicht mehr zu bunt. Beim Wechsel
+  auf einen anderen Bildschirm gilt dessen Profil. Gespeicherte und gedruckte Bilder
+  sowie das Histogramm bleiben sRGB. Anfangs aus; ausgegraut, wenn Windows kein Profil
+  meldet oder es sRGB entspricht.
 
 ### Geändert
 
