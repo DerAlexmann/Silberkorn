@@ -253,7 +253,10 @@
   nach sRGB umgerechnet, ohne Umweg über 8 Bit; Farben außerhalb von sRGB
   bleiben bis zur Ausgabe erhalten. Die EXIF-Ausrichtung wird angewendet,
   Metadaten (EXIF, IPTC, XMP) und ein Alphakanal bleiben beim Speichern in
-  jedem Format erhalten – auch die Kameradaten einer RAW.
+  jedem Format erhalten – auch die Kameradaten einer RAW. Mit „Monitorprofil“
+  oben rechnet die Anzeige in das Farbprofil des Bildschirms um, auf dem das
+  Fenster steht – für Bildschirme mit großem Farbraum; Speichern, Druck und
+  Histogramm bleiben sRGB.
 - **16 Bit und RAW**: TIFF und PNG mit 16 Bit je Kanal öffnen und speichern.
   RAW-Dateien praktisch aller Kameras (CR2, CR3, NEF, ARW, RAF, ORF, RW2, DNG
   und weitere) werden linear und ohne automatische Aufhellung entwickelt – der

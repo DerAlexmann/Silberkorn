@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import drucken
+from . import anzeigeprofil, drucken
 from .drucken import Platz, Vorgaben
 from .uebersetzung import _
 
@@ -55,7 +55,7 @@ class Blatt(QWidget):
         super().__init__()
         self.setFixedSize(VORSCHAU, VORSCHAU)
         hoehe, breite = vorschau.shape[:2]
-        rgb = np.ascontiguousarray(vorschau[..., :3])
+        rgb = np.ascontiguousarray(anzeigeprofil.umrechnen(vorschau[..., :3]))
         self._bild = QImage(rgb.data, breite, hoehe, 3 * breite,
                             QImage.Format.Format_RGB888).copy()
         self.groesse_mm = (101.6, 152.4)

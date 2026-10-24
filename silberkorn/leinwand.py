@@ -51,7 +51,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
-from . import farben
+from . import anzeigeprofil, farben
 from .uebersetzung import _
 
 ZOOMSTUFEN = (None, 1.0, 2.0, 4.0)   # None = eingepasst
@@ -140,7 +140,7 @@ class Leinwand(QFrame):
 
     @staticmethod
     def _qimage(rgb: np.ndarray):
-        puffer = np.ascontiguousarray(rgb)
+        puffer = np.ascontiguousarray(anzeigeprofil.umrechnen(rgb, gpu=True))
         hoehe, breite = puffer.shape[:2]
         return puffer, QImage(puffer.data, breite, hoehe, breite * 3,
                               QImage.Format.Format_RGB888)

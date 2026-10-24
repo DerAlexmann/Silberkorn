@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from . import anzeigeprofil
 from .uebersetzung import _
 
 KACHEL = 150                  # Vorschaubilder hoechstens so gross
@@ -43,7 +44,7 @@ def format_vorgabe(pfad: str) -> str:
 
 
 def _pixmap(rgb: np.ndarray) -> QPixmap:
-    rgb = np.ascontiguousarray(rgb)
+    rgb = np.ascontiguousarray(anzeigeprofil.umrechnen(rgb))
     bild = QImage(rgb.data, rgb.shape[1], rgb.shape[0], rgb.strides[0],
                   QImage.Format.Format_RGB888).copy()
     return QPixmap.fromImage(bild).scaled(KACHEL, KACHEL, Qt.AspectRatioMode.KeepAspectRatio,

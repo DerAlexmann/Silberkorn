@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import PROGRAMM, VERSION, einstellungen, farben
+from . import PROGRAMM, VERSION, anzeigeprofil, einstellungen, farben
 from .gpu_pruefung import STUFE_OHNE_KI, Befund
 from .uebersetzung import SOURCE_LANGUAGE, _
 
@@ -230,6 +230,16 @@ class Hauptfenster(QMainWindow):
         self.dunkel.toggled.connect(self._schema_gewechselt)
         aufbau.addWidget(self.dunkel)
 
+        self.monitor_box = QCheckBox()
+        self.beschriften(self.monitor_box.setText, _("Monitorprofil"))
+        self.monitor_box.setChecked(einstellungen.monitorprofil())
+        self._monitor: anzeigeprofil.Monitorprofil | None = None
+        self._monitor_fehler: str | None = None
+        self._monitor_quelle: tuple[str, bytes] | None = None
+        self._monitor_anzeigen()
+        self.monitor_box.toggled.connect(self._monitor_gewechselt)
+        aufbau.addWidget(self.monitor_box)
+
         aufbau.addSpacing(12)
         aufbau.addWidget(self._label(_("RAW"), "kopfgruppe"))
         self.raw_wahl = QComboBox()
@@ -276,6 +286,65 @@ class Hauptfenster(QMainWindow):
         QApplication.instance().setStyleSheet(farben.stylesheet())
         farben.palette_setzen(QApplication.instance())
         self._einstellungen_sichern()
+
+    def showEvent(self, ereignis):                  # noqa: N802 - Qt-Name
+        super().showEvent(ereignis)
+        fenster = self.windowHandle()
+        if fenster is not None and getattr(self, "_bildschirm_verbunden", None) is not fenster:
+            self._bildschirm_verbunden = fenster
+            fenster.screenChanged.connect(lambda _b: self.monitor_pruefen())
+            self.monitor_pruefen()
+
+    def monitor_pruefen(self):
+        """Das Farbprofil des Bildschirms lesen, auf dem das Fenster steht - beim Zeigen,
+        beim Wechsel auf einen anderen Bildschirm und beim Einschalten."""
+        bisher, self._monitor, self._monitor_fehler = self._monitor, None, None
+        try:
+            gelesen = anzeigeprofil.profil_lesen(int(self.winId()))
+            if gelesen is not None and bisher is not None and self._monitor_quelle == gelesen:
+                self._monitor = bisher            # derselbe Bildschirm: nichts neu zeichnen
+            elif gelesen is not None:
+                self._monitor = anzeigeprofil.einrichten(gelesen[1], gelesen[0])
+            self._monitor_quelle = gelesen
+        except anzeigeprofil.ProfilFehler as fehler:
+            self._monitor_quelle = None
+            self._monitor_fehler = str(fehler)
+            if self.monitor_box.isChecked():
+                self.melden(_("Das Farbprofil {name} ließ sich nicht lesen; die Anzeige "
+                              "bleibt sRGB.").format(name=self._monitor_fehler), fehler=True)
+        self._monitor_anzeigen()
+
+    def _monitor_anzeigen(self):
+        profil = self._monitor
+        if self._monitor_fehler is not None:
+            tipp = _("Das Farbprofil {name} ließ sich nicht lesen; die Anzeige bleibt "
+                     "sRGB.").format(name=self._monitor_fehler)
+        elif profil is None:
+            tipp = _("Windows meldet für diesen Bildschirm kein Farbprofil; die Anzeige "
+                     "bleibt sRGB.")
+        elif profil.srgb:
+            tipp = _("Das Farbprofil dieses Bildschirms ({name}) entspricht sRGB – eine "
+                     "Umrechnung ist nicht nötig.").format(name=profil.name)
+        else:
+            tipp = _("Bilder für das Farbprofil dieses Bildschirms umrechnen ({name}). Nur "
+                     "die Anzeige – gespeicherte und gedruckte Bilder bleiben sRGB.").format(
+                         name=profil.name)
+        self.monitor_box.setEnabled(profil is not None and not profil.srgb)
+        self.beschriften(self.monitor_box.setToolTip, tipp)
+        vorher = anzeigeprofil.aktiv()
+        anzeigeprofil.setzen(profil if self.monitor_box.isChecked() else None)
+        if anzeigeprofil.aktiv() is not vorher:
+            self._anzeige_neu()
+
+    def _monitor_gewechselt(self, an: bool):
+        einstellungen.monitorprofil_setzen(an)
+        self.monitor_pruefen()
+
+    def _anzeige_neu(self):
+        if hasattr(self, "bearbeiten"):
+            self.bearbeiten.zeichnen_anfordern()
+        if hasattr(self, "ordner"):
+            self.ordner.anzeige_geaendert()
 
     # ------------------------------------------------------------------
     # Reiter

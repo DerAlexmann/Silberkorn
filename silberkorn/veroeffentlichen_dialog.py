@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from . import veroeffentlichen
+from . import anzeigeprofil, veroeffentlichen
 from .uebersetzung import _
 from .veroeffentlichen import Vorlage
 
@@ -348,7 +348,7 @@ class VeroeffentlichenDialog(QDialog):
 
     def _bild_zeigen(self, rgb: np.ndarray):
         hoehe, breite = rgb.shape[:2]
-        rgb = np.ascontiguousarray(rgb)
+        rgb = np.ascontiguousarray(anzeigeprofil.umrechnen(rgb))
         qbild = QImage(rgb.data, breite, hoehe, 3 * breite, QImage.Format.Format_RGB888).copy()
         self.bild.setPixmap(QPixmap.fromImage(qbild).scaled(
             *VORSCHAU, Qt.AspectRatioMode.KeepAspectRatio,

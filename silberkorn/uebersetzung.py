@@ -1288,6 +1288,18 @@ TRANSLATIONS = {
             "Aligns the image to horizontal and vertical lines and sets “Straighten” "
             "(up to ±20°). Perspective is left alone.",
         "Automatisch begradigen": "Straighten automatically",
+        "Monitorprofil": "Monitor profile",
+        "Das Farbprofil {name} ließ sich nicht lesen; die Anzeige bleibt sRGB.":
+            "The colour profile {name} could not be read; the display stays sRGB.",
+        "Windows meldet für diesen Bildschirm kein Farbprofil; die Anzeige bleibt sRGB.":
+            "Windows reports no colour profile for this screen; the display stays sRGB.",
+        "Das Farbprofil dieses Bildschirms ({name}) entspricht sRGB – eine Umrechnung ist "
+        "nicht nötig.":
+            "This screen's colour profile ({name}) matches sRGB – no conversion is needed.",
+        "Bilder für das Farbprofil dieses Bildschirms umrechnen ({name}). Nur die Anzeige – "
+        "gespeicherte und gedruckte Bilder bleiben sRGB.":
+            "Convert images for this screen's colour profile ({name}). Display only – saved "
+            "and printed images stay sRGB.",
         "Auto-Begradigen": "Auto straighten",
         "Auto-Begradigen: {werte}": "Auto straighten: {werte}",
         "Auto-Begradigen: Keine klaren Linien gefunden.":

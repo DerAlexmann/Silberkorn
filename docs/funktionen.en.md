@@ -215,6 +215,9 @@
   on the GPU without a detour through 8 bits; colours outside sRGB are kept until the
   output. The EXIF orientation is applied; metadata (EXIF, IPTC, XMP) and an alpha
   channel are kept when saving in every format – the camera data of a RAW included.
+  With “Monitor profile” at the top, the display is converted to the colour profile of
+  the screen the window is on – for wide-gamut screens; saving, printing and the
+  histogram stay sRGB.
 - **16 bits and RAW**: opens and saves TIFF and PNG with 16 bits per channel. RAW files
   from practically every camera (CR2, CR3, NEF, ARW, RAF, ORF, RW2, DNG and more) are
   developed in linear light without automatic brightening – the full range of the sensor
