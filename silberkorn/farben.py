@@ -50,6 +50,7 @@ THEMES = {
         "TAB_BG": "#e3e8f0",         # nicht gewaehlter Reiter
         "STATUS_BG": "#e4e8ef",
         "STERN": "#f2b01e",          # Sterne der Bewertung in der Ordneransicht
+        "STERN_SCHRIFT": "#a86f00",  # Sterne als Schrift auf Weiss - dunkler, fuer den Kontrast
         "PLAKETTE": "#d9161b24",     # Grund hinter Sternen und Papierkorb (ARGB)
         "PLAKETTE_TEXT": "#ffffff",  # Umriss leerer Sterne und Papierkorb auf der Plakette
     },
@@ -84,6 +85,7 @@ THEMES = {
         "TAB_BG": "#232b36",
         "STATUS_BG": "#0e1218",
         "STERN": "#f5bf3d",
+        "STERN_SCHRIFT": "#f5bf3d",
         "PLAKETTE": "#d9000000",
         "PLAKETTE_TEXT": "#e6eaf0",
     },
@@ -307,6 +309,13 @@ def stylesheet() -> str:
     QPushButton#kanal {{ padding: 3px 9px; border-radius: 4px; font-size: 9pt; }}
     QPushButton#zoom {{ padding: 7px 10px; }}
     QPushButton#zoomsymbol {{ padding: 4px 5px 5px 5px; font-size: 13pt; }}
+    QPushButton#stern {{
+        background: transparent; color: {t["STERN_SCHRIFT"]};
+        padding: 2px 4px; font-size: 14pt;
+    }}
+    QPushButton#stern:hover {{ background: {t["BTN_HOVER"]}; }}
+    QPushButton#stern:disabled {{ color: {t["BTN_DISABLED"]}; }}
+    QPushButton#stern:focus {{ border: 1px solid {t["ACCENT"]}; }}
     QPushButton#verlauf {{ padding: 4px 5px 5px 5px; font-size: 13pt; }}
     QPushButton:checked, QPushButton#kanal:checked {{
         background: {t["ACCENT"]}; color: {t["ON_ACCENT"]};

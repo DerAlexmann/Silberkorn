@@ -208,6 +208,17 @@
   images carry their edit from the sidecar file (without AI results), at 300 dpi for
   their cell. The preview shows the pages with the thumbnails; cancelling outputs
   nothing.
+- **Compare images**: the ⇆ button in the folder view shows two or more selected
+  images side by side in a window of their own: the favorite on the left, a candidate
+  on the right. With more than two images, ◀ and ▶ (or ← and →) page through the others
+  on the right; “Swap” makes the candidate the favorite without rendering again. Fit,
+  100 %, mouse wheel, double-click and panning act on both sides – for images of
+  different sizes, at the same relative position; 🔗 unlinks them. The images carry
+  their edit from the sidecar file (without AI upscaling) and are rendered once at full
+  resolution; if graphics memory is short, the side shows the preview and says so.
+  Below each image are its name, pixels, date and shooting data, the stars and reject
+  as in the thumbnail, and “Edit”, which closes the comparison and opens the image.
+  Nothing is deleted.
 - **Presets**: save settings under a name and apply them to other images – choosing
   what to include: basic adjustments, curves, colour ranges, black & white & toning,
   LUT, noise reduction, film grain and film are preselected; geometry, anonymisation and metadata usually belong to one image

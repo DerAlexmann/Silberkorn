@@ -1419,5 +1419,73 @@ TRANSLATIONS = {
             "are never touched by Silberkorn.\n\nThe same permission applies to the sidecar "
             "files with the edit. Create sidecar files? You can change this at any time "
             "with “Sidecar files” at the top.",
+        # Bilder vergleichen
+        "Vergleichen: zwei oder mehr gewählte Bilder nebeneinander, gemeinsam gezoomt – "
+        "mit Bearbeitung, Sternen und Ausschuss. Mehrere Bilder wählen mit Strg oder "
+        "Umschalt.":
+            "Compare: two or more selected images side by side, zoomed together – with their "
+            "edits, stars and rejects. Select several images with Ctrl or Shift.",
+        "Bilder vergleichen":
+            "Compare images",
+        "Bewertungen aus dem Vergleich gesichert.":
+            "Ratings from the comparison saved.",
+        "(verkleinert – zu wenig Speicher)":
+            "(reduced – not enough memory)",
+        "Ungültige Werte der Begleitdatei übergangen.":
+            "Invalid values in the sidecar file were skipped.",
+        "Aufnahme {datum}":
+            "Taken {datum}",
+        "Geändert {datum}":
+            "Modified {datum}",
+        "Die Begleitdatei passt nicht ganz zum Bild.":
+            "The sidecar file does not quite match the image.",
+        "Mit der Bearbeitung aus der Begleitdatei":
+            "With the edit from the sidecar file",
+        "Ausschuss":
+            "Reject",
+        "Schließt den Vergleich und öffnet dieses Bild im Reiter Bearbeiten.":
+            "Closes the comparison and opens this image in the Edit tab.",
+        "Wird gerechnet …":
+            "Rendering …",
+        "Lässt sich nicht laden":
+            "Cannot be loaded",
+        "Einpassen":
+            "Fit",
+        "Beide Bilder ganz zeigen":
+            "Show both images in full",
+        "Ein Bildpixel auf einem Bildschirmpixel – Mausrad und Doppelklick zoomen, Ziehen "
+        "verschiebt.":
+            "One image pixel on one screen pixel – the mouse wheel and double-click zoom, "
+            "dragging pans.",
+        "100 Prozent":
+            "100 percent",
+        "Ansicht koppeln":
+            "Link views",
+        "Beide Seiten gemeinsam zoomen und verschieben – bei verschieden großen Bildern "
+        "an dieselbe Stelle im Verhältnis.":
+            "Zoom and pan both sides together – for images of different sizes, to the same "
+            "relative position.",
+        "Voriger Kandidat (←)":
+            "Previous candidate (←)",
+        "Voriger Kandidat":
+            "Previous candidate",
+        "Nächster Kandidat (→)":
+            "Next candidate (→)",
+        "Nächster Kandidat":
+            "Next candidate",
+        "⇆ Tauschen":
+            "⇆ Swap",
+        "Tauschen":
+            "Swap",
+        "Den Kandidaten zum Favoriten machen – der bisherige Favorit wird Kandidat.":
+            "Make the candidate the favorite – the previous favorite becomes a candidate.",
+        "Die beiden Seiten tauschen.":
+            "Swap the two sides.",
+        "Kandidat {nummer}/{anzahl}":
+            "Candidate {nummer}/{anzahl}",
+        "Favorit":
+            "Favorite",
+        "Kandidat":
+            "Candidate",
     },
 }
