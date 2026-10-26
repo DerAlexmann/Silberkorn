@@ -451,6 +451,7 @@ def test_schliessen_gibt_die_bilder_frei(ablauf):
 
 
 def test_angaben_verkleinert_und_veraltet():
+    pytest.importorskip("PySide6")
     from silberkorn.bildvergleich_dialog import angaben_text
     bild = Vergleichsbild("x.jpg", voll=np.zeros((10, 20, 3), np.uint8), verkleinert=True,
                           datum="2024-01-02 03:04", veraltet=True, bearbeitet=True,
