@@ -5,6 +5,17 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 
 ## [Unveröffentlicht]
 
+### Neu
+
+- **Bilder vergleichen**: Der Knopf ⇆ in der Ordneransicht zeigt zwei oder mehr gewählte
+  Bilder nebeneinander in einem eigenen Fenster – links der Favorit, rechts ein Kandidat.
+  Bei mehr als zwei blättern ← und → rechts durch die übrigen; „Tauschen“ macht den
+  Kandidaten zum Favoriten. Einpassen, 100 %, Mausrad und Verschieben wirken auf beide
+  Seiten (mit 🔗 abschaltbar), bei verschieden großen Bildern an dieselbe Stelle im
+  Verhältnis. Die Bilder tragen ihre Bearbeitung aus der Begleitdatei; darunter stehen
+  Pixel, Datum und Aufnahmedaten. Sterne und Ausschuss lassen sich gleich setzen,
+  „Bearbeiten“ öffnet das Bild. Gelöscht wird nichts.
+
 ## [0.12.0] – 2026-10-24
 
 ### Neu

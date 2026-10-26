@@ -243,6 +243,18 @@
   Ausschuss lässt sich weglassen. Die Bilder kommen mit ihrer Bearbeitung aus der
   Begleitdatei (ohne KI-Ergebnisse), in 300 dpi für ihre Zelle. Die Vorschau zeigt
   die Seiten mit den Kacheln; Abbrechen gibt nichts aus.
+- **Bilder vergleichen**: Der Knopf ⇆ in der Ordneransicht zeigt zwei oder mehr
+  gewählte Bilder in einem eigenen Fenster nebeneinander: links der Favorit, rechts
+  ein Kandidat. Bei mehr als zwei Bildern blättern ◀ und ▶ (oder ← und →) rechts durch
+  die übrigen; „Tauschen“ macht den Kandidaten zum Favoriten, ohne neu zu rechnen.
+  Einpassen, 100 %, Mausrad, Doppelklick und Verschieben wirken auf beide Seiten – bei
+  verschieden großen Bildern an dieselbe Stelle im Verhältnis; 🔗 hebt die Kopplung
+  auf. Die Bilder kommen mit ihrer Bearbeitung aus der Begleitdatei (ohne
+  KI-Hochskalieren) und werden einmal in voller Auflösung gerechnet; reicht der
+  Grafikspeicher nicht, zeigt die Seite die Vorschau und sagt es. Unter jedem Bild
+  stehen Name, Pixel, Datum und Aufnahmedaten, dazu Sterne und Ausschuss wie in der
+  Kachel und „Bearbeiten“, das den Vergleich schließt und das Bild öffnet. Gelöscht
+  wird nichts.
 - **Voreinstellungen**: Einstellungen unter einem Namen sichern und auf andere
   Bilder legen – mit Auswahl, was mitgeht: Grundregler, Kurven, Farbbereiche,
   Schwarzweiß & Tönung, LUT, Rauschminderung, Filmkorn und Film sind vorgewählt, Geometrie, Anonymisieren und

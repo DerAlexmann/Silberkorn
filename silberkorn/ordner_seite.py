@@ -1062,6 +1062,14 @@ class OrdnerSeite(QWidget):
         fenster.beschriften(self.bogen_knopf.setAccessibleName, _("Kontaktbogen"))
         self.bogen_knopf.clicked.connect(self.kontaktbogen_starten)
         self.bogen_knopf.setEnabled(False)
+        self.vergleich_knopf = QPushButton("⇆", objectName="zoomsymbol")
+        fenster.beschriften(self.vergleich_knopf.setToolTip, _(
+            "Vergleichen: zwei oder mehr gewählte Bilder nebeneinander, gemeinsam gezoomt – "
+            "mit Bearbeitung, Sternen und Ausschuss. Mehrere Bilder wählen mit Strg oder "
+            "Umschalt."))
+        fenster.beschriften(self.vergleich_knopf.setAccessibleName, _("Bilder vergleichen"))
+        self.vergleich_knopf.clicked.connect(self.vergleich_starten)
+        self.vergleich_knopf.setEnabled(False)
         self.cache_knopf = QPushButton()
         fenster.beschriften(self.cache_knopf.setText, _("Vorschau-Cache …"))
         fenster.beschriften(self.cache_knopf.setToolTip, _(
@@ -1073,6 +1081,7 @@ class OrdnerSeite(QWidget):
         leiste.addWidget(self.ort, 1)
         leiste.addWidget(self.sortierung)
         leiste.addWidget(self.stapel_knopf)
+        leiste.addWidget(self.vergleich_knopf)
         leiste.addWidget(self.bogen_knopf)
         leiste.addWidget(self.cache_knopf)
         aufbau.addLayout(leiste)
@@ -1083,8 +1092,7 @@ class OrdnerSeite(QWidget):
         self.liste.doubleClicked.connect(self._doppelklick)
         self.liste.bewertung_gewaehlt.connect(self._bewertung_gewaehlt)
         self.liste.bewertung_gesperrt.connect(self._bewertung_gesperrt)
-        self.liste.selectionModel().selectionChanged.connect(
-            lambda *_a: self.stapel_knopf.setEnabled(bool(self.gewaehlte_bilder())))
+        self.liste.selectionModel().selectionChanged.connect(self._auswahl_geaendert)
         aufbau.addWidget(self.liste, 1)
         self.leer = QLabel(objectName="nebentext")
         self.leer.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1136,6 +1144,7 @@ class OrdnerSeite(QWidget):
         self.leer.setVisible(not ordner)
         self.neu_knopf.setEnabled(bool(ordner))
         self.bogen_knopf.setEnabled(bool(pfade))
+        self._auswahl_geaendert()
         self.hoch_knopf.setEnabled(bool(ordner) and os.path.dirname(ordner) != ordner)
         if ordner and melden:
             text = _("1 Bild in {ordner}") if len(pfade) == 1 else _("{anzahl} Bilder in {ordner}")
@@ -1167,17 +1176,14 @@ class OrdnerSeite(QWidget):
     def _bewertung_gewaehlt(self, pfad: str, wert: int):
         if not bewertung_setzen(self.fenster, pfad, wert):
             return
-        name = os.path.basename(pfad)
-        if wert > 0:
-            text = _("{name}: {sterne}").format(name=name, sterne="★" * wert)
-        elif wert == 0:
-            text = _("{name}: Bewertung entfernt").format(name=name)
-        else:
-            text = _("{name} als Ausschuss markiert – die Datei bleibt unverändert").format(
-                name=name)
-        if wert == bewertung.AUSSCHUSS or self.sortierung.currentData() == "sterne":
+        text = bewertung_text(pfad, wert)
+        if self._neu_einsortieren(wert):
             text += " " + _("Mit ↻ lässt sich neu einsortieren.")
         self.fenster.melden(text)
+
+    def _neu_einsortieren(self, wert: int) -> bool:
+        """Stimmt die Reihenfolge nach dieser Bewertung womoeglich nicht mehr?"""
+        return wert == bewertung.AUSSCHUSS or self.sortierung.currentData() == "sterne"
 
     def _bewertung_gesperrt(self, pfad: str):
         stand = self.modell.bewertungen.get(pfad, bewertung.KEINE)
@@ -1190,6 +1196,11 @@ class OrdnerSeite(QWidget):
         elif pfad:
             self.fenster.reiter.setCurrentWidget(self.fenster.bearbeiten)
             self.fenster.bearbeiten.oeffnen(pfad)
+
+    def _auswahl_geaendert(self, *_args):
+        anzahl = len(self.gewaehlte_bilder())
+        self.stapel_knopf.setEnabled(anzahl > 0)
+        self.vergleich_knopf.setEnabled(anzahl >= 2)
 
     def gewaehlte_bilder(self) -> list[str]:
         """Die gewaehlten Bilder in der Reihenfolge der Liste - ohne Ordner."""
@@ -1233,6 +1244,40 @@ class OrdnerSeite(QWidget):
         if offen is not None and os.path.isfile(offen):
             bearbeiten.oeffnen(offen)
             self.fenster.reiter.setCurrentWidget(self)
+
+    # ------------------------------------------------------------------
+    # Vergleichen
+    # ------------------------------------------------------------------
+
+    def vergleich_starten(self):
+        import functools
+
+        from . import bildvergleich
+        from .bildvergleich_dialog import VergleichDialog
+        pfade = self.gewaehlte_bilder()
+        if len(pfade) < 2:
+            return
+        vorher = {p: self.modell.bewertungen.get(p, bewertung.KEINE) for p in pfade}
+        laden = functools.partial(bildvergleich.laden, raw_qualitaet=einstellungen.raw_qualitaet())
+        dialog = VergleichDialog(self, pfade, vorher, self._vergleich_bewerten, gesperrt_text,
+                                 laden)
+        dialog.exec()
+        geaendert = [s for p, s in dialog.staende.items() if s != vorher[p]]
+        if geaendert:
+            text = _("Bewertungen aus dem Vergleich gesichert.")
+            if any(self._neu_einsortieren(stand.wert) for stand in geaendert):
+                text += " " + _("Mit ↻ lässt sich neu einsortieren.")
+            self.fenster.melden(text)
+        if dialog.zu_bearbeiten:
+            # oeffnen() meldet selbst, was es tut - die Bewertung steht dann in der Kachel
+            self.fenster.reiter.setCurrentWidget(self.fenster.bearbeiten)
+            self.fenster.bearbeiten.oeffnen(dialog.zu_bearbeiten)
+
+    def _vergleich_bewerten(self, pfad: str, wert: int, melden) -> bool:
+        if not bewertung_setzen(self.fenster, pfad, wert, melden=melden):
+            return False
+        melden(bewertung_text(pfad, wert))
+        return True
 
     # ------------------------------------------------------------------
     # Kontaktbogen
@@ -1446,25 +1491,38 @@ def begleitdatei_geaendert(fenster, pfad: str):
         seite.dienst.befehl("vergessen", pfad)
 
 
-def bewertung_setzen(fenster, pfad: str, wert: int, von_bearbeiten: bool = False) -> bool:
+def bewertung_text(pfad: str, wert: int) -> str:
+    """Was nach dem Bewerten in der Statuszeile steht."""
+    name = os.path.basename(pfad)
+    if wert > 0:
+        return _("{name}: {sterne}").format(name=name, sterne="★" * wert)
+    if wert == 0:
+        return _("{name}: Bewertung entfernt").format(name=name)
+    return _("{name} als Ausschuss markiert – die Datei bleibt unverändert").format(name=name)
+
+
+def bewertung_setzen(fenster, pfad: str, wert: int, von_bearbeiten: bool = False,
+                     melden=None) -> bool:
     """Die Bewertung (-1 Ausschuss, 0 bis 5) neben das Bild schreiben - nur mit der Erlaubnis
     fuer Begleitdateien und nie in eine fremde XMP-Datei. Es wird nichts geloescht, auch bei
-    Ausschuss nicht. Rueckgabe: ob geschrieben wurde; sonst steht der Grund in der Statuszeile."""
+    Ausschuss nicht. Rueckgabe: ob geschrieben wurde; sonst steht der Grund in der Statuszeile
+    (oder geht an melden(text, fehler))."""
+    melden = melden or fenster.melden
     bearbeiten = fenster.bearbeiten
     if not bearbeiten.bewertung_erlaubt(pfad):
-        fenster.melden(_("Ohne Erlaubnis für Begleitdateien werden Bewertungen nicht gespeichert."),
-                       fehler=True)
+        melden(_("Ohne Erlaubnis für Begleitdateien werden Bewertungen nicht gespeichert."),
+               fehler=True)
         return False
     try:
         bewertung.schreiben(pfad, wert)
     except bewertung.FremdeDatei as fehler:        # auch UnlesbareDatei
-        fenster.melden(gesperrt_text(bewertung.Stand(
+        melden(gesperrt_text(bewertung.Stand(
             0, "unlesbar" if isinstance(fehler, bewertung.UnlesbareDatei) else "fremd")),
             fehler=True)
         return False
     except bewertung.BewertungFehler as fehler:
-        fenster.melden(_("Die Bewertung ließ sich nicht neben dem Bild sichern: {grund}")
-                       .format(grund=str(fehler)), fehler=True)
+        melden(_("Die Bewertung ließ sich nicht neben dem Bild sichern: {grund}")
+               .format(grund=str(fehler)), fehler=True)
         return False
     stand = bewertung.Stand(wert, "eigen")
     seite = getattr(fenster, "ordner", None)

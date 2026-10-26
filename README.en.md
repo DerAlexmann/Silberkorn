@@ -35,7 +35,7 @@ Supports hardware acceleration via NVIDIA CUDA / RTX series GPUs.
   negatives from a scanner or camera turned into positives, dust removed via the
   infrared channel.
 - **Hand-off**: anonymise, clean metadata, save for publishing and print.
-- **Working with many images**: folder view, ratings, batch, contact sheet and presets.
+- **Working with many images**: folder view, ratings, comparison, batch, contact sheet and presets.
 - **Non-destructive**: undo and redo; settings live in a sidecar file next to the image
   and the original stays untouched.
 

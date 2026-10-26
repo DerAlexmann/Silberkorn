@@ -293,6 +293,18 @@ class Leinwand(QFrame):
         self._zeiger()
         self.ansicht_geaendert.emit()
 
+    def ansicht_uebernehmen(self, zoom: float | None, mitte: tuple[float, float]):
+        """Zoom und Bildmitte von aussen - etwa von einer gekoppelten Leinwand."""
+        if self.voll_form is None:
+            return
+        self.zoom = zoom
+        if zoom is not None:
+            self.mitte = mitte
+            self._mitte_begrenzen()
+        self._zeiger()
+        self.update()
+        self.ansicht_geaendert.emit()
+
     def zoom_schritt(self, richtung: int, um: QPointF | None = None):
         stufe = ZOOMSTUFEN.index(self.zoom) if self.zoom in ZOOMSTUFEN else 0
         neu = min(max(stufe + richtung, 0), len(ZOOMSTUFEN) - 1)

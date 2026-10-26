@@ -36,7 +36,7 @@ Unterstützt Hardwarebeschleunigung über NVIDIA CUDA und Grafikkarten der RTX-S
   entfernen.
 - **Abgeben**: Anonymisieren, Metadaten bereinigen, für die Veröffentlichung speichern und
   Drucken.
-- **Arbeiten mit vielen Bildern**: Ordneransicht, Bewertung, Stapel, Kontaktbogen und
+- **Arbeiten mit vielen Bildern**: Ordneransicht, Bewertung, Vergleich, Stapel, Kontaktbogen und
   Voreinstellungen.
 - **Nicht-destruktiv**: Rückgängig und Wiederholen, Einstellungen liegen in einer
   Begleitdatei neben dem Bild, das Original bleibt unverändert.

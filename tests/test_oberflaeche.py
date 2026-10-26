@@ -2899,3 +2899,150 @@ def test_kontaktbogen_unerwarteter_fehler_wird_gemeldet(fenster, bogen, tmp_path
     seite.kontaktbogen_starten()
     assert "unerwartet" in fenster.statusmeldung.text()
     assert _reste(tmp_path / "ziel") == []
+
+
+# --------------------------------------------------------------------------
+# Bilder vergleichen
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def vergleich_ablauf(fenster, bewertung_umgebung, monkeypatch):
+    """exec zeigt den Dialog, rechnet die Bilder und ruft dann `schritt(dialog)` auf."""
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    from silberkorn import bildvergleich_dialog
+    seite, konfiguration = bewertung_umgebung
+    ablauf = {"schritt": lambda dialog: None, "dialog": None}
+
+    def ausfuehren(dialog):
+        ablauf["dialog"] = dialog
+        dialog.show()
+        dialog.anzeigen()
+        QApplication.processEvents()
+        ablauf["schritt"](dialog)
+        if dialog.isVisible():
+            dialog.reject()
+        return dialog.result() or QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(bildvergleich_dialog.VergleichDialog, "exec", ausfuehren)
+    return seite, ablauf
+
+
+def test_vergleich_knopf_erst_ab_zwei_bildern(fenster, vergleich_ablauf, tmp_path):
+    seite, _ablauf = vergleich_ablauf
+    assert seite.vergleich_knopf.accessibleName() == "Bilder vergleichen"
+    assert not seite.vergleich_knopf.isEnabled()
+    _klicken(seite, str(tmp_path / "a.jpg"))
+    assert not seite.vergleich_knopf.isEnabled()
+    seite.liste.selectAll()                        # mit dem Unterordner - der zaehlt nicht
+    assert seite.vergleich_knopf.isEnabled()
+    seite.ordner_zeigen(str(tmp_path))             # neu eingelesen: keine Auswahl mehr
+    assert not seite.vergleich_knopf.isEnabled()
+
+
+def test_vergleich_zeigt_die_auswahl_und_bewertet_in_die_datei(fenster, vergleich_ablauf,
+                                                              tmp_path):
+    from silberkorn import bewertung
+    seite, ablauf = vergleich_ablauf
+    seite.liste.selectAll()
+
+    def schritt(dialog):
+        assert (dialog.links.name.text(), dialog.rechts.name.text()) == ("a.jpg", "b.jpg")
+        assert dialog.links.leinwand.voll_form == (48, 64)
+        dialog.rechts.bewertung.sterne[3].click()
+        assert "b.jpg" in dialog.meldung.text()
+
+    ablauf["schritt"] = schritt
+    seite.vergleich_starten()
+    pfad = str(tmp_path / "b.jpg")
+    assert bewertung.lesen(pfad) == bewertung.Stand(4, "eigen")
+    assert _stand(seite, pfad) == bewertung.Stand(4, "eigen")
+    assert "Bewertungen aus dem Vergleich gesichert" in fenster.statusmeldung.text()
+
+
+def test_vergleich_ausschuss_empfiehlt_neu_einsortieren(fenster, vergleich_ablauf, tmp_path):
+    seite, ablauf = vergleich_ablauf
+    seite.liste.selectAll()
+    ablauf["schritt"] = lambda dialog: dialog.links.bewertung.ausschuss.click()
+    seite.vergleich_starten()
+    assert "neu einsortieren" in fenster.statusmeldung.text()
+
+
+def test_vergleich_ohne_erlaubnis_schreibt_nichts(fenster, vergleich_ablauf, tmp_path,
+                                                  monkeypatch):
+    from silberkorn import bewertung, einstellungen
+    seite, ablauf = vergleich_ablauf
+    monkeypatch.setattr(einstellungen, "begleitdateien", lambda: False)
+    seite.liste.selectAll()
+    fenster.melden("vorher")
+
+    def schritt(dialog):
+        dialog.links.bewertung.sterne[0].click()
+        assert "Ohne Erlaubnis" in dialog.meldung.text()
+        assert dialog.links.bewertung.sterne[0].text() == "☆"
+
+    ablauf["schritt"] = schritt
+    seite.vergleich_starten()
+    assert bewertung.lesen(str(tmp_path / "a.jpg")).art == "keine"
+    assert fenster.statusmeldung.text() == "vorher"
+
+
+def test_vergleich_bearbeiten_oeffnet_das_bild(fenster, vergleich_ablauf, tmp_path):
+    seite, ablauf = vergleich_ablauf
+    seite.liste.selectAll()
+    ablauf["schritt"] = lambda dialog: dialog.rechts.bearbeiten_knopf.click()
+    seite.vergleich_starten()
+    assert fenster.reiter.currentWidget() is fenster.bearbeiten
+    assert os.path.normcase(fenster.bearbeiten.sitzung.daten.pfad) == os.path.normcase(
+        str(tmp_path / "b.jpg"))
+
+
+def test_vergleich_in_der_reihenfolge_der_liste(fenster, vergleich_ablauf, tmp_path):
+    from PySide6.QtCore import QItemSelectionModel
+    seite, ablauf = vergleich_ablauf
+    auswahl = seite.liste.selectionModel()
+    for name in ("c.jpg", "a.jpg"):                 # erst c, dann a geklickt
+        index = seite.modell.index(seite.modell.pfade.index(str(tmp_path / name)))
+        auswahl.select(index, QItemSelectionModel.SelectionFlag.Select)
+    gesehen = []
+    ablauf["schritt"] = lambda dialog: gesehen.append(
+        (dialog.links.name.text(), dialog.rechts.name.text()))
+    seite.vergleich_starten()
+    assert gesehen == [("a.jpg", "c.jpg")]
+
+
+def test_vergleich_fremde_datei_meldet_im_dialog(fenster, vergleich_ablauf, tmp_path):
+    """Taucht waehrend des Vergleichs eine fremde XMP-Datei auf, bleibt sie unberuehrt, und
+    der Grund steht im Vergleichsfenster."""
+    seite, ablauf = vergleich_ablauf
+    seite.liste.selectAll()
+    fenster.melden("vorher")
+    fremd = tmp_path / "a.jpg.xmp"
+
+    def schritt(dialog):
+        fremd.write_bytes(FREMDES_XMP)
+        dialog.links.bewertung.sterne[1].click()
+        assert "fremden XMP-Datei" in dialog.meldung.text()
+        assert dialog.meldung.objectName() == "warnung"
+
+    ablauf["schritt"] = schritt
+    seite.vergleich_starten()
+    assert fremd.read_bytes() == FREMDES_XMP
+    assert fenster.statusmeldung.text() == "vorher"
+
+
+def test_vergleich_bewerten_dann_bearbeiten(fenster, vergleich_ablauf, tmp_path):
+    from silberkorn import bewertung
+    seite, ablauf = vergleich_ablauf
+    seite.liste.selectAll()
+
+    def schritt(dialog):
+        dialog.links.bewertung.sterne[4].click()
+        dialog.links.bearbeiten_knopf.click()
+
+    ablauf["schritt"] = schritt
+    seite.vergleich_starten()
+    pfad = str(tmp_path / "a.jpg")
+    assert _stand(seite, pfad) == bewertung.Stand(5, "eigen")
+    assert fenster.bearbeiten.sitzung.angaben.bewertung == 5
+    assert fenster.reiter.currentWidget() is fenster.bearbeiten

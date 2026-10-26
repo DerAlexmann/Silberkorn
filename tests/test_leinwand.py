@@ -197,3 +197,17 @@ def test_trenner_gehoert_zum_fenster_nicht_zum_bild(leinwand):
     leinwand.mitte = (400.0, 300.0)                          # Verschieben aendert nichts
     assert leinwand._trenner_x() == pytest.approx(eingepasst)
     assert leinwand.trenner == 0.3
+
+
+def test_ansicht_uebernehmen_begrenzt_und_meldet_einmal(leinwand):
+    gemeldet = []
+    leinwand.ansicht_geaendert.connect(lambda: gemeldet.append(leinwand.zoom))
+    leinwand.ansicht_uebernehmen(2.0, (-50.0, 900.0))        # ausserhalb: an den Rand
+    assert leinwand.zoom == 2.0 and leinwand.mitte == (0.0, 200.0)
+    assert gemeldet == [2.0]
+    leinwand.ansicht_uebernehmen(None, (10.0, 10.0))         # eingepasst: die Mitte zaehlt nicht
+    assert leinwand.zoom is None and leinwand.mitte == (0.0, 200.0)
+    assert gemeldet == [2.0, None]
+    leinwand.voll_form = None                                # ohne Bild: nichts
+    leinwand.ansicht_uebernehmen(1.0, (5.0, 5.0))
+    assert leinwand.zoom is None and gemeldet == [2.0, None]
