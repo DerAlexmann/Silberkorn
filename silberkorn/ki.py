@@ -1593,8 +1593,13 @@ def outpaint_daten_laden(pfad: str, xp=np) -> OutpaintDaten:
 
 
 def outpaint_rauschen(seed: int, tokens: int, kanaele: int, xp=np):
-    """Startrauschen (1, tokens, kanaele) - gleich fuer gleichen Seed."""
-    return xp.random.RandomState(seed).standard_normal((1, tokens, kanaele)).astype(xp.float32)
+    """Startrauschen (1, tokens, kanaele) - gleich fuer gleichen Seed.
+
+    Immer mit NumPy: Zufallszahlen von CuPy brauchen cuRAND, und das laedt die EXE nicht mit
+    (nvidia_laufzeit.PAKETE) - das Erweitern scheiterte dort.
+    """
+    rauschen = np.random.RandomState(seed).standard_normal((1, tokens, kanaele))
+    return xp.asarray(rauschen, dtype=xp.float32)
 
 
 def outpaint_rechnen(eingabe, rauschen, daten: OutpaintDaten, kodieren, transformieren,

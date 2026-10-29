@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import sys
 import traceback
+from datetime import datetime
 
 from . import PROGRAMM, VERSION, einstellungen, farben, gpu_pruefung, nvidia_laufzeit
 from .gpu_pruefung import Befund, Grafikkarte
@@ -33,6 +34,7 @@ ENDE_OHNE_NVIDIA_BIBLIOTHEKEN = 4
 ENDE_STARTFEHLER = 5
 
 FEHLER_LOG = "silberkorn-fehler.log"
+FEHLER_LOG_HOECHSTENS = 1 << 20
 
 
 def meldungstext(befund: Befund) -> tuple[str, str]:
@@ -152,24 +154,74 @@ def qt_sprache_setzen(sprache: str) -> None:
         _qt_uebersetzer = uebersetzer
 
 
-def startfehler_zeigen(titel: str, details: str) -> int:
-    """Fehler nach dem Laden von Qt: Fenster mit Details, dazu eine Logdatei
-    neben dem Programm - die EXE hat keine Konsole."""
-    from PySide6.QtWidgets import QMessageBox
-
+def fehler_festhalten(titel: str, details: str) -> str:
+    """Fehler an die Logdatei neben dem Programm anhaengen - die EXE hat keine
+    Konsole. Ueber FEHLER_LOG_HOECHSTENS beginnt die Datei neu, damit ein Fehler,
+    der sich bei jedem Zeichnen wiederholt, die Platte nicht fuellt.
+    Rueckgabe: Pfad der Datei, leer, wenn sie sich nicht schreiben liess."""
     log = os.path.join(einstellungen.programm_ordner(), FEHLER_LOG)
     try:
-        with open(log, "w", encoding="utf-8") as datei:
-            datei.write(f"{PROGRAMM} {VERSION}\n{titel}\n\n{details}\n")
-    except OSError:
-        log = ""
+        neu = not os.path.exists(log) or os.path.getsize(log) > FEHLER_LOG_HOECHSTENS
+        with open(log, "w" if neu else "a", encoding="utf-8", errors="backslashreplace") as datei:
+            datei.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} {PROGRAMM} {VERSION}\n"
+                        f"{titel}\n\n{details}\n")
+    except (OSError, ValueError):
+        return ""
+    return log
+
+
+def _fehler_fenster(titel: str, details: str, log: str) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
     box = QMessageBox(QMessageBox.Icon.Critical, f"{PROGRAMM} {VERSION}", f"<b>{titel}</b>")
     box.setInformativeText(
         _("Die Einzelheiten stehen unter „Details“ und in {log}.").format(log=log) if log
         else _("Die Einzelheiten stehen unter „Details“."))
     box.setDetailedText(details)
     box.exec()
+
+
+def startfehler_zeigen(titel: str, details: str) -> int:
+    """Fehler nach dem Laden von Qt: Fenster mit Details, dazu die Logdatei."""
+    _fehler_fenster(titel, details, fehler_festhalten(titel, details))
     return ENDE_STARTFEHLER
+
+
+_gezeigte_fehler: set[str] = set()
+_fehler_offen = False
+
+
+def unerwarteter_fehler(art, wert, verlauf) -> None:
+    """sys.excepthook im laufenden Programm, fuer Fehler, die niemand abfaengt -
+    meist in Qt-Slots. Ohne ihn verschwanden sie in der EXE spurlos: Ein Knopf
+    tat dann einfach nichts.
+
+    Festgehalten wird jeder Fehler; ein Fenster gibt es je Fehlerstelle nur
+    einmal und nie zwei zugleich - ein Fehler beim Zeichnen kaeme sonst endlos.
+    """
+    global _fehler_offen
+    if issubclass(art, KeyboardInterrupt):
+        sys.__excepthook__(art, wert, verlauf)
+        return
+    details = "".join(traceback.format_exception(art, wert, verlauf))
+    titel = _("Unerwarteter Fehler: Der letzte Schritt wurde nicht ausgeführt.")
+    log = fehler_festhalten(titel, details)       # zuerst - alles danach kann scheitern
+    if sys.stderr is not None:
+        try:
+            print(details, file=sys.stderr)
+        except (OSError, ValueError):             # EXE ohne Konsole: das Log hat ihn
+            pass
+    stelle = "".join(traceback.format_tb(verlauf)) + art.__qualname__
+    if _fehler_offen or stelle in _gezeigte_fehler:
+        return
+    _fehler_offen = True
+    try:
+        _fehler_fenster(titel, details, log)
+        _gezeigte_fehler.add(stelle)
+    except Exception:                             # der Fehler steht schon im Log
+        fehler_festhalten("Fehlerfenster nicht angezeigt", traceback.format_exc())
+    finally:
+        _fehler_offen = False
 
 
 def main(argumente: list[str] | None = None) -> int:
@@ -223,6 +275,7 @@ def main(argumente: list[str] | None = None) -> int:
     except Exception:
         return startfehler_zeigen(_("Das Hauptfenster ließ sich nicht öffnen"),
                                   traceback.format_exc())
+    sys.excepthook = unerwarteter_fehler
     fenster.show()
     app.exec()
     return ENDE_OK
