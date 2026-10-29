@@ -158,3 +158,53 @@ def test_ziel_ordner_legt_vor_der_zustimmung_nichts_an(tmp_path, pakete, monkeyp
     assert nl.ziel_ordner() == str(ziel)
     assert not (tmp_path / "programm").exists()
     assert nl.einrichten() == str(ziel) and nl.vollstaendig(str(ziel))
+
+
+OHNE_BIBLIOTHEK = {"random", "linalg", "sparse", "curand", "cusolver", "cusparse"}
+
+
+def _cupy_ohne_bibliothek(quelltext: str) -> list[int]:
+    """Zeilen, die CuPy-Teile nutzen, deren NVIDIA-Bibliothek die EXE nicht laedt:
+    jeder Import davon und jeder Zugriff ueber einen Namen, der fuer CuPy steht (cp, xp
+    oder was an cupy gebunden wird, etwa `from .cuda import cupy as _cupy`)."""
+    import ast
+    baum = ast.parse(quelltext)
+    namen = {"cp", "xp", "cupy"}
+    zeilen = []
+    for knoten in ast.walk(baum):
+        if isinstance(knoten, ast.Import | ast.ImportFrom):
+            modul = (getattr(knoten, "module", None) or "").split(".")
+            for alias in knoten.names:
+                pfad = modul + alias.name.split(".")
+                if "cupy" in pfad or "cupyx" in pfad:
+                    if OHNE_BIBLIOTHEK & set(pfad):
+                        zeilen.append(knoten.lineno)
+                    if pfad[-1] == "cupy":
+                        namen.add(alias.asname or alias.name)
+    for knoten in ast.walk(baum):
+        if (isinstance(knoten, ast.Attribute) and knoten.attr in OHNE_BIBLIOTHEK
+                and isinstance(knoten.value, ast.Name) and knoten.value.id in namen):
+            zeilen.append(knoten.lineno)
+    return sorted(zeilen)
+
+
+def test_waechter_erkennt_cupy_ohne_bibliothek():
+    for beispiel in ("x = cp.random.rand(3)", "from cupy import random",
+                     "import cupy.linalg", "from cupyx.scipy import sparse",
+                     "from .cuda import cupy as _cupy\n_cupy.random.seed(1)",
+                     "from cupy.cuda import curand"):
+        assert _cupy_ohne_bibliothek(beispiel), beispiel
+    assert _cupy_ohne_bibliothek("from cupyx.scipy import ndimage\nnp.random.rand(2)") == []
+
+
+def test_kein_cupy_teil_ohne_mitgeladene_bibliothek():
+    """Die EXE laedt nur cudart, NVRTC, nvJitLink, cuBLAS, cuFFT und cuDNN. cupy.random
+    (cuRAND), cupy.linalg (cuSOLVER) und cupyx.scipy.sparse (cuSPARSE) gingen dort nicht -
+    aus dem Quellcode aber schon, weil pip die Bibliotheken mitbringt. So scheiterte das
+    KI-Erweitern nur in der EXE."""
+    paket = Path(nl.__file__).parent
+    funde = [f"{datei.relative_to(paket)}:{zeile}"
+             for datei in sorted(paket.rglob("*.py"))
+             if not any(teil.startswith(".") for teil in datei.relative_to(paket).parts)
+             for zeile in _cupy_ohne_bibliothek(datei.read_text(encoding="utf-8"))]
+    assert funde == []

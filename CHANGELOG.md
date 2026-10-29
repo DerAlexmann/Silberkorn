@@ -5,6 +5,15 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 
 ## [Unveröffentlicht]
 
+### Behoben
+
+- **KI-Erweitern in der EXE**: Der Knopf „Erweitern“ rechnete kurz und ließ das Bild
+  unverändert. Das Startrauschen brauchte eine NVIDIA-Bibliothek (cuRAND), die die EXE
+  nicht mitlädt; es entsteht jetzt ohne sie.
+- **Fehler verschwanden spurlos**: Scheiterte ein Schritt unerwartet, tat der Knopf einfach
+  nichts – so etwa beim KI-Erweitern in der EXE. Jetzt erscheint ein Fenster mit den
+  Einzelheiten, und der Fehler steht in `silberkorn-fehler.log` neben dem Programm.
+
 ## [0.13.0] – 2026-10-26
 
 ### Neu

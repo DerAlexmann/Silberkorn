@@ -173,6 +173,25 @@ def test_rauschen_je_seed():
     assert not np.array_equal(a, ki.outpaint_rauschen(8, 64, 128))
 
 
+def test_rauschen_auf_der_gpu_ohne_curand(monkeypatch):
+    """Die EXE hat kein cuRAND: Das Rauschen fuer die GPU entsteht mit NumPy - dasselbe
+    wie auf der CPU."""
+    cp = pytest.importorskip("cupy")
+    try:
+        cp.cuda.runtime.getDeviceCount()
+    except cp.cuda.runtime.CUDARuntimeError:
+        pytest.skip("keine Grafikkarte")
+
+    class OhneCurand:
+        def __getattr__(self, name):
+            raise ImportError("cuRAND fehlt")
+
+    monkeypatch.setattr(cp, "random", OhneCurand())
+    gpu = ki.outpaint_rauschen(7, 64, 128, cp)
+    assert isinstance(gpu, cp.ndarray) and gpu.dtype == cp.float32
+    assert np.array_equal(gpu.get(), ki.outpaint_rauschen(7, 64, 128))
+
+
 def test_daten_laden(tmp_path):
     pfad = tmp_path / "daten.npz"
     np.savez(pfad, prompt=np.ones((1, 5, 8), np.float32), bn_mittel=np.arange(128.0),

@@ -956,6 +956,8 @@ TRANSLATIONS = {
         "Die Einzelheiten stehen unter „Details“ und in {log}.":
             "The details are under “Details” and in {log}.",
         "Die Einzelheiten stehen unter „Details“.": "The details are under “Details”.",
+        "Unerwarteter Fehler: Der letzte Schritt wurde nicht ausgeführt.":
+            "Unexpected error: the last step was not carried out.",
         "NVIDIA-Bibliotheken werden heruntergeladen …": "Downloading NVIDIA libraries …",
         "Die NVIDIA-Bibliotheken ließen sich nicht einrichten. "
         "Beim nächsten Start versucht Silberkorn es erneut.":

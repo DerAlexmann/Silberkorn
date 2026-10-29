@@ -15,6 +15,7 @@ venv/
 
 # Laufzeit: Einstellungen neben dem Programm, später Modelle und TensorRT-Engines
 silberkorn.json
+silberkorn-fehler.log
 voreinstellungen/
 *.silberkorn
 modelle/
