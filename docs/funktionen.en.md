@@ -258,7 +258,11 @@
   dust does not – and fills them: small specks on the GPU, wide spots with LaMa. At
   24 megapixels this takes less than a second; "Before" and undo work as usual. An
   infrared channel that shows the scene itself (aerial images, black-and-white film with
-  silver, Kodachrome) is recognised and not taken for dust.
+  silver, Kodachrome) is recognised and not taken for dust. Without an infrared
+  channel, "Search with AI" looks for dust, scratches and cracks on scanned prints. The
+  result is a suggestion, as the AI occasionally takes straight edges in the image for
+  scratches: the sensitivity takes effect instantly, "Touch up" adds or erases findings
+  with the brush, and only "Remove" fills them.
   "Split photos …" finds several prints on a flatbed scan, crooked ones included,
   straightens each one, crops it to its edge and saves it as a file of its own (Name-01,
   Name-02 …, without overwriting anything); Silberkorn then opens one of them for editing.

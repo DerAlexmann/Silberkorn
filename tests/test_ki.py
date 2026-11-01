@@ -214,7 +214,7 @@ def test_katalog_vollstaendig():
                                     | set(ki.SCHAERF_MODELLE) | set(ki.MASKEN_MODELLE)
                                     | set(ki.AUSWAHL_MODELLE) | set(ki.ENTFERN_MODELLE)
                                     | set(ki.TIEFEN_MODELLE) | set(ki.ERWEITER_MODELLE)
-                                    | set(ki.FARB_MODELLE))
+                                    | set(ki.FARB_MODELLE) | set(ki.SCHADEN_MODELLE))
 
 
 def test_entrauschmodell_aus_eigenem_release():
@@ -229,6 +229,7 @@ def test_entrauschmodell_aus_eigenem_release():
     assert ki.TIEFEN_MODELLE["tiefe"].release == ki.MODELL_RELEASE_7
     assert ki.ERWEITER_MODELLE["outpaint"].release == ki.MODELL_RELEASE_8
     assert ki.FARB_MODELLE["ddcolor"].release == ki.MODELL_RELEASE_9
+    assert ki.SCHADEN_MODELLE["kratzer"].release == ki.MODELL_RELEASE_10
 
 
 def test_weitere_dateien_gehoeren_zum_modell():

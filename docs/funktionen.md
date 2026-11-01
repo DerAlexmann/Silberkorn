@@ -301,7 +301,11 @@
   Punkte auf der GPU, breite Stellen mit LaMa. Bei 24 Megapixeln dauert das
   unter einer Sekunde; „Vorher“ und Rückgängig wirken wie gewohnt. Ein
   Infrarotkanal, der das Motiv selbst zeigt (Luftbilder, Schwarzweißfilm mit
-  Silber, Kodachrome), wird erkannt und nicht für Staub gehalten.
+  Silber, Kodachrome), wird erkannt und nicht für Staub gehalten. Ohne
+  Infrarotkanal sucht „Mit KI suchen“ Staub, Kratzer und Risse auf gescannten
+  Abzügen. Das Ergebnis ist ein Vorschlag, denn gerade Kanten im Bild hält die KI
+  gelegentlich für Kratzer: Die Empfindlichkeit wirkt sofort, „Nachbessern“
+  ergänzt oder radiert Fundstellen mit dem Pinsel, erst „Entfernen“ füllt sie.
   „Fotos trennen …“ findet auf einem Flachbett-Scan mehrere aufgelegte Abzüge,
   auch schräg liegende, richtet jeden gerade aus, beschneidet ihn auf seinen
   Rand und speichert ihn als eigene Datei (Name-01, Name-02 …, ohne etwas zu

@@ -22,7 +22,9 @@ Anything V2 Small with 98 MB, and for "Extend with AI" in the "Geometry" card fr
 [klein] 4B with the outpaint LoRA with about 4.1 GB – split into several files, as GitHub
 accepts at most 2 GB per file –, and in the "AI colourise" card from
 [modelle-9](https://github.com/DerAlexmann/Silberkorn/releases/tag/modelle-9) DDColor
-(small version) with 210 MB. Every file is checked against its SHA-256 checksum before it is used. They are stored in the `modelle`
+(small version) with 210 MB, and in the "Scan & film" card from
+[modelle-10](https://github.com/DerAlexmann/Silberkorn/releases/tag/modelle-10) the
+scratch detection by Microsoft with 144 MB. Every file is checked against its SHA-256 checksum before it is used. They are stored in the `modelle`
 folder next to the program or, if that is read-only, in
 `%LOCALAPPDATA%\Silberkorn\modelle`.
 
@@ -35,7 +37,9 @@ The models are the official weights of [Real-ESRGAN](https://github.com/xinntao/
 [LaMa](https://github.com/advimman/lama) (Apache-2.0, Copyright 2021 Samsung Research)
 and [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2) Small
 (Apache-2.0) and [DDColor](https://github.com/piddnad/DDColor) in its small version
-(Apache-2.0, Xiaoyang Kang et al.), converted to ONNX; in addition
+(Apache-2.0, Xiaoyang Kang et al.) and the scratch detection from
+[Bringing Old Photos Back to Life](https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life)
+(MIT, Copyright Microsoft Corporation), converted to ONNX; in addition
 [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
 (Apache-2.0, Black Forest Labs) with the
 [outpaint LoRA by fal](https://huggingface.co/fal/flux-2-klein-4B-outpaint-lora)
@@ -59,7 +63,9 @@ all changes). To reproduce this yourself:
    [Depth-Anything-V2-Small](https://huggingface.co/depth-anything/Depth-Anything-V2-Small)
    and `pytorch_model.bin` from
    [ddcolor_paper_tiny](https://huggingface.co/piddnad/ddcolor_paper_tiny), renamed to
-   `ddcolor_paper_tiny.bin`,
+   `ddcolor_paper_tiny.bin`, and `Global/checkpoints/detection/FT_Epoch_latest.pt` from
+   `global_checkpoints.zip` (2 GB) in the
+   [release v1.0 of Bringing Old Photos](https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/releases/tag/v1.0),
    into `modelle/quellen/`, and unpack `big-lama.zip` there.
 2. `pip install torch` (only needed for this step).
 3. `python werkzeuge/modelle_exportieren.py` – this writes the ONNX models to `modelle/`

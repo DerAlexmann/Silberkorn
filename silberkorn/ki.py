@@ -76,6 +76,7 @@ QUELLE_LAMA = "https://github.com/advimman/lama"
 QUELLE_TIEFE = "https://github.com/DepthAnything/Depth-Anything-V2"
 QUELLE_FLUX2 = "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B"
 QUELLE_DDCOLOR = "https://github.com/piddnad/DDColor"
+QUELLE_KRATZER = "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life"
 MODELL_RELEASE = "https://github.com/DerAlexmann/Silberkorn/releases/download/modelle-1/"
 MODELL_RELEASE_2 = "https://github.com/DerAlexmann/Silberkorn/releases/download/modelle-2/"
 MODELL_RELEASE_3 = "https://github.com/DerAlexmann/Silberkorn/releases/download/modelle-3/"
@@ -85,6 +86,7 @@ MODELL_RELEASE_6 = "https://github.com/DerAlexmann/Silberkorn/releases/download/
 MODELL_RELEASE_7 = "https://github.com/DerAlexmann/Silberkorn/releases/download/modelle-7/"
 MODELL_RELEASE_8 = "https://github.com/DerAlexmann/Silberkorn/releases/download/modelle-8/"
 MODELL_RELEASE_9 = "https://github.com/DerAlexmann/Silberkorn/releases/download/modelle-9/"
+MODELL_RELEASE_10 = "https://github.com/DerAlexmann/Silberkorn/releases/download/modelle-10/"
 BLOCK = 1 << 20
 # Pruefsumme einer Datei, deren Release noch aussteht - werkzeuge/outpaint_export.py
 # gibt die echten Summen und Groessen aus. Bis dahin lehnt datei_pruefen() jede
@@ -164,6 +166,10 @@ DATEIEN = {
         ("f0b915eced94a8b15991172bd7dc38603f3dc8978cd0383d312be1313de17618", 220472850),
     "LICENSE-DDColor.txt":
         ("43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1", 11356),
+    "old-photo-scratch-detection.onnx":
+        ("34739718f197199931a1d4ea2a975224d361767167146e4c9de5bbaddec8aaf7", 150583117),
+    "LICENSE-OldPhotos.txt":
+        ("c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383", 1141),
 }
 LIZENZDATEI = "LICENSE-Real-ESRGAN.txt"
 RAND = 10                    # Ueberlappung je Kachelseite in Eingabepixeln, wie in Real-ESRGAN
@@ -351,9 +357,23 @@ FARB_MODELLE = {
         massstab=1, rand=0, vielfaches=32, nhwc=False, cuda_fp16=False,
         feste_groesse=(512, 512), ausgabe_kanaele=2),
 }
+# Schaeden finden: die Kratzererkennung aus "Bringing Old Photos Back to Life" sieht ein
+# Graubild und liefert je Pixel die Wahrscheinlichkeit eines Schadens. Das Netz belegt
+# viel Grafikspeicher (1024 x 1024: 3,3 GB in FP16), rechnet also immer in Kacheln.
+SCHADEN_MODELLE = {
+    "kratzer": Modell(
+        "kratzer", "old-photo-scratch-detection.onnx",
+        "34739718f197199931a1d4ea2a975224d361767167146e4c9de5bbaddec8aaf7",
+        None,
+        "S", {"S": 512, "M": 1024, "L": 1024, "XL": 1536},
+        lizenz="MIT", quelle=QUELLE_KRATZER,
+        herkunft="Bringing Old Photos Back to Life (MIT, Copyright Microsoft Corporation)",
+        lizenzdatei="LICENSE-OldPhotos.txt", release=MODELL_RELEASE_10,
+        massstab=1, rand=32, vielfaches=16, nhwc=False, ausgabe_kanaele=1),
+}
 ALLE_MODELLE = {**MODELLE, **ENTRAUSCH_MODELLE, **SCHAERF_MODELLE, **MASKEN_MODELLE,
                 **AUSWAHL_MODELLE, **ENTFERN_MODELLE, **TIEFEN_MODELLE, **ERWEITER_MODELLE,
-                **FARB_MODELLE}
+                **FARB_MODELLE, **SCHADEN_MODELLE}
 STUFEN = ("S", "M", "L", "XL")
 
 
@@ -811,6 +831,41 @@ class _Netz:
                 raise KiFehler("Zu wenig Grafikspeicher - auch mit kleinsten Kacheln.")
             kachel = max(64, kachel // 2 // self.modell.vielfaches * self.modell.vielfaches)
 
+    def _ueberblendet(self, kanaele, kachel: int, fortschritt):
+        """Kanaele (1, k, H, W) in Kacheln rechnen -> (Ausgabekanaele, H, W), ungeklippt.
+
+        Die Kacheln werden in ihrer Ueberlappung weich ineinander geblendet, nicht
+        hart aneinandergesetzt: Netze, die ueber die ganze Kachel schauen (SCUNet,
+        Restormer), liefern in benachbarten Kacheln leicht verschiedene Helligkeit -
+        eine harte Grenze waere als Naht zu sehen.
+        """
+        _n, _k, hoehe, breite = kanaele.shape
+        rampe = 2 * self.modell.rand
+
+        def gewicht(anfang, ende, laenge):
+            stelle = cp.arange(ende - anfang, dtype=cp.float32)
+            w = cp.ones(ende - anfang, dtype=cp.float32)
+            if anfang > 0:
+                w = cp.minimum(w, (stelle + 0.5) / rampe)
+            if ende < laenge:
+                w = cp.minimum(w, (ende - anfang - stelle - 0.5) / rampe)
+            return w
+
+        def arbeit(k):
+            summe = cp.zeros((self.modell.ausgabe_kanaele, hoehe, breite), dtype=cp.float32)
+            gewichte = cp.zeros((hoehe, breite), dtype=cp.float32)
+
+            def ablegen(ya, ye, xa, xe, teil):
+                w = gewicht(ya, ye, hoehe)[:, None] * gewicht(xa, xe, breite)[None, :]
+                summe[:, ya:ye, xa:xe] += teil * w
+                gewichte[ya:ye, xa:xe] += w
+
+            self._kacheln(kanaele, k, fortschritt, ablegen, ganz=True)
+            summe /= gewichte
+            return summe
+
+        return self._mit_wiederholung(arbeit, kachel)
+
 
 class Hochskalierer(_Netz):
     """Real-ESRGAN - je Modell und Entrauschstaerke einmal anzulegen."""
@@ -872,41 +927,23 @@ class _Bildnetz(_Netz):
         super().__init__(modell or ALLE_MODELLE[self.STANDARD], fp16, kachel, tensorrt)
 
     def rechnen(self, srgb, kachel: int, fortschritt=None):
-        """sRGB (H, W, 3) float32 0..1 auf der GPU -> Ergebnis, gleiche Form, auf der GPU.
-
-        Die Kacheln werden in ihrer Ueberlappung weich ineinander geblendet, nicht
-        hart aneinandergesetzt: Netze, die ueber die ganze Kachel schauen (SCUNet,
-        Restormer), liefern in benachbarten Kacheln leicht verschiedene Helligkeit -
-        eine harte Grenze waere als Naht zu sehen.
-        """
-        hoehe, breite = srgb.shape[:2]
+        """sRGB (H, W, 3) float32 0..1 auf der GPU -> Ergebnis, gleiche Form, auf der GPU."""
         kanaele = cp.ascontiguousarray(cp.moveaxis(srgb.astype(cp.float32), -1, 0))[None]
-        rampe = 2 * self.modell.rand
-
-        def gewicht(anfang, ende, laenge):
-            stelle = cp.arange(ende - anfang, dtype=cp.float32)
-            w = cp.ones(ende - anfang, dtype=cp.float32)
-            if anfang > 0:
-                w = cp.minimum(w, (stelle + 0.5) / rampe)
-            if ende < laenge:
-                w = cp.minimum(w, (ende - anfang - stelle - 0.5) / rampe)
-            return w
-
-        def arbeit(k):
-            summe = cp.zeros((3, hoehe, breite), dtype=cp.float32)
-            gewichte = cp.zeros((hoehe, breite), dtype=cp.float32)
-
-            def ablegen(ya, ye, xa, xe, teil):
-                w = gewicht(ya, ye, hoehe)[:, None] * gewicht(xa, xe, breite)[None, :]
-                summe[:, ya:ye, xa:xe] += teil * w
-                gewichte[ya:ye, xa:xe] += w
-
-            self._kacheln(kanaele, k, fortschritt, ablegen, ganz=True)
-            summe /= gewichte
-            return summe
-
-        ziel = self._mit_wiederholung(arbeit, kachel)
+        ziel = self._ueberblendet(kanaele, kachel, fortschritt)
         return cp.ascontiguousarray(cp.moveaxis(cp.clip(ziel, 0, 1), 0, -1))
+
+
+class Schadenfinder(_Netz):
+    """Kratzererkennung - Wahrscheinlichkeit eines Schadens je Pixel. Nur mit CUDA: Das
+    TensorRT-Profil ist fest auf drei Eingangskanaele gebaut."""
+
+    def __init__(self, modell: Modell | None = None, fp16: bool = True):
+        super().__init__(modell or SCHADEN_MODELLE["kratzer"], fp16, tensorrt=False)
+
+    def karte(self, grau, kachel: int, fortschritt=None):
+        """Graubild (H, W) float32, -1..1, auf der GPU -> Wahrscheinlichkeit (H, W), 0..1."""
+        kanaele = cp.ascontiguousarray(grau.astype(cp.float32))[None, None]
+        return cp.clip(self._ueberblendet(kanaele, kachel, fortschritt)[0], 0, 1)
 
 
 class Entrauscher(_Bildnetz):
