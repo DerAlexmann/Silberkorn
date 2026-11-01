@@ -15,6 +15,9 @@ updates:
         versions: [">=12.9"]
       - dependency-name: "nvidia-cudnn-cu12"
         versions: [">=9.11"]
+      # onnxruntime-gpu 1.26 ist gegen TensorRT 10.14 gebaut, siehe requirements-tensorrt.txt
+      - dependency-name: "tensorrt-cu12-libs"
+        versions: [">=10.15"]
 
   - package-ecosystem: "github-actions"
     directory: "/"

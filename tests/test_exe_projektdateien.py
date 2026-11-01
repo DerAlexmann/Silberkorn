@@ -184,6 +184,6 @@ def test_dependabot_laesst_untergrenzen_und_cuda_festlegung():
     assert '- package-ecosystem: "pip"' in pip
     assert re.search(r'^    versioning-strategy: "increase-if-necessary"$', pip, re.M)
     for paket, grenze in (("onnxruntime-gpu", ">=1.27"), ("cuda-toolkit", ">=12.9"),
-                          ("nvidia-cudnn-cu12", ">=9.11")):
+                          ("nvidia-cudnn-cu12", ">=9.11"), ("tensorrt-cu12-libs", ">=10.15")):
         assert re.search(rf'- dependency-name: "{paket}"\n\s+versions: \["{grenze}"\]', pip), paket
     assert 'interval: "monthly"' in actions
