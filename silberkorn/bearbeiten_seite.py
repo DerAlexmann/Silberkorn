@@ -505,6 +505,7 @@ class BearbeitenSeite(QWidget):
         self._klick_geo: dict = {}            # Geometrie, in der je Ziel geklickt wurde
         self._maske_zeigen_vorher = False
         self._entferner: ki.Entferner | None = None
+        self._pinsel_ziel = "entfernen"       # was der Pinsel malt: Markierung oder Fundmaske
         self._pinsel_letzter = None           # letzter Pinselpunkt im Original
         self.verlauf = verlauf.Verlauf(0)
         self._schritt_name = ""               # benennt die naechste Aenderung, wenn noetig
@@ -1363,6 +1364,7 @@ class BearbeitenSeite(QWidget):
             anzeige.close()
             self._ki_anzeigen()
             self._ki_bild_anzeigen()
+            self._staub_anzeigen()
         self.fenster.melden(_("KI-Modell geladen: {ordner}").format(ordner=ziel))
 
     def _ki_auftrag(self, faktor: int | None = None):
@@ -1923,13 +1925,18 @@ class BearbeitenSeite(QWidget):
         return karte
 
     def _staub_bedienung(self) -> QWidget:
-        """Staub und Kratzer ueber den Infrarotkanal - nur sichtbar, wenn der Scan einen hat."""
+        """Staub und Kratzer: ueber den Infrarotkanal, wenn der Scan einen hat, sonst mit KI."""
         self.staub_teil = QWidget()
         innen = QVBoxLayout(self.staub_teil)
         innen.setContentsMargins(0, 8, 0, 0)
+        titel = QLabel(objectName="kartentitel")
+        self.fenster.beschriften(titel.setText, _("Staub & Kratzer"))
+        innen.addWidget(titel)
         self.staub_hinweis = QLabel(objectName="nebentext")
         self.staub_hinweis.setWordWrap(True)
         innen.addWidget(self.staub_hinweis)
+        self.staub_ki_knopf = self._knopf("", self.staub_mit_ki)
+        innen.addWidget(self.staub_ki_knopf)
         gitter = QGridLayout()
         gitter.setColumnStretch(1, 1)
         beschriftung = QLabel()
@@ -1950,9 +1957,31 @@ class BearbeitenSeite(QWidget):
             "Färbt in der Vorschau blau, was als Staub oder Kratzer gefunden ist."))
         self.staub_zeigen_box.toggled.connect(lambda _an: self._staub_suchen())
         innen.addWidget(self.staub_zeigen_box)
+        self.staub_pinsel_knopf = QPushButton()
+        self.staub_pinsel_knopf.setCheckable(True)
+        self.fenster.beschriften(self.staub_pinsel_knopf.setText, _("Nachbessern"))
+        self.fenster.beschriften(self.staub_pinsel_knopf.setAccessibleName, _("Nachbessern"))
+        self.fenster.beschriften(self.staub_pinsel_knopf.setToolTip, _(
+            "Fundstellen mit dem Pinsel korrigieren: Die linke Maustaste ergänzt, die rechte "
+            "radiert – etwa eine gerade Kante, die keine Beschädigung ist."))
+        self.staub_pinsel_knopf.toggled.connect(self._staub_pinsel_gedrueckt)
+        innen.addWidget(self.staub_pinsel_knopf)
+        self.staub_pinsel_zeile = QWidget()
+        zeile = QHBoxLayout(self.staub_pinsel_zeile)
+        zeile.setContentsMargins(0, 0, 0, 0)
+        groesse = QLabel()
+        self.fenster.beschriften(groesse.setText, _("Pinselgröße"))
+        self.staub_pinsel_groesse = QSlider(Qt.Orientation.Horizontal)
+        self.staub_pinsel_groesse.setRange(3, 150)
+        self.staub_pinsel_groesse.setValue(20)
+        self.fenster.beschriften(self.staub_pinsel_groesse.setAccessibleName, _("Pinselgröße"))
+        self.staub_pinsel_groesse.valueChanged.connect(self._pinsel_groesse_geaendert)
+        zeile.addWidget(groesse)
+        zeile.addWidget(self.staub_pinsel_groesse, 1)
+        innen.addWidget(self.staub_pinsel_zeile)
         leiste = QHBoxLayout()
         leiste.setSpacing(4)
-        self.staub_knopf = self._knopf(_("Staub entfernen"), self.staub_entfernen)
+        self.staub_knopf = self._knopf(_("Entfernen"), self.staub_entfernen)
         self.fenster.beschriften(self.staub_knopf.setToolTip, _(
             "Füllt alle Fundstellen: kleine Punkte und dünne Kratzer die Grafikkarte, breite "
             "Stellen LaMa, wenn das Modell von „Objekte entfernen“ geladen ist."))
@@ -1971,11 +2000,35 @@ class BearbeitenSeite(QWidget):
         if not hasattr(self, "staub_teil"):
             return
         offen = self.sitzung is not None
-        da = offen and self.sitzung.infrarot_da
-        self.staub_teil.setVisible(da)
-        if not da:
+        modell = ki.SCHADEN_MODELLE["kratzer"]
+        infrarot = offen and self.sitzung.infrarot_da
+        mit_ki = offen and not infrarot and ki.angeboten(modell, self._ki_stufe())
+        self.staub_teil.setVisible(infrarot or mit_ki)
+        if not (infrarot or mit_ki):
             return
-        if not self.sitzung.infrarot_film:
+        malen = self.leinwand.pinselmodus and self._pinsel_ziel == "staub"
+        suchbar = self.sitzung.staub_suchbar
+        if malen and not suchbar:                     # etwa: die Filmart wurde geaendert
+            self.pinsel_beenden()
+            return
+        if malen:
+            text = _("Die linke Maustaste ergänzt Fundstellen, die rechte radiert. Die mittlere "
+                     "verschiebt das vergrößerte Bild, Esc beendet.")
+        elif mit_ki and self.sitzung.kratzer_veraltet:
+            text = _("Die Filmart hat sich geändert – bitte neu suchen.")
+        elif mit_ki and not suchbar and not self.sitzung.staub_entfernt:
+            text = _("Die KI sucht Staub, Kratzer und Risse auf gescannten Abzügen. Das "
+                     "Ergebnis ist ein Vorschlag, der sich vor dem Füllen nachbessern lässt.")
+        elif mit_ki and self.sitzung.staub_entfernt:
+            text = _("{n} Stellen gefüllt. „Zurückholen“ nimmt das Füllen zurück.").format(
+                n=self.sitzung.staub_gefuellt)
+        elif mit_ki and self.sitzung.staub_fund is not None \
+                and self.staub_zeigen_box.isChecked():
+            text = _("{n} Stellen gefunden. Gerade Kanten können Fehlgriffe sein – "
+                     "„Nachbessern“ nimmt sie heraus.").format(n=self.sitzung.staub_fund[1])
+        elif mit_ki:
+            text = _("Mit „Fundstellen zeigen“ prüfen, was gefüllt wird.")
+        elif not self.sitzung.infrarot_film:
             text = _("Der Infrarotkanal zeigt das Motiv selbst, nicht den Film – etwa bei "
                      "Luftbildern. Staub lässt sich daraus nicht erkennen.")
         elif self.sitzung.staub_entfernt:
@@ -1990,16 +2043,82 @@ class BearbeitenSeite(QWidget):
             text = _("Der Scan hat einen Infrarotkanal: Staub und Kratzer sind darin dunkel "
                      "und lassen sich finden und füllen.")
         self.fenster.beschriften(self.staub_hinweis.setText, text)
-        nutzbar = self.sitzung.infrarot_film
         for widget in (self.staub_regler, self.staub_zeigen_box, self.staub_knopf):
-            widget.setEnabled(nutzbar)
+            widget.setEnabled(suchbar)
+        self.staub_pinsel_knopf.setEnabled(suchbar and self.staub_zeigen_box.isChecked())
+        self.staub_pinsel_zeile.setVisible(malen)
+        if self.staub_pinsel_knopf.isChecked() != malen:
+            self.staub_pinsel_knopf.blockSignals(True)
+            self.staub_pinsel_knopf.setChecked(malen)
+            self.staub_pinsel_knopf.blockSignals(False)
         self.staub_weg_knopf.setEnabled(self.sitzung.staub_entfernt)
+        self.staub_ki_knopf.setVisible(mit_ki)
+        titel = _("Mit KI suchen") if ki.vorhanden(modell) else _(
+            "Mit KI suchen · {mb} MB").format(mb=f"{ki.download_groesse(modell) / 2**20:.0f}")
+        self.fenster.beschriften(self.staub_ki_knopf.setText, titel)
+        self.fenster.beschriften(self.staub_ki_knopf.setAccessibleName, _("Mit KI suchen"))
+        self._modell_tooltip(self.staub_ki_knopf, modell, _(
+            "Sucht einmal über das ganze Bild; danach wirkt die Empfindlichkeit sofort."))
+
+    def _staub_pinsel_gedrueckt(self, an: bool):
+        if an:
+            self.pinsel_beginnen("staub")
+        else:
+            self.pinsel_beenden()
+
+    def staub_mit_ki(self):
+        """Ohne Infrarot: Die KI sucht die Schaeden, ein Mal fuer dieses Bild."""
+        modell = ki.SCHADEN_MODELLE["kratzer"]
+        if not ki.vorhanden(modell):
+            self.ki_modell_laden(modell)
+            return
+        if self.sitzung is None or self.sitzung.infrarot_da:
+            return
+        self.pinsel_beenden()
+        anzeige = QProgressDialog(_("KI sucht Schäden …"), _("Abbrechen"), 0, 100, self)
+        anzeige.setWindowTitle(self.fenster.windowTitle())
+        anzeige.setWindowModality(Qt.WindowModality.WindowModal)
+        anzeige.setMinimumDuration(500)
+
+        def fortschritt(nummer, anzahl):
+            anzeige.setValue(round(100 * nummer / anzahl))
+            QApplication.processEvents()
+            return not anzeige.wasCanceled()
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            # Gesucht wird einmal je Bild - das Netz belegt danach keinen Grafikspeicher mehr
+            ms = self.sitzung.kratzer_finden(
+                ki.Schadenfinder(modell), ki.kachelgroesse(modell, self._ki_stufe()),
+                self.staub_regler.value(), fortschritt)
+        except ki.KiAbbruch:
+            self.fenster.melden(_("Suche abgebrochen."))
+            return
+        except (ki.KiFehler, cp.cuda.memory.OutOfMemoryError) as fehler:
+            text = str(fehler) if isinstance(fehler, ki.KiFehler) else _(
+                "Für dieses Bild reicht der Grafikspeicher nicht.")
+            self._fehler(_("Die Suche ist fehlgeschlagen."), text)
+            return
+        finally:
+            anzeige.close()
+            QApplication.restoreOverrideCursor()
+            cp.get_default_memory_pool().free_all_blocks()
+        self.staub_zeigen_box.blockSignals(True)
+        self.staub_zeigen_box.setChecked(True)
+        self.staub_zeigen_box.blockSignals(False)
+        self.sitzung.staub_zeigen = True
+        self.sitzung.vollbild_vergessen()
+        self._staub_anzeigen()
+        self.fenster.melden(_("Suche fertig ({s} s)").format(s=f"{ms / 1000:.1f}"))
+        self.zeichnen_anfordern()
 
     def _staub_suchen(self):
         """Fundstellen fuer die Empfindlichkeit des Reglers - nur, wenn sie gezeigt werden."""
-        if self.sitzung is None or not self.sitzung.infrarot_film:
+        if self.sitzung is None or not self.sitzung.staub_suchbar:
             return
         zeigen = self.staub_zeigen_box.isChecked()
+        if not zeigen:
+            self.pinsel_beenden()                     # gemalt wird auf den Fundstellen
         fund = self.sitzung.staub_fund
         if zeigen and (fund is None or fund[0] != self.staub_regler.value()):
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -2017,8 +2136,9 @@ class BearbeitenSeite(QWidget):
 
     def staub_entfernen(self):
         """Staub und Kratzer fuellen - breite Stellen mit LaMa, wenn es geladen ist."""
-        if self.sitzung is None or not self.sitzung.infrarot_film:
+        if self.sitzung is None or not self.sitzung.staub_suchbar:
             return
+        self.pinsel_beenden()
         lama = self._entfern_modell()
         mit_ki = ki.vorhanden(lama) and ki.angeboten(lama, self._ki_stufe())
         anzeige = None
@@ -3049,7 +3169,7 @@ class BearbeitenSeite(QWidget):
         lama, sam, stufe = self._entfern_modell(), self._auswahl_modell(), self._ki_stufe()
         offen = self.sitzung is not None
         klicken = self._klick_ziel == "entfernen"
-        malen = self.leinwand.pinselmodus
+        malen = self.leinwand.pinselmodus and self._pinsel_ziel == "entfernen"
         markiert = offen and self.sitzung.markierung_da
         entfernt = self.sitzung.entfernt if offen else 0
         nutzbar = ki.angeboten(lama, stufe)
@@ -3116,16 +3236,18 @@ class BearbeitenSeite(QWidget):
         else:
             self.pinsel_beenden()
 
-    def pinsel_beginnen(self):
+    def pinsel_beginnen(self, ziel: str = "entfernen"):
         if self.sitzung is None:
             return
         self.zuschneiden(False)
         self.auswahl_beenden()
         self.flaechen_beenden()
         self.lokal_beenden()
-        self.leinwand.pinsel_radius = self.pinsel_groesse.value()
+        self._pinsel_ziel = ziel
+        self.leinwand.pinsel_radius = self._pinsel_regler().value()
         self.leinwand.pinselmodus_setzen(True)
         self._entfernen_anzeigen()
+        self._staub_anzeigen()
 
     def pinsel_beenden(self):
         # Wer einen anderen Modus beginnt, beendet hiermit auch das Bearbeiten von Flaechen
@@ -3135,7 +3257,19 @@ class BearbeitenSeite(QWidget):
         if not self.leinwand.pinselmodus:
             return
         self.leinwand.pinselmodus_setzen(False)
+        fundmaske = self._pinsel_ziel == "staub"
+        self._pinsel_ziel = "entfernen"
+        if fundmaske and self.sitzung is not None:
+            try:
+                self.sitzung.staub_zaehlen()
+            except cp.cuda.memory.OutOfMemoryError:   # nur die Zahl bleibt die alte
+                self.fenster.melden(_("Für dieses Bild reicht der Grafikspeicher nicht."),
+                                    fehler=True)
         self._entfernen_anzeigen()
+        self._staub_anzeigen()
+
+    def _pinsel_regler(self) -> QSlider:
+        return self.staub_pinsel_groesse if self._pinsel_ziel == "staub" else self.pinsel_groesse
 
     def _pinsel_groesse_geaendert(self, wert: int):
         self.leinwand.pinsel_radius = wert
@@ -3148,7 +3282,7 @@ class BearbeitenSeite(QWidget):
         if quelle is None:
             self._pinsel_letzter = None
             return
-        radius = self.pinsel_groesse.value() / self.leinwand.massstab()
+        radius = self._pinsel_regler().value() / self.leinwand.massstab()
         punkte = [quelle]
         if not neu and self._pinsel_letzter is not None:
             # Zwischen zwei Mausmeldungen lueckenlos stempeln
@@ -3157,7 +3291,15 @@ class BearbeitenSeite(QWidget):
             punkte = [(x0 + (x1 - x0) * i / (schritte + 1), y0 + (y1 - y0) * i / (schritte + 1))
                       for i in range(1, schritte + 2)]
         self._pinsel_letzter = quelle
-        self.sitzung.pinseln(punkte, radius, dazu)
+        if self._pinsel_ziel == "staub":
+            try:
+                self.sitzung.staub_pinseln(punkte, radius, dazu)
+            except cp.cuda.memory.OutOfMemoryError:
+                self.pinsel_beenden()
+                self._fehler(_("Für dieses Bild reicht der Grafikspeicher nicht."), "")
+                return
+        else:
+            self.sitzung.pinseln(punkte, radius, dazu)
         if neu:
             self._entfernen_anzeigen()
         self.zeichnen_anfordern()

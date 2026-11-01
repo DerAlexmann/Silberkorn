@@ -442,7 +442,7 @@ def test_scan_und_film(fenster, tmp_path, monkeypatch):
         assert seite.karten.index(seite.film_art.parentWidget()) == \
             [seite._karten_titel[k] for k in seite.karten].index("Motiv & Hintergrund") - 1
         assert not seite.film_pipette_knopf.isEnabled()
-        assert not seite.staub_teil.isVisibleTo(seite)
+        assert not seite.staub_knopf.isEnabled()
         seite.film_art.setCurrentIndex(seite.film_art.findData("farbnegativ"))
         seite._festhalten(sofort=True)
         werte = seite.sitzung.werte
@@ -469,7 +469,7 @@ def test_scan_und_film(fenster, tmp_path, monkeypatch):
         tifffile.imwrite(rgbi, pixel, photometric="rgb", extrasamples=[0])
         seite.oeffnen(rgbi)
         QApplication.processEvents()
-        assert seite.staub_teil.isVisibleTo(seite)
+        assert seite.staub_teil.isVisibleTo(seite) and not seite.staub_ki_knopf.isVisibleTo(seite)
         assert seite.sitzung.daten.alpha is None
     finally:
         seite.schliessen()
@@ -512,6 +512,144 @@ def test_staub_entfernen(fenster, tmp_path, monkeypatch):
         seite.oeffnen(luft)
         assert seite.staub_teil.isVisibleTo(seite) and not seite.staub_knopf.isEnabled()
         assert "Motiv selbst" in seite.staub_hinweis.text()
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_kratzer_mit_ki(fenster, tmp_path, monkeypatch):
+    """Ein Bild ohne Infrarot: suchen, sehen, nachbessern, fuellen; das Modell laedt nur nach
+    dem Knopfdruck, und ein Fehler des Netzes kommt beim Anwender an."""
+    from test_kratzer import Finder, bild
+
+    from silberkorn import bilddatei, einstellungen, filter, ki
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "abzug.png")
+    bilddatei.speichern(pfad, filter.nach_16bit(bild()))
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    try:
+        assert seite.staub_teil.isVisibleTo(seite) and seite.staub_ki_knopf.isVisibleTo(seite)
+        assert not seite.staub_knopf.isEnabled() and not seite.staub_regler.isEnabled()
+        assert not seite.staub_pinsel_knopf.isEnabled()
+
+        geladen = []
+        monkeypatch.setattr(seite, "ki_modell_laden", geladen.append)
+        monkeypatch.setattr(ki, "vorhanden", lambda _m: False)
+        seite.staub_mit_ki()
+        assert geladen == [ki.SCHADEN_MODELLE["kratzer"]] and seite.sitzung.staub_fund is None
+
+        monkeypatch.setattr(ki, "vorhanden", lambda _m: True)
+
+        def scheitert(_modell):
+            raise ki.KiFehler("kaputt")
+
+        gemeldet = []
+        monkeypatch.setattr(seite, "_fehler", lambda titel, text: gemeldet.append(text))
+        monkeypatch.setattr(ki, "Schadenfinder", scheitert)
+        seite.staub_mit_ki()
+        assert gemeldet == ["kaputt"] and not seite.staub_knopf.isEnabled()
+
+        monkeypatch.setattr(ki, "Schadenfinder", lambda _modell: Finder())
+        seite.staub_mit_ki()
+        assert seite.staub_zeigen_box.isChecked() and seite.sitzung.staub_zeigen
+        assert seite.staub_knopf.isEnabled() and not seite.staub_weg_knopf.isEnabled()
+        assert seite.staub_hinweis.text().startswith("1 ")
+        assert seite.staub_pinsel_knopf.isEnabled()
+        seite.staub_zeigen_box.setChecked(False)
+        assert not seite.staub_pinsel_knopf.isEnabled()
+        seite.staub_zeigen_box.setChecked(True)
+
+        seite.pinsel_groesse.setValue(3)
+        seite.staub_pinsel_groesse.setValue(150)
+        monkeypatch.setattr(seite.leinwand, "massstab", lambda: 1.0)
+        seite.staub_pinsel_knopf.setChecked(True)
+        assert seite.leinwand.pinselmodus and seite.staub_pinsel_zeile.isVisibleTo(seite)
+        assert not seite.pinsel_knopf.isChecked()     # der Pinsel von „Objekte entfernen“ ruht
+        assert seite.leinwand.pinsel_radius == 150
+        marke = seite.sitzung.markierung_da
+        seite._pinsel_gezogen(80.0, 52.0, False, True)
+        assert seite.sitzung.markierung_da == marke
+        seite._abbrechen()
+        assert not seite.leinwand.pinselmodus and not seite.staub_pinsel_knopf.isChecked()
+        assert seite.sitzung.staub_fund[1] == 0       # radiert
+
+        seite.staub_entfernen()
+        assert seite.sitzung.staub_entfernt and not seite.staub_zeigen_box.isChecked()
+        assert seite.staub_weg_knopf.isEnabled()
+        seite.staub_zurueckholen()
+        assert not seite.staub_weg_knopf.isEnabled()
+
+        seite.staub_zeigen_box.setChecked(True)
+        seite.staub_pinsel_knopf.setChecked(True)
+        seite.film_art.setCurrentIndex(seite.film_art.findData("farbnegativ"))
+        assert not seite.leinwand.pinselmodus and not seite.staub_pinsel_knopf.isChecked()
+        assert "neu suchen" in seite.staub_hinweis.text()
+        assert not seite.staub_knopf.isEnabled() and not seite.staub_regler.isEnabled()
+        seite.film_art.setCurrentIndex(seite.film_art.findData(""))
+
+        seite.staub_pinsel_knopf.setChecked(True)
+        seite.oeffnen(pfad)                           # das naechste Bild beginnt ohne Pinsel
+        assert not seite.leinwand.pinselmodus and seite._pinsel_ziel == "entfernen"
+        assert not seite.staub_pinsel_knopf.isChecked() and not seite.staub_knopf.isEnabled()
+    finally:
+        seite.schliessen()
+        seite._knoepfe_freischalten()
+
+
+def test_kratzer_abbruch_und_speichermangel(fenster, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    from test_kratzer import Finder, bild
+
+    from silberkorn import bilddatei, einstellungen, filter, ki
+    from silberkorn.cuda import cupy as cp
+    monkeypatch.setattr(einstellungen, "save_config", lambda _daten: None)
+    pfad = str(tmp_path / "abzug.png")
+    bilddatei.speichern(pfad, filter.nach_16bit(bild()))
+    seite = fenster.bearbeiten
+    seite.oeffnen(pfad)
+    gemeldet, kurz = [], []
+    monkeypatch.setattr(seite, "_fehler", lambda titel, text: gemeldet.append(text))
+    monkeypatch.setattr(fenster, "melden", lambda text, fehler=False: kurz.append(text))
+    monkeypatch.setattr(ki, "vorhanden", lambda _m: True)
+
+    def mit_fehler(fehler):
+        class Finder2:
+            def __init__(self, _modell):
+                pass
+
+            def karte(self, *_args):
+                raise fehler
+        return Finder2
+
+    try:
+        monkeypatch.setattr(ki, "Schadenfinder", mit_fehler(ki.KiAbbruch()))
+        seite.staub_mit_ki()
+        assert not gemeldet and "Suche abgebrochen." in kurz
+        assert seite.sitzung._kratzer is None and not seite.staub_knopf.isEnabled()
+        assert QApplication.overrideCursor() is None
+
+        speicher = cp.cuda.memory.OutOfMemoryError(1, 0)
+        monkeypatch.setattr(ki, "Schadenfinder", mit_fehler(speicher))
+        seite.staub_mit_ki()
+        assert gemeldet == ["Für dieses Bild reicht der Grafikspeicher nicht."]
+
+        gemeldet.clear()
+        monkeypatch.setattr(ki, "Schadenfinder", lambda _modell: Finder())
+        seite.staub_mit_ki()
+        seite.staub_pinsel_knopf.setChecked(True)
+
+        def kein_speicher(*_args):
+            raise cp.cuda.memory.OutOfMemoryError(1, 0)
+
+        monkeypatch.setattr(seite.sitzung, "staub_pinseln", kein_speicher)
+        seite._pinsel_gezogen(80.0, 52.0, False, True)
+        assert not seite.leinwand.pinselmodus and gemeldet
+
+        seite.staub_pinsel_knopf.setChecked(True)
+        monkeypatch.setattr(seite.sitzung, "staub_zaehlen", kein_speicher)
+        seite.pinsel_beenden()                        # Bildwechsel & Co. duerfen nicht scheitern
+        assert seite._pinsel_ziel == "entfernen" and not seite.staub_pinsel_knopf.isChecked()
     finally:
         seite.schliessen()
         seite._knoepfe_freischalten()

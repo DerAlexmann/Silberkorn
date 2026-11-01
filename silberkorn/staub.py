@@ -90,7 +90,7 @@ def schwelle(empfindlichkeit: float) -> float:
     return SCHWELLE_GROB - (SCHWELLE_GROB - SCHWELLE_FEIN) * anteil
 
 
-def _wachsen(maske, px: int):
+def wachsen(maske, px: int):
     """Eine Maske um px Pixel wachsen lassen (Quadrat)."""
     from cupyx.scipy import ndimage
     return ndimage.maximum_filter(maske.view(cp.uint8), size=2 * px + 1).view(bool)
@@ -102,17 +102,21 @@ def _schrumpfen(maske, px: int):
                                   mode="constant", cval=1).view(bool)
 
 
+def anzahl(maske) -> int:
+    """Wie viele zusammenhaengende Stellen die Maske hat."""
+    from cupyx.scipy import ndimage
+    return int(ndimage.label(maske)[1])
+
+
 def finden(dunkel, empfindlichkeit: float) -> tuple:
     """Maske der Fehler (H, W) bool, ihr Kern (was deutlich dunkel ist) und die Anzahl.
     Eine Stelle waechst in ihren schwaecheren Rand und um einen Pixel darueber - Staub ist
     im Scan etwas unscharf."""
-    from cupyx.scipy import ndimage
     grenze = schwelle(empfindlichkeit)
     kern = dunkel > grenze
-    saum = _wachsen(kern, SAUM_PX) & (dunkel > grenze / 3)
-    maske = _wachsen(kern | saum, RAND_PX)
-    _stellen, anzahl = ndimage.label(maske)
-    return maske, kern, int(anzahl)
+    saum = wachsen(kern, SAUM_PX) & (dunkel > grenze / 3)
+    maske = wachsen(kern | saum, RAND_PX)
+    return maske, kern, anzahl(maske)
 
 
 def glatt_fuellen(bild, maske):

@@ -5,6 +5,16 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 
 ## [Unveröffentlicht]
 
+### Neu
+
+- **Kratzer mit KI finden**: Der Teil „Staub & Kratzer“ der Karte „Scan & Film“ gibt es jetzt
+  auch ohne Infrarotkanal. „Mit KI suchen“ markiert Staub, Kratzer und Risse auf alten Abzügen
+  (Modell von Microsoft, MIT, 144 MB, aus dem Release `modelle-10`). Die Empfindlichkeit wirkt
+  sofort, „Nachbessern“ ergänzt oder radiert Fundstellen mit dem Pinsel, „Entfernen“ füllt sie.
+  Scans mit Infrarot suchen weiter über diesen Kanal, dort geht Nachbessern ebenfalls. Die
+  Pinselstriche werden nicht gespeichert, das gefüllte Ergebnis wie bisher schon; der Stapel
+  sucht nicht mit KI.
+
 ### Behoben
 
 - **Lizenzen im ZIP**: `DRITTANBIETER.txt` und `lizenzen/` nennen jetzt auch OpenSSL, SQLite,

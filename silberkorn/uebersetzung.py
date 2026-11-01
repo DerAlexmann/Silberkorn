@@ -258,7 +258,6 @@ TRANSLATIONS = {
         "Fundstellen zeigen": "Show findings",
         "Färbt in der Vorschau blau, was als Staub oder Kratzer gefunden ist.":
             "Colours in blue in the preview what has been found as dust or scratches.",
-        "Staub entfernen": "Remove dust",
         "Füllt alle Fundstellen: kleine Punkte und dünne Kratzer die Grafikkarte, breite "
         "Stellen LaMa, wenn das Modell von „Objekte entfernen“ geladen ist.":
             "Fills all findings: small specks and thin scratches on the graphics card, wide "
@@ -282,6 +281,37 @@ TRANSLATIONS = {
         "und lassen sich finden und füllen.":
             "The scan has an infrared channel: dust and scratches are dark in it and can be "
             "found and filled.",
+        "Staub & Kratzer": "Dust & scratches",
+        "Mit KI suchen": "Search with AI",
+        "Mit KI suchen · {mb} MB": "Search with AI · {mb} MB",
+        "Sucht einmal über das ganze Bild; danach wirkt die Empfindlichkeit sofort.":
+            "Searches the whole image once; after that the sensitivity takes effect instantly.",
+        "Nachbessern": "Touch up",
+        "Fundstellen mit dem Pinsel korrigieren: Die linke Maustaste ergänzt, die rechte "
+        "radiert – etwa eine gerade Kante, die keine Beschädigung ist.":
+            "Correct the findings with the brush: the left mouse button adds, the right one "
+            "erases – for example a straight edge that is not damage.",
+        "Die linke Maustaste ergänzt Fundstellen, die rechte radiert. Die mittlere "
+        "verschiebt das vergrößerte Bild, Esc beendet.":
+            "The left mouse button adds findings, the right one erases. The middle one moves "
+            "the enlarged image, Esc finishes.",
+        "Die Filmart hat sich geändert – bitte neu suchen.":
+            "The film type has changed – please search again.",
+        "Die KI sucht Staub, Kratzer und Risse auf gescannten Abzügen. Das "
+        "Ergebnis ist ein Vorschlag, der sich vor dem Füllen nachbessern lässt.":
+            "The AI looks for dust, scratches and cracks on scanned prints. The result is a "
+            "suggestion you can touch up before filling.",
+        "{n} Stellen gefüllt. „Zurückholen“ nimmt das Füllen zurück.":
+            "{n} spots filled. \"Bring back\" undoes the filling.",
+        "{n} Stellen gefunden. Gerade Kanten können Fehlgriffe sein – "
+        "„Nachbessern“ nimmt sie heraus.":
+            "{n} spots found. Straight edges can be false hits – \"Touch up\" takes them out.",
+        "Mit „Fundstellen zeigen“ prüfen, was gefüllt wird.":
+            "Check with \"Show findings\" what will be filled.",
+        "KI sucht Schäden …": "AI is looking for damage …",
+        "Suche abgebrochen.": "Search cancelled.",
+        "Die Suche ist fehlgeschlagen.": "The search failed.",
+        "Suche fertig ({s} s)": "Search finished ({s} s)",
         "Staub wird entfernt …": "Removing dust …",
         "Staub entfernt ({s} s)": "Dust removed ({s} s)",
         "Staub entfernt": "Dust removed",

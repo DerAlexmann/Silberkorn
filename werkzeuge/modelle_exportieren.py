@@ -26,13 +26,16 @@ Erzeugt in modelle/:
                                    ist in werkzeuge/netz_birefnet.py nachgebaut
   ddcolor-tiny.onnx                Kolorieren (DDColor tiny, Apache-2.0) - feste
                                    Eingabe 512 x 512, Graubild -> Farbanteile a, b
+  old-photo-scratch-detection.onnx Schaeden auf alten Fotos finden (Microsoft, MIT) -
+                                   Graubild -> Wahrscheinlichkeit, Vielfache von 16
 und gibt Groesse und SHA-256 jeder Datei aus.
 
 Aufruf (braucht PyTorch, nur zum Entwickeln):
     python werkzeuge/modelle_exportieren.py              alle Modelle
     python werkzeuge/modelle_exportieren.py scunet       nur ausgewaehlte
                                                          (realesrgan, scunet, restormer,
-                                                         birefnet)
+                                                         birefnet, sam2, lama, tiefe,
+                                                         ddcolor, kratzer)
 
 Licensed under MIT License
 Copyright 2026 Alexander Unverhau
@@ -315,8 +318,32 @@ def ddcolor() -> list[str]:
     return [pfad]
 
 
+def kratzer() -> list[str]:
+    from netz_kratzer import Kratzernetz
+    netz = Kratzernetz()
+    netz.load_state_dict(Kratzernetz.gewichte(gewichte("FT_Epoch_latest.pt")), strict=True)
+    netz.eval()
+    pfad = os.path.join(ZIEL, "old-photo-scratch-detection.onnx")
+    achsen = {2: "hoehe", 3: "breite"}
+    torch.onnx.export(netz, (torch.rand(1, 1, 256, 256) * 2 - 1,), pfad, input_names=["eingabe"],
+                      output_names=["ausgabe"], opset_version=17, dynamo=False,
+                      do_constant_folding=True, dynamic_axes={"eingabe": achsen, "ausgabe": achsen})
+
+    import onnxruntime as ort
+    sitzung = ort.InferenceSession(pfad, providers=["CPUExecutionProvider"])
+    for h, w in ((128, 208), (320, 240)):                # andere Groessen als beim Export
+        probe = torch.rand(1, 1, h, w) * 2 - 1
+        with torch.no_grad():
+            soll = netz(probe).numpy()
+        ist = sitzung.run(None, {"eingabe": probe.numpy()})[0]
+        print(f"{os.path.basename(pfad)} ({h} x {w}): ONNX gegen PyTorch, groesste "
+              f"Abweichung {np.abs(ist - soll).max():.2e}")
+    return [pfad]
+
+
 EXPORTE = {"realesrgan": realesrgan, "scunet": scunet, "restormer": restormer,
-           "birefnet": birefnet, "sam2": sam2, "lama": lama, "tiefe": tiefe, "ddcolor": ddcolor}
+           "birefnet": birefnet, "sam2": sam2, "lama": lama, "tiefe": tiefe, "ddcolor": ddcolor,
+           "kratzer": kratzer}
 
 
 def main():

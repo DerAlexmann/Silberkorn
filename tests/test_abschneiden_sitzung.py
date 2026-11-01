@@ -260,6 +260,7 @@ def _tiefe(s):
 def _staub(s):
     maske = cp.zeros(s.original.shape[:2], dtype=cp.float32)
     maske[:, :80] = 1.0
+    s._kratzer = ((), None, 1)
     s._staub_fund = (0.5, maske, s._vorschau_von(maske), 1, None)
     s.staub_zeigen = True
 

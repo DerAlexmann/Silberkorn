@@ -87,6 +87,7 @@ from . import (
     geometrie,
     ki,
     korn,
+    kratzer,
     lokal,
     metadaten,
     objektivprofile,
@@ -202,6 +203,10 @@ class Sitzung:
         self._staub_dunkel = None             # wie dunkel jede Stelle im Infrarot ist
         self._staub_film: bool | None = None  # sieht das Infrarot nach Film aus?
         self._staub_fund = None               # (Empfindlichkeit, Maske, Vorschau, Anzahl, Kern)
+        # Pinsel ueber der Fundmaske, je (voll, Vorschau): (ergaenzt, radiert). Ein eigener
+        # Arbeitsstand - er uebersteht die Empfindlichkeit und wird nicht gespeichert
+        self._staub_korrektur = None
+        self._kratzer = None                  # KI ohne Infrarot: (Filmstand, Karte, Faktor)
         self.staub_zeigen = False             # Vorschau zeigt die Fundstellen
         self._anonym_stand = ((), "mosaik", 8.0)   # wofuer die Zwischenstufen gelten
         self._film_stand: tuple = ()          # ebenso fuer die Umwandlung eines Negativs
@@ -275,7 +280,32 @@ class Sitzung:
     @property
     def staub_fund(self) -> tuple[float, int] | None:
         """Empfindlichkeit und Anzahl der letzten Suche, oder None."""
-        return None if self._staub_fund is None else (self._staub_fund[0], self._staub_fund[3])
+        fund = self._fund()
+        return None if fund is None else (fund[0], fund[3])
+
+    def _film_schluessel(self) -> tuple:
+        w = self.werte
+        stand = (w.film, w.film_maske, w.film_umfang)
+        return stand if film.aktiv(*stand) else ()
+
+    @property
+    def kratzer_bereit(self) -> bool:
+        """Liegt die KI-Karte vor - fuer das Positiv, wie es gerade umgewandelt ist?"""
+        return self._kratzer is not None and self._kratzer[0] == self._film_schluessel()
+
+    @property
+    def kratzer_veraltet(self) -> bool:
+        """Gibt es eine KI-Karte, die nicht mehr zur Umwandlung des Negativs passt?"""
+        return self._kratzer is not None and not self.kratzer_bereit
+
+    @property
+    def staub_suchbar(self) -> bool:
+        """Laesst sich die Fundmaske bilden - aus dem Infrarot oder der KI-Karte?"""
+        return self.infrarot_film or (not self.infrarot_da and self.kratzer_bereit)
+
+    def _fund(self):
+        """Die Fundmaske, solange sie zum Bild passt."""
+        return self._staub_fund if self.staub_suchbar else None
 
     @property
     def ki_entrauscht(self) -> bool:
@@ -696,6 +726,7 @@ class Sitzung:
         „Zurücksetzen“.
         Rueckgabe: ob es Entfernungen gab."""
         self.markierung_verwerfen()
+        self._staub_korrektur = None
         if not self._flicken and self._staub is None:
             return False
         self._flicken.clear()
@@ -1288,8 +1319,8 @@ class Sitzung:
             # Masken, Tiefe und Markierung liegen auf der Leinwand
             return korn.auflegen(bild, werte) if mit_korn else bild
         markierung = self._markierung(voll) if zeigen else None
-        if zeigen and self.staub_zeigen and self._staub_fund is not None:
-            fund = self._staub_fund[1].astype(cp.float32) if voll else self._staub_fund[2]
+        if zeigen and self.staub_zeigen and self._fund() is not None:
+            fund = self._fund_ebene(voll)
             markierung = fund if markierung is None else cp.maximum(markierung, fund)
         tiefe_zeigen = zeigen and self.tiefe_zeigen and self._ki_tiefe is not None
         lokal_zeigen = self._lokal_zeige_maske(werte) if zeigen else None
@@ -1466,26 +1497,93 @@ class Sitzung:
     # Scan & Film: Staub und Kratzer ueber den Infrarotkanal
     # ------------------------------------------------------------------
 
+    def kratzer_finden(self, finder, kachel: int, empfindlichkeit: float,
+                       fortschritt=None) -> float:
+        """Ohne Infrarot: Das Netz sieht den ungefuellten Scan als Positiv. Rechnet nur
+        einmal, die Empfindlichkeit wirkt danach ueber staub_finden(). Rueckgabe: Rechenzeit
+        in ms."""
+        beginn = time.perf_counter()
+        bild = self._film_bild(self.werte, True, mit_staub=False)
+        karte, faktor = kratzer.karte(filter.linear_zu_srgb(cp.clip(bild, 0, 1)), finder,
+                                      kachel, fortschritt)
+        stand = self._film_schluessel()
+        if self.kratzer_veraltet:
+            self._staub_korrektur = None          # die Striche galten dem anderen Positiv
+        self._kratzer = (stand, karte, faktor)
+        self.staub_finden(empfindlichkeit)
+        return self._ki_fertig(beginn)
+
     def staub_finden(self, empfindlichkeit: float) -> int:
-        """Die Fehler im Infrarot suchen; Rueckgabe: wie viele Stellen. Die Fundstellen
-        zeigt die Vorschau, wenn staub_zeigen gesetzt ist."""
-        if self._staub_dunkel is None:
-            self._staub_dunkel = staub.dunkelheit(staub.normiert(self.daten.infrarot))
-        maske, kern, anzahl = staub.finden(self._staub_dunkel, empfindlichkeit)
+        """Die Fehler im Infrarot oder in der KI-Karte suchen; Rueckgabe: wie viele Stellen.
+        Die Fundstellen zeigt die Vorschau, wenn staub_zeigen gesetzt ist."""
+        if self.daten.infrarot is None:
+            if not self.kratzer_bereit:
+                raise ValueError("Ohne Infrarot braucht die Suche eine gueltige KI-Karte")
+            _stand, karte, faktor = self._kratzer
+            maske, kern, anzahl = kratzer.finden(karte, faktor, self.original.shape[:2],
+                                                 empfindlichkeit)
+        else:
+            if self._staub_dunkel is None:
+                self._staub_dunkel = staub.dunkelheit(staub.normiert(self.daten.infrarot))
+            maske, kern, anzahl = staub.finden(self._staub_dunkel, empfindlichkeit)
         # In der Vorschau zeigt auch ein Staubkorn, das kleiner ist als ein Pixel
         vorschau = (self._vorschau_von(maske.astype(cp.float32)) > 0).astype(cp.float32)
         self._staub_fund = (empfindlichkeit, maske, vorschau, anzahl, kern)
         self._vollbild = None
-        return anzahl
+        if self._staub_korrektur is not None:
+            self.staub_zaehlen()
+        return self._staub_fund[3]
+
+    def staub_pinseln(self, punkte, radius: float, dazu: bool):
+        """Die Fundmaske nachbessern: Kreise mit radius (Pixel des Originals) um die Punkte
+        (im Original) ergaenzen oder - mit dazu=False - herausnehmen."""
+        if self._fund() is None:
+            return
+        if self._staub_korrektur is None:
+            leer = [(cp.zeros(self.original.shape[:2], dtype=cp.float32),
+                     cp.zeros(self.vorschau_original.shape[:2], dtype=cp.float32))
+                    for _ebene in range(2)]
+            self._staub_korrektur = tuple(leer)
+        ergaenzt, radiert = self._staub_korrektur
+        ziel, gegenteil = (ergaenzt, radiert) if dazu else (radiert, ergaenzt)
+        for stelle, m in enumerate((1.0, self.vorschau_massstab)):
+            for x, y in punkte:
+                _kreis(ziel[stelle], x * m, y * m, max(radius * m, 0.5), True)
+                _kreis(gegenteil[stelle], x * m, y * m, max(radius * m, 0.5), False)
+        self._vollbild = None
+
+    def _fund_ebene(self, voll: bool):
+        """Die Fundmaske mit den Pinselstrichen als Ebene 0..1 (H, W) im Original."""
+        ebene = self._staub_fund[1].astype(cp.float32) if voll else self._staub_fund[2]
+        if self._staub_korrektur is None:
+            return ebene
+        stelle = 0 if voll else 1
+        ergaenzt, radiert = (paar[stelle] for paar in self._staub_korrektur)
+        return cp.maximum(ebene, ergaenzt) * (1 - radiert)
+
+    def _fund_masken(self) -> tuple:
+        """Maske und Kern, wie sie mit den Pinselstrichen gefuellt werden."""
+        _e, maske, _vorschau, _anzahl, kern = self._staub_fund
+        if self._staub_korrektur is not None:
+            ergaenzt, radiert = (paar[0] > 0.5 for paar in self._staub_korrektur)
+            maske, kern = (maske | ergaenzt) & ~radiert, (kern | ergaenzt) & ~radiert
+        return maske, kern
+
+    def staub_zaehlen(self):
+        """Die Anzahl der Stellen nachziehen, nachdem der Pinsel die Maske geaendert hat."""
+        if self._fund() is not None:
+            anzahl = staub.anzahl(self._fund_masken()[0])
+            self._staub_fund = (*self._staub_fund[:3], anzahl, self._staub_fund[4])
 
     def staub_entfernen(self, empfindlichkeit: float, entferner=None,
                         fortschritt=None) -> float:
         """Die gefundenen Stellen fuellen - breite mit LaMa, wenn entferner gegeben ist;
         Rueckgabe: Rechenzeit in ms. Ersetzt eine fruehere Fuellung."""
         beginn = time.perf_counter()
-        if self._staub_fund is None or self._staub_fund[0] != empfindlichkeit:
+        if self._fund() is None or self._staub_fund[0] != empfindlichkeit:
             self.staub_finden(empfindlichkeit)
-        _e, maske, _vorschau, anzahl, kern = self._staub_fund
+        maske, kern = self._fund_masken()
+        anzahl = staub.anzahl(maske)
         w = self.werte
         sauber = staub.entfernen(self.original, maske, kern, w.film, w.film_maske,
                                  w.film_umfang, entferner, fortschritt)
@@ -1814,6 +1912,8 @@ class Sitzung:
         self._staub = None
         self._staub_dunkel = None
         self._staub_fund = None
+        self._staub_korrektur = None
+        self._kratzer = None
         self._speicher.clear()
         cp.get_default_memory_pool().free_all_blocks()
 

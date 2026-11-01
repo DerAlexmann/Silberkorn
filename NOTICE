@@ -341,6 +341,25 @@ FLUX.2 [klein] 4B with the outpaint LoRA by fal (for "Extend with AI")
   (NOTICE-FLUX2-klein.txt, also in LICENSES/), which Silberkorn also
   downloads and stores next to the model.
 
+Scratch detection from Bringing Old Photos Back to Life (for "Dust & scratches")
+  Copyright (c) Microsoft Corporation
+  Licence: MIT License (full text in LICENSES/MIT-Bringing-Old-Photos.txt)
+  https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life
+  Network and weights are those of the paper by Wan et al. (CVPR 2020). The
+  model definition in werkzeuge/netz_kratzer.py is based on Microsoft's code
+  and therefore under the same licence. Changes to the original, all
+  computing the same result: only the variant used for detection, the sigmoid
+  is part of the network, and the conversion to ONNX. The anti-aliased
+  downsampling is written anew as a plain binomial filter; no code of Adobe's
+  antialiased-cnns (CC BY-NC-SA 4.0), which the original uses here, is
+  included. A sentence in the maintenance section of Microsoft's README speaks
+  of "academic research use only"; the licence of code and pretrained model,
+  stated in the same README and in its LICENSE file, is the MIT License.
+  The converted model file is published as an asset of the release
+  "modelle-10" of this project, together with the MIT License text
+  (LICENSE-OldPhotos.txt), which Silberkorn also downloads and stores next to
+  the model.
+
 YuNet (face detection for "Anonymise")
   Copyright (c) 2020 Shiqi Yu
   Licence: MIT License (full text in LICENSES/MIT-YuNet.txt)

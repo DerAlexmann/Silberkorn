@@ -25,7 +25,9 @@ FLUX.2 [klein] 4B mit Outpaint-LoRA mit rund 4,1 GB – auf mehrere Dateien
 verteilt, denn GitHub nimmt je Datei höchstens 2 GB an –, in der Karte
 „KI-Kolorieren“ aus
 [modelle-9](https://github.com/DerAlexmann/Silberkorn/releases/tag/modelle-9)
-DDColor (kleine Fassung) mit 210 MB. Jede Datei wird gegen ihre SHA-256-Prüfsumme geprüft,
+DDColor (kleine Fassung) mit 210 MB, in der Karte „Scan & Film“ aus
+[modelle-10](https://github.com/DerAlexmann/Silberkorn/releases/tag/modelle-10)
+die Kratzererkennung von Microsoft mit 144 MB. Jede Datei wird gegen ihre SHA-256-Prüfsumme geprüft,
 bevor sie verwendet wird.
 Abgelegt werden sie im Ordner `modelle` neben dem Programm oder, wenn der
 schreibgeschützt ist, unter `%LOCALAPPDATA%\Silberkorn\modelle`.
@@ -40,7 +42,9 @@ Copyright 2022 Syed Waqas Zamir), [BiRefNet](https://github.com/ZhengPeng7/BiRef
 [LaMa](https://github.com/advimman/lama) (Apache-2.0, Copyright 2021 Samsung
 Research) und [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2)
 Small (Apache-2.0) und [DDColor](https://github.com/piddnad/DDColor) in der
-kleinen Fassung (Apache-2.0, Xiaoyang Kang u. a.), nach ONNX gewandelt; dazu
+kleinen Fassung (Apache-2.0, Xiaoyang Kang u. a.) und die Kratzererkennung aus
+[Bringing Old Photos Back to Life](https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life)
+(MIT, Copyright Microsoft Corporation), nach ONNX gewandelt; dazu
 [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
 (Apache-2.0, Black Forest Labs) mit der
 [Outpaint-LoRA von fal](https://huggingface.co/fal/flux-2-klein-4B-outpaint-lora)
@@ -65,7 +69,9 @@ Wer das selbst nachvollziehen will:
    [Depth-Anything-V2-Small](https://huggingface.co/depth-anything/Depth-Anything-V2-Small)
    und `pytorch_model.bin` von
    [ddcolor_paper_tiny](https://huggingface.co/piddnad/ddcolor_paper_tiny), umbenannt in
-   `ddcolor_paper_tiny.bin`,
+   `ddcolor_paper_tiny.bin`, sowie `Global/checkpoints/detection/FT_Epoch_latest.pt` aus
+   `global_checkpoints.zip` (2 GB) im
+   [Release v1.0 von Bringing Old Photos](https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/releases/tag/v1.0)
    nach `modelle/quellen/` laden und `big-lama.zip` dort entpacken.
 2. `pip install torch` (nur für diesen Schritt nötig).
 3. `python werkzeuge/modelle_exportieren.py` – das legt die ONNX-Modelle in
