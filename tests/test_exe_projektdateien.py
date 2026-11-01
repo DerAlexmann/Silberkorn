@@ -107,6 +107,15 @@ def test_dll_ohne_lizenz_faellt_auf(tmp_path):
     assert _exe_bauen().dlls_ohne_lizenz(str(tmp_path)) == ["libneu.dll", "neu/fremd.dll"]
 
 
+def test_openssl_1_1_faellt_auf(tmp_path):
+    """OpenSSL 1.1 steht nicht unter Apache-2.0 - DRITTANBIETER.txt saehe dann falsch aus."""
+    intern = tmp_path / "_internal"
+    intern.mkdir()
+    (intern / "libssl-1_1.dll").write_bytes(b"")
+    (intern / "libcrypto-1_1-x64.dll").write_bytes(b"")
+    assert len(_exe_bauen().dlls_ohne_lizenz(str(tmp_path))) == 2
+
+
 def test_dll_pruefung_ohne_programmordner_bricht_ab(tmp_path):
     with pytest.raises(SystemExit, match="_internal"):
         _exe_bauen().dlls_ohne_lizenz(str(tmp_path))
@@ -115,8 +124,9 @@ def test_dll_pruefung_ohne_programmordner_bricht_ab(tmp_path):
 def test_interpreter_bibliotheken_mit_lizenzpfad():
     zeilen = _exe_bauen().interpreter_bibliotheken().splitlines()
     assert [z.split()[0] for z in zeilen] == ["OpenSSL", "SQLite", "libffi"]
-    assert re.search(r"\d\s+Apache-2\.0 \(lizenzen/OpenSSL/LICENSE\.txt\)$", zeilen[0])
-    assert re.search(r"\d\s+Public Domain \(lizenzen/SQLite/LICENSE\.txt\)$", zeilen[1])
+    # Auch "1.1.1t": Python 3.10 fuer Windows bringt noch OpenSSL 1.1 mit
+    assert re.search(r"OpenSSL\s+\d\S*\s+Apache-2\.0 \(lizenzen/OpenSSL/LICENSE\.txt\)$", zeilen[0])
+    assert re.search(r"SQLite\s+\d\S*\s+Public Domain \(lizenzen/SQLite/LICENSE\.txt\)$", zeilen[1])
     assert zeilen[2].endswith("MIT (lizenzen/Python/LICENSE.txt)")
 
 
