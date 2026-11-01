@@ -99,6 +99,11 @@ Beim ersten Start fragt das Programm deshalb nach, nennt Quelle, Größe und Liz
 lädt nach Zustimmung einmalig NVIDIAs offizielle Pakete vom Python Package Index
 (1,6 GB, ausgepackt rund 2,3 GB). Jede Datei wird gegen ihre Prüfsumme geprüft.
 
+Die EXE ist nicht digital signiert. Windows SmartScreen warnt deshalb beim ersten Start;
+über **Weitere Informationen → Trotzdem ausführen** startet das Programm. Auch ein
+Virenschutz kann anschlagen. Wer sichergehen will, vergleicht vorher die SHA-256-Prüfsumme
+aus den Release-Notizen oder baut die EXE selbst mit `build.cmd`.
+
 ### 2. Als Skript
 
 ```bash
@@ -190,8 +195,9 @@ Wandeln der KI-Modelle dienen und nicht zum Programm gehören: Jede steht unter 
 Lizenz ihres Vorbilds (Apache-2.0, MIT oder BSD-3-Clause), wie im Kopf der Datei
 angegeben; die Lizenztexte liegen in [LICENSES](LICENSES).
 
-Verwendete Fremdkomponenten und ihre Lizenzen stehen in [NOTICE](NOTICE). KI-Modelle
-stehen unter eigenen Lizenzen, die vor dem Herunterladen angezeigt werden. Die
+Verwendete Fremdkomponenten und ihre Lizenzen stehen in [NOTICE](NOTICE); was genau im
+ZIP steckt, listet dort `DRITTANBIETER.txt`, die Lizenztexte liegen in `lizenzen/`.
+KI-Modelle stehen unter eigenen Lizenzen, die vor dem Herunterladen angezeigt werden. Die
 NVIDIA-Bibliotheken (CUDA, cuDNN, optional TensorRT) installiert pip aus NVIDIAs
 eigenen Paketen; sie stehen unter NVIDIAs Lizenzen und nicht unter der MIT-Lizenz.
 

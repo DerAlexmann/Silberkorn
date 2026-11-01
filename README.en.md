@@ -98,6 +98,11 @@ be passed on. At first start the program therefore asks, names source, size and 
 and, once you agree, downloads NVIDIA's official packages from the Python Package Index
 once (1.6 GB, about 2.3 GB unpacked). Every file is verified against its checksum.
 
+The executable is not digitally signed, so Windows SmartScreen warns on first start;
+**More info → Run anyway** starts the program. Antivirus software may react as well. To be
+sure, first compare the SHA-256 checksum from the release notes or build the executable
+yourself with `build.cmd`.
+
 ### 2. As a script
 
 ```bash
@@ -191,8 +196,9 @@ The exception are the re-implementations of third-party networks in
 program: each is under the licence of its original (Apache-2.0, MIT or BSD-3-Clause), as
 stated in the file header; the licence texts are in [LICENSES](LICENSES).
 
-Third-party components and their licences are listed in [NOTICE](NOTICE). AI models are
-subject to their own licences, which are shown before downloading. The NVIDIA libraries
+Third-party components and their licences are listed in [NOTICE](NOTICE); what exactly is
+in the ZIP is listed there in `DRITTANBIETER.txt`, the licence texts are in `lizenzen/`.
+AI models are subject to their own licences, which are shown before downloading. The NVIDIA libraries
 (CUDA, cuDNN, optionally TensorRT) are installed by pip from NVIDIA's own packages; they
 are under NVIDIA's licences, not under the MIT licence.
 

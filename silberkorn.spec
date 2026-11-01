@@ -85,7 +85,8 @@ versionsinfo = VSVersionInfo(
             StringStruct("FileDescription", "Silberkorn"),
             StringStruct("FileVersion", VERSION),
             StringStruct("InternalName", "Silberkorn"),
-            StringStruct("LegalCopyright", "Copyright 2026 Alexander Unverhau, MIT License"),
+            StringStruct("LegalCopyright", "Copyright 2026 Alexander Unverhau, MIT License. "
+                                           "Created with assistance of Claude AI"),
             StringStruct("OriginalFilename", "Silberkorn.exe"),
             StringStruct("ProductName", "Silberkorn"),
             StringStruct("ProductVersion", VERSION),

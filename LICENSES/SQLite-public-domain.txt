@@ -1,0 +1,10 @@
+SQLite
+
+The authors of SQLite have dedicated it to the public domain. Anyone is free
+to copy, modify, publish, use, compile, sell or distribute the original SQLite
+code, for any purpose, commercial or non-commercial, and by any means.
+
+https://www.sqlite.org/copyright.html
+
+The Python interpreter bundled with the Silberkorn executable contains SQLite
+unmodified as sqlite3.dll.

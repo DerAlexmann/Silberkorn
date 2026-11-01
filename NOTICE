@@ -34,7 +34,18 @@ Third-party components
 
 Silberkorn uses the following components. They are not part of this
 repository; pip installs them from the Python Package Index. A released
-executable bundles them together with their licence texts.
+executable bundles them together with their licence texts (folder lizenzen/,
+list with versions in DRITTANBIETER.txt).
+
+Python
+  Copyright Python Software Foundation
+  Licence: PSF License Version 2
+  https://www.python.org/
+  A released executable contains the Python interpreter and what it brings
+  along: OpenSSL (Apache License 2.0, https://www.openssl-library.org/),
+  SQLite (public domain, https://www.sqlite.org/copyright.html) and libffi
+  (MIT), as well as the Microsoft Visual C++ and Windows runtime libraries
+  under Microsoft's licence terms.
 
 PySide6 / Qt for Python
   Copyright The Qt Company Ltd. and other contributors
