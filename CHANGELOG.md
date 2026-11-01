@@ -5,6 +5,23 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 
 ## [Unveröffentlicht]
 
+### Behoben
+
+- **Lizenzen im ZIP**: `DRITTANBIETER.txt` und `lizenzen/` nennen jetzt auch OpenSSL, SQLite,
+  libffi und die Microsoft-Laufzeit. Der Bau bricht ab, wenn eine DLL ohne zugeordnete Lizenz
+  ins Bündel gerät.
+- **Prüfsummendatei**: Die `.sha256` hat jetzt Unix-Zeilenenden, sodass `sha256sum -c` sie
+  lesen kann.
+
+### Geändert
+
+- Die Dateieigenschaften der EXE nennen die Mithilfe von Claude AI; der Bau liest die
+  Versionsangaben aus der fertigen EXE zurück und prüft sie.
+- Die READMEs erklären die SmartScreen-Warnung beim ersten Start und verweisen auf
+  `DRITTANBIETER.txt`; `SECURITY.md` und die Datenschutz-Seite nennen `silberkorn-fehler.log`.
+- Dependabot schlägt monatlich neue Bauversionen vor und lässt Untergrenzen und die
+  Festlegung auf CUDA 12.8 unberührt.
+
 ## [0.13.1] – 2026-10-29
 
 ### Behoben

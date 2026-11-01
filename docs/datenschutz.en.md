@@ -25,3 +25,8 @@ longer exist drop out; after anonymising, no preview of the original remains. Th
 not protect against malware running under your own account – but such malware could
 read the photos themselves anyway. For the whole drive, BitLocker remains the right
 layer.
+
+When a step fails unexpectedly, Silberkorn records the technical details in
+`silberkorn-fehler.log` next to the program (about 1 MB at most). The file may contain
+paths, and with them user and folder names. It never leaves the computer on its own and
+can be deleted at any time; have a look inside before attaching it to a bug report.

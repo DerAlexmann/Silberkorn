@@ -30,3 +30,9 @@ mehr gibt, fallen heraus; nach dem Anonymisieren gibt es keine Vorschau des
 Originals mehr. Gegen Schadsoftware unter dem eigenen Konto hilft das nicht –
 die könnte aber ohnehin die Fotos selbst lesen. Für die ganze Platte bleibt
 BitLocker die richtige Ebene.
+
+Scheitert ein Schritt unerwartet, hält Silberkorn die technischen Einzelheiten in
+`silberkorn-fehler.log` neben dem Programm fest (höchstens etwa 1 MB). Die Datei
+kann Pfade enthalten, also auch Benutzer- und Ordnernamen. Sie verlässt den Rechner
+nicht von selbst und lässt sich jederzeit löschen; vor dem Anhängen an eine
+Fehlermeldung lohnt ein Blick hinein.

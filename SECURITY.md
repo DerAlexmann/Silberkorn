@@ -41,3 +41,8 @@ Gepflegt wird jeweils die neueste veröffentlichte Version.
   stehen dort nicht. Der Vorschau-Cache der
   Ordneransicht liegt verschlüsselt, standardmäßig unter `%LOCALAPPDATA%\Silberkorn` (siehe
   [docs/datenschutz.md](docs/datenschutz.md)).
+- **Fehlerprotokoll**: Scheitert ein Schritt unerwartet, hält Silberkorn die
+  technischen Einzelheiten in `silberkorn-fehler.log` neben dem Programm fest
+  (höchstens etwa 1 MB). Die Datei kann Pfade enthalten, also auch Benutzer- und
+  Ordnernamen. Sie verlässt den Rechner nicht von selbst; vor dem Anhängen an eine
+  Fehlermeldung lohnt ein Blick hinein.

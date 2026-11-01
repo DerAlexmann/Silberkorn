@@ -55,6 +55,15 @@ LIZENZ_ERSATZ = {
     "flatbuffers": ("text", "Apache-2.0.txt"),
 }
 LIZENZDATEI = re.compile(r"(licen[cs]e|copying|notice|authors)", re.I)
+# Bringt der Python-Interpreter mit, stehen aber nicht in seiner LICENSE.txt
+INTERPRETER_LIZENZEN = {"OpenSSL": "Apache-2.0.txt", "SQLite": "SQLite-public-domain.txt"}
+# Wo die Lizenz jeder DLL im Buendel steht (Pfad klein, relativ zu _internal). Eine neue DLL
+# muss hier erst zugeordnet werden - sonst ginge sie ohne Lizenztext an die Anwender.
+DLL_HERKUNFT = re.compile(
+    r"^api-ms-win-|^ucrtbase\.dll$|(^|/)(msvcp140|vcruntime140|vcomp140)"   # Microsoft
+    r"|^lib(ssl|crypto)-\d+\.dll$|^sqlite3\.dll$"                           # OpenSSL, SQLite
+    r"|^python\d*\.dll$|^libffi-\d+\.dll$"                                  # Python
+    r"|^numpy\.libs/|^onnxruntime/|^rawpy/|^pyside6/|^shiboken6/")          # Pakete
 
 
 def version() -> str:
@@ -88,6 +97,38 @@ def verbotene_dateien() -> list[str]:
                     or (endung in (".dll", ".pyd") and VERBOTEN.match(name))):
                 funde.append(os.path.relpath(os.path.join(wurzel, name), ORDNER))
     return funde
+
+
+def dlls_ohne_lizenz(ordner: str = ORDNER) -> list[str]:
+    intern = os.path.join(ordner, "_internal")
+    if not os.path.isdir(intern):                # os.walk meldete sonst still "nichts gefunden"
+        sys.exit(f"Ordner fehlt: {intern}")
+    funde = []
+    for wurzel, _ordner, dateien in os.walk(intern):
+        for name in dateien:
+            pfad = os.path.relpath(os.path.join(wurzel, name), intern).replace(os.sep, "/")
+            if name.lower().endswith(".dll") and not DLL_HERKUNFT.search(pfad.lower()):
+                funde.append(pfad)
+    return sorted(funde)
+
+
+def versionsangaben(exe: str) -> dict[str, str]:
+    from PyInstaller.utils.win32.versioninfo import read_version_info_from_executable
+    info = read_version_info_from_executable(exe)
+    if info is None:
+        return {}
+    return {eintrag.name: eintrag.val for eintrag in info.kids[0].kids[0].kids}
+
+
+def versionsfehler(angaben: dict[str, str], soll: str) -> list[str]:
+    """Was an den Versionsangaben der fertigen EXE nicht stimmt - der Bau-Text beweist das nicht."""
+    fehler = [f"{feld} ist {angaben.get(feld)!r}, nicht {soll!r}"
+              for feld in ("ProductVersion", "FileVersion") if angaben.get(feld) != soll]
+    if angaben.get("ProductName") != "Silberkorn":
+        fehler.append(f"ProductName ist {angaben.get('ProductName')!r}")
+    if not angaben.get("LegalCopyright", "").endswith("Created with assistance of Claude AI"):
+        fehler.append("LegalCopyright ohne den Hinweis auf Claude AI")
+    return fehler
 
 
 # Importiert in einem eigenen Prozess alles, was das Programm laedt, und meldet
@@ -223,6 +264,8 @@ def lizenzen_beilegen() -> list[tuple[str, str, str]]:
                for n in PILLOW_AVIF_LIZENZEN]
     zusatz += [(os.path.join(sys.base_prefix, "LICENSE.txt"),
                 os.path.join(ziel, "Python", "LICENSE.txt"))]
+    zusatz += [(os.path.join(WURZEL, "LICENSES", text), os.path.join(ziel, name, "LICENSE.txt"))
+               for name, text in INTERPRETER_LIZENZEN.items()]
     for quelle, unter in zusatz:
         os.makedirs(os.path.dirname(unter), exist_ok=True)
         shutil.copyfile(quelle, unter)
@@ -230,6 +273,17 @@ def lizenzen_beilegen() -> list[tuple[str, str, str]]:
         unter = os.path.join(ziel, md.distribution("PySide6-Essentials").metadata["Name"], name)
         shutil.copyfile(os.path.join(WURZEL, "LICENSES", name), unter)
     return liste
+
+
+def interpreter_bibliotheken() -> str:
+    """Die Zeilen fuer das, was der Python-Interpreter ins Buendel mitbringt."""
+    import sqlite3
+    import ssl
+    openssl = ssl.OPENSSL_VERSION.split()[1]
+    return (f"  {'OpenSSL':<28} {openssl:<14} Apache-2.0 (lizenzen/OpenSSL/LICENSE.txt)\n"
+            f"  {'SQLite':<28} {sqlite3.sqlite_version:<14} "
+            f"Public Domain (lizenzen/SQLite/LICENSE.txt)\n"
+            f"  {'libffi':<28} {'':<14} MIT (lizenzen/Python/LICENSE.txt)")
 
 
 def drittanbieter_schreiben(liste: list[tuple[str, str, str]]):
@@ -249,6 +303,7 @@ This folder also contains the following Python packages. Their licence texts
 are in the folder lizenzen/.
 
   Python {sys.version.split()[0]:<21} PSF License (lizenzen/Python/LICENSE.txt)
+{interpreter_bibliotheken()}
 {reihe}
 
 Qt und PySide6 / Qt and PySide6
@@ -277,6 +332,17 @@ vom Python Package Index in den Ordner nvidia/.
 CUDA and cuDNN are NOT included. Silberkorn downloads them at first start,
 after you accept NVIDIA's licence terms, from NVIDIA's official packages on
 the Python Package Index into the folder nvidia/.
+
+Microsoft
+---------
+vcruntime140, msvcp140, vcomp140, ucrtbase und api-ms-win-* sind die Laufzeit
+von Visual C++ und Windows. Sie stehen unter Microsofts Lizenzbedingungen, nicht
+unter der MIT-Lizenz, und duerfen mit Anwendungen weitergegeben werden:
+  https://learn.microsoft.com/en-us/cpp/windows/determining-which-dlls-to-redistribute
+
+vcruntime140, msvcp140, vcomp140, ucrtbase and api-ms-win-* are the Visual C++
+and Windows runtime. They are under Microsoft's licence terms, not under the MIT
+License, and may be redistributed with applications (see the address above).
 
 PyInstaller
 -----------
@@ -342,15 +408,20 @@ def tote_links(ordner: str = ORDNER) -> list[str]:
     return tot
 
 
-def packen() -> str:
-    basis = os.path.join(DIST, f"Silberkorn-{version()}-win64")
-    zip_pfad = shutil.make_archive(basis, "zip", DIST, "Silberkorn")
+def pruefsumme_schreiben(zip_pfad: str):
     h = hashlib.sha256()
     with open(zip_pfad, "rb") as datei:
         for block in iter(lambda: datei.read(1 << 20), b""):
             h.update(block)
-    with open(zip_pfad + ".sha256", "w", encoding="ascii") as datei:
+    # Mit CRLF laese sha256sum -c das Wagenruecklaufzeichen als Teil des Dateinamens
+    with open(zip_pfad + ".sha256", "w", encoding="ascii", newline="\n") as datei:
         datei.write(f"{h.hexdigest()}  {os.path.basename(zip_pfad)}\n")
+
+
+def packen() -> str:
+    basis = os.path.join(DIST, f"Silberkorn-{version()}-win64")
+    zip_pfad = shutil.make_archive(basis, "zip", DIST, "Silberkorn")
+    pruefsumme_schreiben(zip_pfad)
     return zip_pfad
 
 
@@ -364,6 +435,13 @@ def main():
     funde = verbotene_dateien()
     if funde:
         sys.exit("Diese Dateien duerfen nicht in die EXE:\n  " + "\n  ".join(funde))
+    ohne_lizenz = dlls_ohne_lizenz()
+    if ohne_lizenz:
+        sys.exit("Diese DLLs haben keine Lizenz im Buendel (in DLL_HERKUNFT zuordnen und den "
+                 "Lizenztext beilegen):\n  " + "\n  ".join(ohne_lizenz))
+    fehler = versionsfehler(versionsangaben(os.path.join(ORDNER, "Silberkorn.exe")), version())
+    if fehler:
+        sys.exit("Versionsangaben der EXE stimmen nicht:\n  " + "\n  ".join(fehler))
     fehlend = module_pruefen()
     if fehlend:
         sys.exit("Diese Module laedt das Programm, sie fehlen aber in der EXE "

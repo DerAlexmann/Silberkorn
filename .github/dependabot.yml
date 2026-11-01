@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    # Die Untergrenzen nennen die aelteste laufende Fassung; angehoben werden nur die
+    # festen Bauversionen in requirements-build.txt.
+    versioning-strategy: "increase-if-necessary"
+    # Bewusst festgelegt auf CUDA 12.8, siehe requirements.txt
+    ignore:
+      - dependency-name: "onnxruntime-gpu"
+        versions: [">=1.27"]
+      - dependency-name: "cuda-toolkit"
+        versions: [">=12.9"]
+      - dependency-name: "nvidia-cudnn-cu12"
+        versions: [">=9.11"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
