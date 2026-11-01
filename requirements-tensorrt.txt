@@ -9,4 +9,4 @@
 # Festgelegt auf TensorRT 10.14 - die Fassung, gegen die onnxruntime-gpu 1.26
 # gebaut ist. Die Windows-Pakete liegen nur auf dem Paketindex von NVIDIA.
 --extra-index-url https://pypi.nvidia.com
-tensorrt-cu12-libs==10.14.*
+tensorrt-cu12-libs==11.4.*
