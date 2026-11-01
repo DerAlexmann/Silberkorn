@@ -4,7 +4,7 @@
 # die NVIDIA-Pakete (die EXE laedt sie beim ersten Start selbst, siehe
 # silberkorn/nvidia_laufzeit.py), TensorRT und pillow-heif. Von Qt reicht
 # PySide6-Essentials; die Addons nutzt das Programm nicht.
-PySide6-Essentials==6.11.2
+PySide6-Essentials==6.12.0
 nvidia-ml-py==13.615.71
 Pillow==12.3.0
 numpy==2.5.2
