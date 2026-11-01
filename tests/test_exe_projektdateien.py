@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import os
 import re
+import sys
 
 import pytest
 
@@ -176,6 +177,26 @@ def test_readmes_nennen_erststart_und_lizenzliste():
 def test_fehlerlog_ist_offengelegt():
     for pfad in (("SECURITY.md",), ("docs", "datenschutz.md"), ("docs", "datenschutz.en.md")):
         assert "`silberkorn-fehler.log`" in _lesen(*pfad), pfad
+
+
+def test_ci_prueft_die_umgebung_der_exe():
+    text = _lesen(".github", "workflows", "ci.yml")
+    assert re.search(r'^\s+python: \[.*"3\.14".*\]$', text, re.M)
+    assert re.search(r"- if: runner\.os == 'Windows'\n\s+run: pip install PySide6$", text, re.M)
+    assert re.search(r"^\s+QT_PFLICHT: \$\{\{ runner\.os == 'Windows' && '1' \|\| '' \}\}$",
+                     text, re.M)
+
+
+def test_qt_pflicht_macht_fehlendes_qt_zum_fehler(monkeypatch):
+    import conftest
+    monkeypatch.setitem(sys.modules, "PySide6.QtPdf", None)
+    monkeypatch.delenv("QT_PFLICHT", raising=False)
+    conftest.pytest_configure(None)
+    monkeypatch.setenv("QT_PFLICHT", "1")
+    if importlib.util.find_spec("PySide6") is None:
+        monkeypatch.setitem(sys.modules, "PySide6.QtWidgets", None)
+    with pytest.raises(ImportError):
+        conftest.pytest_configure(None)
 
 
 def test_dependabot_laesst_untergrenzen_und_cuda_festlegung():

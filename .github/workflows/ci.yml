@@ -29,7 +29,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python: ["3.10", "3.12"]
+        # 3.14 ist die Fassung, mit der die EXE gebaut wird
+        python: ["3.10", "3.12", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -37,8 +38,16 @@ jobs:
           python-version: ${{ matrix.python }}
       # Die Läufer haben keine Grafikkarte. Geprüft werden die Bewertung der
       # Karten, die Startmeldungen, die Sprachtabelle, Laden und Speichern
-      # und die Filterformeln mit NumPy - dafür braucht es weder Qt noch CUDA.
-      # Die Vergleiche zwischen CUDA-Kernel und NumPy laufen nur lokal mit
-      # Grafikkarte und überspringen sich hier von selbst.
+      # und die Filterformeln mit NumPy - dafür braucht es kein CUDA.
+      # Die Vergleiche zwischen CUDA-Kernel und NumPy und alles mit dem
+      # Hauptfenster laufen nur lokal mit Grafikkarte und überspringen sich
+      # hier von selbst.
       - run: pip install pytest nvidia-ml-py numpy Pillow tifffile imagecodecs rawpy
+      # Die Oberflächentests ohne Grafikkarte: nur unter Windows, wo die EXE läuft.
+      # QT_PFLICHT macht aus einem fehlenden Qt einen Fehler statt eines Skips.
+      - if: runner.os == 'Windows'
+        run: pip install PySide6
       - run: python -m pytest tests -q
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_PFLICHT: ${{ runner.os == 'Windows' && '1' || '' }}

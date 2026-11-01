@@ -2361,6 +2361,7 @@ def test_bewertung_ordner_ohne_bilder_macht_den_durchgang_ungueltig(fenster, tmp
 
 def test_sortierung_nach_datum_ohne_zeit_stuerzt_nicht_ab(tmp_path):
     """Fehlt die Zeit eines Bildes (stat gescheitert), gilt es als das aelteste."""
+    pytest.importorskip("cupy")              # ordner_seite baut beim Import CuPy-Kernel
     from PIL import Image
 
     from silberkorn import bewertung, ordner_seite

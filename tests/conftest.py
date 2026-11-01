@@ -10,12 +10,35 @@ Copyright 2026 Alexander Unverhau
 Created with assistance of Claude AI
 """
 
+import importlib
 import os
+import sys
 
 if os.name == "nt":
     _schriften = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
     if os.path.isdir(_schriften):
         os.environ.setdefault("QT_QPA_FONTDIR", _schriften)
+
+
+def pytest_configure(config):
+    """Mit QT_PFLICHT (CI unter Windows) gilt ein fehlendes Qt als Fehler: importorskip
+    wuerde die Oberflaechentests sonst still ueberspringen, und die CI bliebe gruen."""
+    if os.environ.get("QT_PFLICHT"):
+        importlib.import_module("PySide6.QtWidgets")
+        importlib.import_module("PySide6.QtPdf")
+
+
+def pytest_unconfigure(config):
+    """Uebrige Fenster vor dem Ende von Python abbauen: Ein Dialog aus einem Test ueberlebte
+    sonst die QApplication, und Python stuerzte nach dem letzten Test ab (access violation)."""
+    widgets = sys.modules.get("PySide6.QtWidgets")
+    app = widgets.QApplication.instance() if widgets else None
+    if app is None:
+        return
+    from PySide6.QtCore import QEvent
+    for fenster in app.topLevelWidgets():
+        fenster.deleteLater()
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def pytest_addoption(parser):
