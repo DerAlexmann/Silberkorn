@@ -5,6 +5,8 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
 
 ## [Unveröffentlicht]
 
+## [0.14.0] – 2026-11-01
+
 ### Neu
 
 - **Kratzer mit KI finden**: Der Teil „Staub & Kratzer“ der Karte „Scan & Film“ gibt es jetzt
@@ -701,7 +703,8 @@ die Versionsnummern der [semantischen Versionierung](https://semver.org/lang/de/
   Rechengenauigkeit (FP16, FP8 ab Ada, FP4 ab Blackwell).
 - Programmsymbol, Marken- und Lizenzhinweise (NOTICE).
 
-[Unveröffentlicht]: https://github.com/DerAlexmann/Silberkorn/compare/v0.13.1...HEAD
+[Unveröffentlicht]: https://github.com/DerAlexmann/Silberkorn/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.14.0
 [0.13.1]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.13.1
 [0.13.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.13.0
 [0.12.0]: https://github.com/DerAlexmann/Silberkorn/releases/tag/v0.12.0
