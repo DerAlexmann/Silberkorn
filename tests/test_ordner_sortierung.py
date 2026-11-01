@@ -3,6 +3,7 @@
 import pytest
 
 pytest.importorskip("PySide6")
+pytest.importorskip("cupy")                  # ordner_seite baut beim Import CuPy-Kernel
 
 from silberkorn.ordner_seite import _natuerlich  # noqa: E402 - erst nach der Pruefung
 
